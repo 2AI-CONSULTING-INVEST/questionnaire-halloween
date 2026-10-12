@@ -1,0 +1,15 @@
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { AdminDashboard } from "@/components/admin/AdminDashboard";
+import { currentRole } from "@/lib/auth";
+
+export const metadata: Metadata = {
+  title: "Backoffice — Vote Halloween Chamas Tacos",
+  robots: { index: false, follow: false },
+};
+
+export default async function AdminPage() {
+  const role = await currentRole();
+  if (!role) redirect("/admin/login");
+  return <AdminDashboard role={role} />;
+}
