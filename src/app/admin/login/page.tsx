@@ -36,7 +36,7 @@ export default function AdminLogin() {
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-canvas px-4">
+    <main className="flex min-h-dvh items-center justify-center bg-canvas px-4 [color-scheme:light]">
       <form onSubmit={submit} className="w-full max-w-sm rounded-xl border border-line bg-white p-8 shadow-sm">
         <h1 className="flex items-center gap-2 text-2xl font-bold text-ink">
           <Emoji name="pumpkin" size={32} /> Backoffice

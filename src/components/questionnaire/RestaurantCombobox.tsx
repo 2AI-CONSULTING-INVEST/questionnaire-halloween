@@ -56,7 +56,7 @@ export function RestaurantCombobox({
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Anchor asChild>
-        <div className="relative flex items-center border-b-2 border-gray-400 pb-2 transition-colors focus-within:border-ink">
+        <div className="relative flex items-center border-b-2 border-edge-strong pb-2 transition-colors focus-within:border-brand">
           <input
             ref={inputRef}
             role="combobox"
@@ -75,7 +75,7 @@ export function RestaurantCombobox({
             onFocus={() => setOpen(true)}
             onClick={() => setOpen(true)}
             onKeyDown={onKeyDown}
-            className="w-full bg-transparent pr-16 text-xl text-ink outline-none placeholder:text-gray-300 sm:text-[1.75rem]"
+            className="w-full bg-transparent pr-16 text-xl text-fg outline-none placeholder:text-placeholder sm:text-[1.75rem]"
           />
           {value && !open && (
             <button
@@ -85,7 +85,7 @@ export function RestaurantCombobox({
                 onChange(null);
                 inputRef.current?.focus();
               }}
-              className="absolute right-9 rounded p-1 text-gray-400 hover:text-ink"
+              className="absolute right-9 rounded p-1 text-fg-muted hover:text-fg"
             >
               <X className="h-5 w-5" />
             </button>
@@ -98,7 +98,7 @@ export function RestaurantCombobox({
               setOpen((o) => !o);
               inputRef.current?.focus();
             }}
-            className="absolute right-0 rounded p-1 text-gray-400 hover:text-ink"
+            className="absolute right-0 rounded p-1 text-fg-muted hover:text-fg"
           >
             {open ? <Search className="h-5 w-5" /> : <ChevronDown className="h-6 w-6" />}
           </button>
@@ -112,10 +112,10 @@ export function RestaurantCombobox({
           onInteractOutside={(e) => {
             if (inputRef.current?.parentElement?.contains(e.target as Node)) e.preventDefault();
           }}
-          className="z-50 max-h-[min(22rem,var(--radix-popover-content-available-height))] w-[var(--radix-popper-anchor-width)] overflow-y-auto rounded-2xl border border-gray-200 bg-white p-2 shadow-xl"
+          className="z-50 max-h-[min(22rem,var(--radix-popover-content-available-height))] w-[var(--radix-popper-anchor-width)] overflow-y-auto rounded-2xl border border-edge bg-solid p-2 shadow-2xl shadow-black/40"
         >
           <ul id={listId} role="listbox" aria-labelledby={labelledBy} className="flex flex-col gap-2">
-            {filtered.length === 0 && <li className="px-4 py-3 text-gray-500">Aucun restaurant trouvé</li>}
+            {filtered.length === 0 && <li className="px-4 py-3 text-fg-muted">Aucun restaurant trouvé</li>}
             {filtered.map((o, i) => {
               const selected = o === value;
               return (
@@ -129,10 +129,10 @@ export function RestaurantCombobox({
                   onClick={() => pick(o)}
                   className={`flex cursor-pointer items-center justify-between rounded-full border px-5 py-3 text-base transition-colors ${
                     selected
-                      ? "border-brand bg-brand-50 text-ink"
+                      ? "border-brand bg-accent-soft text-fg"
                       : i === active
-                        ? "border-gray-500 bg-white text-ink"
-                        : "border-gray-200 bg-gray-100 text-gray-600"
+                        ? "border-edge-strong bg-surface-2 text-fg"
+                        : "border-edge bg-surface text-fg-muted"
                   }`}
                 >
                   {o}

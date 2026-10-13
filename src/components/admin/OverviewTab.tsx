@@ -1,14 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { Check, ChevronDown, ChevronRight, Download, FileSpreadsheet, Trophy } from "lucide-react";
+import { Check, ChevronDown, Download, FileSpreadsheet, Trophy } from "lucide-react";
 import { Select } from "radix-ui";
-import { Fragment, useState } from "react";
 import type { Summary } from "@/lib/analytics";
-import { ImpactBars, TimelineChart, VoterBarChart } from "./Charts";
+import { FavoriteBarChart, ImpactBars, TimelineChart } from "./Charts";
 import { Card, DownloadLink, Empty, fmtPct, inputClass } from "./ui";
 
-export type Filters = { from: string; to: string; voter: string; restaurant: string };
+export type Filters = { from: string; to: string; restaurant: string };
 
 function FilterSelect({
   label,
@@ -75,7 +74,6 @@ export function OverviewTab({
   setFilters: (f: Filters) => void;
   restaurants: string[];
 }) {
-  const [open, setOpen] = useState<string | null>(null);
   const k = summary?.kpis;
   const top = summary?.byDecoration.filter((d) => d.votes > 0).slice(0, 3) ?? [];
   const max = Math.max(1, ...(summary?.byDecoration.map((d) => d.votes) ?? [1]));
@@ -94,26 +92,16 @@ export function OverviewTab({
           <input type="date" className={inputClass} value={filters.to} min={filters.from || undefined} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
         </label>
         <FilterSelect
-          label="Votant"
-          value={filters.voter}
-          onChange={(voter) => setFilters({ ...filters, voter })}
-          options={[
-            { value: "all", label: "Tous" },
-            { value: "client", label: "Clients" },
-            { value: "employee", label: "Employés" },
-          ]}
-        />
-        <FilterSelect
-          label="Chamas Tacos préféré (Q2)"
+          label="Chamas Tacos préféré (Q1)"
           value={filters.restaurant}
           onChange={(restaurant) => setFilters({ ...filters, restaurant })}
           options={[{ value: "all", label: "Tous les restaurants" }, ...restaurants.map((r) => ({ value: r, label: r }))]}
         />
-        {(filters.from || filters.to || filters.voter !== "all" || filters.restaurant !== "all") && (
+        {(filters.from || filters.to || filters.restaurant !== "all") && (
           <button
             type="button"
             className="min-h-9 text-sm font-semibold text-muted underline underline-offset-2 hover:text-ink dark:text-zinc-400"
-            onClick={() => setFilters({ from: "", to: "", voter: "all", restaurant: "all" })}
+            onClick={() => setFilters({ from: "", to: "", restaurant: "all" })}
           >
             Réinitialiser
           </button>
@@ -122,8 +110,8 @@ export function OverviewTab({
 
       {/* KPI */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Kpi label="Total votes" value={k ? nf(k.totalVotes) : "—"} sub={k ? `${nf(k.started)} sessions · ${Math.round(k.completionRate * 100)} % terminées` : null} />
-        <Kpi label="Clients | Employés" value={k ? `${nf(k.clients)} | ${nf(k.employees)}` : "—"} />
+        <Kpi label="Total votes" value={k ? nf(k.totalVotes) : "—"} />
+        <Kpi label="Taux de complétion" value={k ? `${Math.round(k.completionRate * 100)} %` : "—"} sub={k ? `${nf(k.started)} questionnaires commencés` : null} />
         <Kpi label="Participants tirage" value={k ? nf(k.raffleParticipants) : "—"} />
         <div className="col-span-2 rounded-xl border border-line bg-white p-4 shadow-sm lg:col-span-1 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted dark:text-zinc-400">Top 3</p>
@@ -148,7 +136,7 @@ export function OverviewTab({
       <Card
         title={
           <span className="inline-flex items-center gap-2">
-            <Trophy className="h-4 w-4" aria-hidden /> Résultats — meilleure décoration (Q4)
+            <Trophy className="h-4 w-4" aria-hidden /> Résultats — meilleure décoration (Q3)
           </span>
         }
       >
@@ -164,58 +152,31 @@ export function OverviewTab({
                   <th className="px-5 py-2 font-semibold">Restaurant</th>
                   <th className="px-3 py-2 text-right font-semibold">Votes</th>
                   <th className="px-3 py-2 text-right font-semibold">% du total</th>
-                  <th className="w-[30%] px-3 py-2 font-semibold">
+                  <th className="w-[35%] px-5 py-2 font-semibold">
                     <span className="sr-only">Graphique</span>
                   </th>
-                  <th className="px-5 py-2 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {summary.byDecoration.map((d, i) => (
-                  <Fragment key={d.id}>
-                    <tr className="border-b border-line last:border-0 dark:border-zinc-800">
-                      <td className="px-5 py-2.5">
-                        <div className="flex items-center gap-3">
-                          <span className="w-4 text-xs font-bold text-muted">{i + 1}</span>
-                          <div className="relative aspect-video w-16 shrink-0 overflow-hidden rounded bg-gray-100">
-                            <Image src={d.image_url} alt="" fill sizes="64px" className="object-cover" />
-                          </div>
-                          <span className="font-medium text-ink dark:text-zinc-100">{d.restaurant_name}</span>
+                  <tr key={d.id} className="border-b border-line last:border-0 dark:border-zinc-800">
+                    <td className="px-5 py-2.5">
+                      <div className="flex items-center gap-3">
+                        <span className="w-4 text-xs font-bold text-muted">{i + 1}</span>
+                        <div className="relative aspect-[3/4] w-10 shrink-0 overflow-hidden rounded bg-gray-100">
+                          <Image src={d.image_url} alt="" fill sizes="40px" className="object-cover" />
                         </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-ink dark:text-zinc-100">{d.votes}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-muted dark:text-zinc-400">{fmtPct(d.share)}</td>
-                      <td className="px-3 py-2.5">
-                        <div className="h-2.5 overflow-hidden rounded-full bg-[var(--viz-grid)]">
-                          <div className="h-full rounded-full bg-[var(--viz-s1)] transition-[width] duration-500" style={{ width: `${(d.votes / max) * 100}%` }} />
-                        </div>
-                      </td>
-                      <td className="px-5 py-2.5 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setOpen(open === d.id ? null : d.id)}
-                          aria-expanded={open === d.id}
-                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-muted hover:bg-gray-100 hover:text-ink dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                        >
-                          Détails {open === d.id ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                        </button>
-                      </td>
-                    </tr>
-                    {open === d.id && (
-                      <tr className="border-b border-line bg-gray-50 dark:border-zinc-800 dark:bg-zinc-800/40">
-                        <td colSpan={5} className="px-5 py-3 text-sm text-muted dark:text-zinc-300">
-                          <span className="mr-6">
-                            <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm bg-[var(--viz-s1)]" />
-                            Clients : <strong className="text-ink dark:text-zinc-100">{d.client}</strong>
-                          </span>
-                          <span>
-                            <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm bg-[var(--viz-s2)]" />
-                            Employés : <strong className="text-ink dark:text-zinc-100">{d.employee}</strong>
-                          </span>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                        <span className="font-medium text-ink dark:text-zinc-100">{d.restaurant_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-ink dark:text-zinc-100">{d.votes}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-muted dark:text-zinc-400">{fmtPct(d.share)}</td>
+                    <td className="px-5 py-2.5">
+                      <div className="h-2.5 overflow-hidden rounded-full bg-[var(--viz-grid)]">
+                        <div className="h-full rounded-full bg-[var(--viz-s1)] transition-[width] duration-500" style={{ width: `${(d.votes / max) * 100}%` }} />
+                      </div>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -225,25 +186,25 @@ export function OverviewTab({
 
       {/* Graphiques */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card title="Votes clients vs employés par restaurant">{summary ? <VoterBarChart data={summary.byDecoration} /> : <Empty>Chargement…</Empty>}</Card>
+        <Card title="Chamas Tacos préféré des votants (Q1)">{summary ? <FavoriteBarChart data={summary.byFavorite} /> : <Empty>Chargement…</Empty>}</Card>
         <Card title="Votes dans le temps">{summary ? <TimelineChart data={summary.timeline} /> : <Empty>Chargement…</Empty>}</Card>
-        <Card title="La décoration a-t-elle influencé l'expérience ? (Q5)">{summary ? <ImpactBars data={summary.impact} /> : <Empty>Chargement…</Empty>}</Card>
+        <Card title="La décoration a-t-elle influencé l'expérience ? (Q4)">{summary ? <ImpactBars data={summary.impact} /> : <Empty>Chargement…</Empty>}</Card>
         <Card title="Export des données">
           <div className="flex flex-col gap-3">
             <DownloadLink
               href="/api/responses/export?scope=all&format=xlsx"
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-bold text-black transition hover:scale-[1.02] hover:shadow-md"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-bold text-black transition-[filter] hover:brightness-95"
             >
               <FileSpreadsheet className="h-4 w-4" aria-hidden /> Télécharger Excel (toutes les réponses)
             </DownloadLink>
             <DownloadLink
               href="/api/responses/export?scope=raffle&format=csv"
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-line px-4 text-sm font-bold text-ink transition hover:scale-[1.02] hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-line px-4 text-sm font-bold text-ink transition-colors hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-800"
             >
               <Download className="h-4 w-4" aria-hidden /> Télécharger CSV (participants tirage)
             </DownloadLink>
             <p className="text-xs text-muted dark:text-zinc-400">
-              L&apos;export Excel contient les questions Q1 → Q7 et les métadonnées (IP, date, navigateur). Les filtres ne s&apos;appliquent pas aux exports.
+              L&apos;export Excel contient les questions Q1 → Q6 et les métadonnées (IP, date, navigateur). Les filtres ne s&apos;appliquent pas aux exports.
             </p>
           </div>
         </Card>

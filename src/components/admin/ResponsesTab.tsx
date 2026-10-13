@@ -48,16 +48,15 @@ export function ResponsesTab({
       ) : (
         <>
           <div className="-mx-5 overflow-x-auto">
-            <table className="w-full min-w-[980px] text-sm">
+            <table className="w-full min-w-[900px] text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-xs font-semibold uppercase text-muted dark:border-zinc-800 dark:text-zinc-400">
                   <th className="px-5 py-2">Date</th>
-                  <th className="px-3 py-2">Q1</th>
-                  <th className="px-3 py-2">Q2 Préféré</th>
-                  <th className="px-3 py-2">Q3</th>
-                  <th className="px-3 py-2">Q4 Vote</th>
-                  <th className="px-3 py-2">Q5</th>
-                  <th className="px-3 py-2">Q6 Commentaire</th>
+                  <th className="px-3 py-2">Q1 Préféré</th>
+                  <th className="px-3 py-2">Q2 Visite</th>
+                  <th className="px-3 py-2">Q3 Vote</th>
+                  <th className="px-3 py-2">Q4 Influence</th>
+                  <th className="px-3 py-2">Q5 Commentaire</th>
                   <th className="px-3 py-2">Tirage</th>
                   <th className="px-5 py-2 text-right">
                     <span className="sr-only">Actions</span>
@@ -71,7 +70,6 @@ export function ResponsesTab({
                       {fmtDate(r.created_at)}
                       {!r.completed_at && <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-muted dark:bg-zinc-800">incomplet</span>}
                     </td>
-                    <td className="px-3 py-2.5 text-ink dark:text-zinc-100">{r.voter_type ? LABELS.voter_type[r.voter_type] : "—"}</td>
                     <td className="px-3 py-2.5 text-ink dark:text-zinc-100">{r.selected_restaurant?.replace(/^CHAMAS TACOS\s*-\s*/i, "") ?? "—"}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-muted dark:text-zinc-400">{r.visit_period ? LABELS.visit_period[r.visit_period] : "—"}</td>
                     <td className="px-3 py-2.5 font-medium text-ink dark:text-zinc-100">

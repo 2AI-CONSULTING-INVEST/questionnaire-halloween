@@ -2,10 +2,9 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { Impact, VisitPeriod, VoterType } from "@/lib/schema";
+import type { Impact, VisitPeriod } from "@/lib/schema";
 
 export type Answers = {
-  voter_type: VoterType | null;
   selected_restaurant: string | null;
   visit_period: VisitPeriod | null;
   selected_decoration_id: string | null;
@@ -17,41 +16,40 @@ export type Answers = {
   email: string;
 };
 
-/** Écrans dans l'ordre du Typeform (une question par écran). */
+/** Écrans dans l'ordre (une question par écran). */
 export const SCREENS = [
   "welcome",
-  "q1",
-  "q2",
-  "q3",
-  "q4",
-  "q5",
-  "q6",
-  "q7a",
-  "q7b",
-  "q7c",
-  "q7d",
+  "restaurant",
+  "period",
+  "vote",
+  "impact",
+  "comment",
+  "raffle",
+  "name",
+  "phone",
+  "email",
   "thanks",
 ] as const;
 export type Screen = (typeof SCREENS)[number];
 
-/** Correspondance écran → « Étape X/7 » du cahier des charges. */
+export const STEP_COUNT = 6;
+
+/** Correspondance écran → « Étape X/6 ». */
 export const STEP_OF: Record<Screen, number> = {
   welcome: 0,
-  q1: 1,
-  q2: 2,
-  q3: 2,
-  q4: 3,
-  q5: 4,
-  q6: 5,
-  q7a: 6,
-  q7b: 6,
-  q7c: 6,
-  q7d: 6,
-  thanks: 7,
+  restaurant: 1,
+  period: 1,
+  vote: 2,
+  impact: 3,
+  comment: 4,
+  raffle: 5,
+  name: 5,
+  phone: 5,
+  email: 5,
+  thanks: 6,
 };
 
 const emptyAnswers: Answers = {
-  voter_type: null,
   selected_restaurant: null,
   visit_period: null,
   selected_decoration_id: null,
@@ -101,7 +99,8 @@ export const useQuestionnaire = create<State>()(
       markRaffleDone: () => set({ raffleDone: true }),
     }),
     {
-      name: "chamas-halloween-2026",
+      // v2 : la question « Qui êtes-vous ? » a été retirée (les index d'écran ont changé).
+      name: "chamas-halloween-2026-v2",
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         sessionId: s.sessionId,

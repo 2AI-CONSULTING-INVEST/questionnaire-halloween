@@ -1,37 +1,34 @@
 import "server-only";
 import { getStore } from "./db";
-import { IMPACTS, VOTER_TYPES, isRaffleEntry, type Decoration, type Impact, type ResponseRow, type VoterType } from "./schema";
+import { groupDecorations, IMPACTS, isRaffleEntry, thumbOf, type Decoration, type Impact, type ResponseRow } from "./schema";
 
 export type AnalyticsFilter = {
   from?: string;
   to?: string;
-  voter?: VoterType;
   restaurant?: string;
 };
 
+/** Résultat d'un restaurant : les votes de tous ses médias (photos / vidéos) sont additionnés. */
 export type DecorationResult = {
   id: string;
   restaurant_name: string;
   image_url: string;
   votes: number;
   share: number;
-  client: number;
-  employee: number;
 };
 
 export type Summary = {
   kpis: {
     totalVotes: number;
-    clients: number;
-    employees: number;
     raffleParticipants: number;
     started: number;
     completionRate: number;
   };
   byDecoration: DecorationResult[];
+  /** Question 1 : Chamas Tacos préféré. */
+  byFavorite: { name: string; votes: number }[];
   impact: { key: Impact; count: number }[];
   timeline: { date: string; votes: number }[];
-  byVoter: { key: VoterType; votes: number }[];
   updatedAt: string;
 };
 
@@ -39,11 +36,9 @@ export function parseFilter(url: URL): AnalyticsFilter {
   const p = url.searchParams;
   const date = (v: string | null, end = false) =>
     v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T${end ? "23:59:59.999" : "00:00:00.000"}Z` : undefined;
-  const voter = p.get("voter");
   return {
     from: date(p.get("from")),
     to: date(p.get("to"), true),
-    voter: (VOTER_TYPES as readonly string[]).includes(voter ?? "") ? (voter as VoterType) : undefined,
     restaurant: p.get("restaurant")?.slice(0, 150) || undefined,
   };
 }
@@ -54,29 +49,33 @@ export async function loadFiltered(filter: AnalyticsFilter) {
     store.listResponses({ from: filter.from, to: filter.to }),
     store.listDecorations(),
   ]);
-  const matches = (r: ResponseRow) =>
-    (!filter.voter || r.voter_type === filter.voter) &&
-    (!filter.restaurant || r.selected_restaurant === filter.restaurant);
-  const scoped = all.filter(matches);
+  const scoped = all.filter((r) => !filter.restaurant || r.selected_restaurant === filter.restaurant);
   return { started: scoped, completed: scoped.filter((r) => r.completed_at), decorations };
 }
 
 export function summarize(started: ResponseRow[], completed: ResponseRow[], decorations: Decoration[]): Summary {
   const total = completed.length;
 
-  const byDecoration = decorations.map<DecorationResult>((d) => {
-    const votes = completed.filter((r) => r.selected_decoration_id === d.id);
+  const byDecoration = groupDecorations(decorations).map<DecorationResult>((g) => {
+    const ids = new Set(g.items.map((d) => d.id));
+    const votes = completed.filter((r) => r.selected_decoration_id && ids.has(r.selected_decoration_id)).length;
     return {
-      id: d.id,
-      restaurant_name: d.restaurant_name,
-      image_url: d.image_url,
-      votes: votes.length,
-      share: total ? votes.length / total : 0,
-      client: votes.filter((r) => r.voter_type === "client").length,
-      employee: votes.filter((r) => r.voter_type === "employee").length,
+      id: g.id,
+      restaurant_name: g.restaurant_name,
+      image_url: thumbOf(g.items[0]),
+      votes,
+      share: total ? votes / total : 0,
     };
   });
   byDecoration.sort((a, b) => b.votes - a.votes || a.restaurant_name.localeCompare(b.restaurant_name, "fr"));
+
+  const favorites = new Map<string, number>();
+  for (const r of completed) {
+    if (r.selected_restaurant) favorites.set(r.selected_restaurant, (favorites.get(r.selected_restaurant) ?? 0) + 1);
+  }
+  const byFavorite = [...favorites.entries()]
+    .map(([name, votes]) => ({ name, votes }))
+    .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name, "fr"));
 
   const perDay = new Map<string, number>();
   for (const r of completed) {
@@ -88,16 +87,14 @@ export function summarize(started: ResponseRow[], completed: ResponseRow[], deco
   return {
     kpis: {
       totalVotes: total,
-      clients: completed.filter((r) => r.voter_type === "client").length,
-      employees: completed.filter((r) => r.voter_type === "employee").length,
       raffleParticipants: completed.filter(isRaffleEntry).length,
       started: started.length,
       completionRate: started.length ? total / started.length : 0,
     },
     byDecoration,
+    byFavorite,
     impact: IMPACTS.map((key) => ({ key, count: completed.filter((r) => r.decoration_impact === key).length })),
     timeline,
-    byVoter: VOTER_TYPES.map((key) => ({ key, votes: completed.filter((r) => r.voter_type === key).length })),
     updatedAt: new Date().toISOString(),
   };
 }

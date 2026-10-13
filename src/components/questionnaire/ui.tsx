@@ -42,11 +42,11 @@ export function QuestionHeader({
   const isLetter = /^[a-z]$/.test(number);
   return (
     <div className="mb-8">
-      <h2 id={id} className="flex gap-3 text-2xl leading-snug text-ink sm:text-[1.75rem]">
+      <h2 id={id} className="flex gap-3 text-2xl leading-snug text-fg sm:text-[1.75rem]">
         {isLetter ? (
-          <span className="mt-2 shrink-0 text-sm text-ink">{number}.</span>
+          <span className="mt-2 shrink-0 text-sm text-fg-muted">{number}.</span>
         ) : (
-          <span className="mt-2 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded bg-gray-500 px-1 text-[11px] font-bold text-white">
+          <span className="mt-2 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded bg-brand px-1 text-[11px] font-bold text-black">
             {number}
           </span>
         )}
@@ -55,7 +55,7 @@ export function QuestionHeader({
           {required && <span aria-label="obligatoire">*</span>}
         </span>
       </h2>
-      {description && <p className="mt-3 pl-8 text-base text-gray-600 sm:text-lg">{description}</p>}
+      {description && <p className="mt-3 pl-8 text-base text-fg-muted sm:text-lg">{description}</p>}
     </div>
   );
 }
@@ -75,21 +75,18 @@ export function OkButton({
 }) {
   return (
     <div className="mt-8 flex items-center gap-3">
-      <motion.button
+      <button
         type="button"
         onClick={onClick}
         disabled={disabled || loading}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-        transition={{ duration: 0.15 }}
-        className="inline-flex min-h-11 items-center gap-2 rounded-full bg-brand px-6 text-lg font-bold text-black shadow-sm transition-shadow hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex min-h-12 items-center gap-2 rounded-full bg-brand px-6 text-lg font-bold text-black shadow-[0_0_24px_rgba(250,204,21,0.25)] transition-[filter,box-shadow] hover:brightness-105 hover:shadow-[0_0_32px_rgba(250,204,21,0.4)] active:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-black/30 border-t-black" /> : null}
         {label}
         {label === "OK" && !loading ? <Check className="h-5 w-5" aria-hidden /> : null}
-      </motion.button>
+      </button>
       {hint && (
-        <span className="hidden text-xs text-gray-600 sm:inline">
+        <span className="hidden text-xs text-fg-muted sm:inline">
           {hint.split("Entrée")[0]}
           <strong>Entrée</strong> <CornerDownLeft className="inline h-3 w-3" aria-hidden />
         </span>
@@ -107,24 +104,33 @@ export function FieldError({ message }: { message?: string | null }) {
       initial={{ x: 0 }}
       animate={{ x: [0, -6, 6, -6, 6, 0] }}
       transition={{ duration: 0.3 }}
-      className="mt-4 inline-flex items-center gap-2 rounded-md bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700"
+      className="mt-4 inline-flex items-center gap-2 rounded-md bg-danger-bg px-3 py-1.5 text-sm font-medium text-danger-fg"
     >
       <span aria-hidden>⚠️</span> {message}
     </motion.p>
   );
 }
 
-export function KeyBadge({ letter, active }: { letter: string; active: boolean }) {
+export function KeyBadge({ letter, active, className = "" }: { letter: string; active: boolean; className?: string }) {
   return (
     <span
       aria-hidden
       className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold transition-colors ${
-        active ? "border-black bg-black text-brand" : "border-gray-300 bg-white text-gray-600"
-      }`}
+        active ? "border-brand bg-brand text-black" : "border-edge-strong bg-page text-fg-muted"
+      } ${className}`}
     >
       {letter}
     </span>
   );
+}
+
+/** Classes d'une option « pilule » (radio, oui / non). */
+export function pillClass(selected: boolean) {
+  return `flex w-full min-h-14 items-center gap-3 rounded-2xl border px-3 py-3 text-left text-lg transition-colors duration-150 sm:min-w-80 ${
+    selected
+      ? "border-brand bg-accent-soft text-fg ring-2 ring-brand"
+      : "border-edge bg-surface/90 text-fg-muted backdrop-blur-sm hover:border-brand hover:bg-surface-2 hover:text-fg"
+  }`;
 }
 
 /** Option « pilule » style Typeform, basée sur Radix RadioGroup.Item. */
@@ -142,14 +148,7 @@ export function ChoicePill({
   selected: boolean;
 }) {
   return (
-    <RadioGroup.Item
-      value={value}
-      className={`group flex w-full min-h-14 items-center gap-3 rounded-2xl border px-3 py-3 text-left text-lg transition-all duration-150 hover:scale-[1.02] hover:shadow-sm focus-visible:outline-2 sm:min-w-80 ${
-        selected
-          ? "border-brand bg-brand-50 text-ink ring-2 ring-brand"
-          : "border-gray-200 bg-gray-100 text-gray-600 hover:border-brand hover:bg-brand-50"
-      }`}
-    >
+    <RadioGroup.Item value={value} className={pillClass(selected)}>
       <KeyBadge letter={letter} active={selected} />
       {emoji && <Emoji name={emoji} size={24} />}
       <span className="flex-1">{label}</span>

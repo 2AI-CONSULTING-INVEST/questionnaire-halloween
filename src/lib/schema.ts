@@ -68,10 +68,12 @@ export type ResponsePatch = z.infer<typeof responsePatchSchema>;
 
 export const RAFFLE_FIELDS = ["wants_raffle", "participant_name", "phone_number", "email"] as const;
 
-/** Validation du vote (Q1 → Q6). Comme dans le Typeform, le vote est enregistré avant le tirage au sort. */
+/**
+ * Validation du vote (questions 1 → 5). Comme dans le Typeform, le vote est enregistré avant le tirage au sort.
+ * « Qui êtes-vous ? » (voter_type) a été retirée du questionnaire : la colonne reste pour les anciennes réponses.
+ */
 export const voteCompleteSchema = z
   .object({
-    voter_type: z.enum(VOTER_TYPES),
     selected_restaurant: trimmed(150).min(1),
     visit_period: z.enum(VISIT_PERIODS).nullable().optional(),
     selected_decoration_id: z.string().uuid(),
@@ -146,4 +148,65 @@ export const LABELS = {
     un_peu: "Un peu",
     pas_du_tout: "Pas du tout",
   } as Record<Impact, string>,
+};
+
+// ---------------------------------------------------------------------------
+// Médias des décorations : plusieurs photos / vidéos par restaurant.
+// Le type se déduit de l'extension ; une vidéo a une affiche « <nom>.poster.jpg ».
+// ---------------------------------------------------------------------------
+
+const VIDEO_RE = /\.(mp4|webm|mov|m4v)(\?.*)?$/i;
+
+export type MediaKind = "image" | "video";
+
+export function mediaKind(url: string): MediaKind {
+  return VIDEO_RE.test(url) ? "video" : "image";
+}
+
+/** Affiche (première image) d'une vidéo, générée à l'envoi depuis le backoffice. */
+export function posterOf(url: string) {
+  return url.replace(VIDEO_RE, ".poster.jpg");
+}
+
+/** Image à afficher en vignette : la photo elle-même, ou l'affiche de la vidéo. */
+export function thumbOf(d: Pick<Decoration, "image_url">) {
+  return mediaKind(d.image_url) === "video" ? posterOf(d.image_url) : d.image_url;
+}
+
+export type DecorationGroup = {
+  /** Média de couverture : c'est son id qui est enregistré comme vote. */
+  id: string;
+  restaurant_name: string;
+  items: Decoration[];
+};
+
+/** Regroupe les médias par restaurant, dans l'ordre d'affichage (le premier sert de couverture). */
+export function groupDecorations(decorations: Decoration[]): DecorationGroup[] {
+  const groups = new Map<string, DecorationGroup>();
+  for (const d of decorations) {
+    const g = groups.get(d.restaurant_name);
+    if (g) g.items.push(d);
+    else groups.set(d.restaurant_name, { id: d.id, restaurant_name: d.restaurant_name, items: [d] });
+  }
+  return [...groups.values()];
+}
+
+/** « CHAMAS TACOS - LILLE FIVES » → « LILLE FIVES » */
+export const shortName = (name: string) => name.replace(/^CHAMAS TACOS\s*-\s*/i, "");
+
+/** Formats acceptés à l'envoi (après préparation dans le navigateur) → extension du fichier stocké. */
+export const MEDIA_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/avif": "avif",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+};
+
+export const MEDIA_LIMITS = {
+  /** Les photos sont redimensionnées dans le navigateur avant l'envoi (~1 Mo). */
+  imageBytes: 10 * 1024 * 1024,
+  /** Limite par fichier du plan gratuit Supabase. */
+  videoBytes: 50 * 1024 * 1024,
 };

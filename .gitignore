@@ -48,3 +48,5 @@ next-env.d.ts
 /.data/
 /public/uploads/
 /screenshots
+# Pack source des modèles 3D (seul public/3d/halloween.glb est utilisé)
+/KayKit_HalloweenBits_1.0_FREE/

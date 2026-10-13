@@ -18,7 +18,7 @@ export function Card({ title, actions, children, className = "" }: { title?: Rea
 }
 
 const variants = {
-  primary: "bg-brand text-black hover:shadow-md",
+  primary: "bg-brand text-black hover:brightness-95",
   secondary: "border border-line bg-white text-ink hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700",
   danger: "bg-red-600 text-white hover:bg-red-700",
   ghost: "text-muted hover:bg-gray-100 hover:text-ink dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
@@ -33,13 +33,13 @@ export function Button({
     <button
       type="button"
       {...props}
-      className={`inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition-all duration-150 hover:scale-[1.02] disabled:pointer-events-none disabled:opacity-50 ${variants[variant]} ${className}`}
+      className={`inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50 ${variants[variant]} ${className}`}
     />
   );
 }
 
 export const linkButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition-all duration-150 hover:scale-[1.02] " + variants.secondary;
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition-colors duration-150 " + variants.secondary;
 
 export const inputClass =
   "min-h-9 rounded-lg border border-line bg-white px-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100";

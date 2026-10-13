@@ -20,7 +20,7 @@ export function ShareButtons() {
     {
       label: "Partager sur X",
       href: `https://twitter.com/intent/tweet?url=${url}&text=${text}`,
-      bg: "bg-black",
+      bg: "bg-black ring-1 ring-white/20",
       icon: <path d="M18.9 1.15h3.68l-8.04 9.19L24 22.85h-7.4l-5.8-7.58-6.63 7.58H.48l8.6-9.83L0 1.15h7.59l5.24 6.93 6.07-6.93Zm-1.29 19.5h2.04L6.48 3.24H4.3l13.31 17.41Z" />,
     },
     {
@@ -32,7 +32,7 @@ export function ShareButtons() {
   ];
   return (
     <div className="flex flex-col items-center gap-2">
-      <span className="text-sm text-gray-600">Partagez le vote :</span>
+      <span className="text-sm text-fg-muted">Partagez le vote :</span>
       <div className="flex gap-3">
         {buttons.map((b) => (
           <button
@@ -41,7 +41,7 @@ export function ShareButtons() {
             aria-label={b.label}
             title={b.label}
             onClick={() => open(b.href)}
-            className={`flex h-11 w-11 items-center justify-center rounded-lg text-white shadow-sm transition hover:scale-105 hover:shadow-md ${b.bg}`}
+            className={`flex h-11 w-11 items-center justify-center rounded-lg text-white shadow-sm transition-[filter] hover:brightness-110 ${b.bg}`}
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
               {b.icon}

@@ -4,7 +4,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -13,13 +12,12 @@ import {
   YAxis,
 } from "recharts";
 import type { Summary } from "@/lib/analytics";
-import { LABELS } from "@/lib/schema";
+import { LABELS, shortName } from "@/lib/schema";
 import { Empty } from "./ui";
 
 /*
  * Couleurs des graphiques : rôles CSS (.viz-root dans AdminDashboard) pour
  * que le mode sombre utilise ses propres teintes validées.
- * série 1 = clients (bleu), série 2 = employés (orange).
  */
 const axis = { stroke: "var(--viz-axis)", fontSize: 12, tickLine: false } as const;
 const tick = { fill: "var(--viz-muted)", fontSize: 12 };
@@ -39,21 +37,18 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
   );
 }
 
-const shortName = (n: string) => n.replace(/^CHAMAS TACOS\s*-\s*/i, "");
-
-export function VoterBarChart({ data }: { data: Summary["byDecoration"] }) {
-  if (data.every((d) => d.votes === 0)) return <Empty>Aucun vote pour l&apos;instant</Empty>;
-  const rows = data.map((d) => ({ name: shortName(d.restaurant_name), Clients: d.client, Employés: d.employee }));
+/** Q1 : Chamas Tacos préféré des votants (une seule série → une seule couleur). */
+export function FavoriteBarChart({ data }: { data: Summary["byFavorite"] }) {
+  if (data.length === 0) return <Empty>Aucun vote pour l&apos;instant</Empty>;
+  const rows = data.map((d) => ({ name: shortName(d.name), Votes: d.votes }));
   return (
-    <ResponsiveContainer width="100%" height={Math.max(220, rows.length * 52)}>
-      <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 16 }} barGap={2} barCategoryGap="28%">
+    <ResponsiveContainer width="100%" height={Math.max(220, rows.length * 44)}>
+      <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 16 }} barCategoryGap="28%">
         <CartesianGrid horizontal={false} stroke="var(--viz-grid)" />
         <XAxis type="number" allowDecimals={false} {...axis} tick={tick} />
         <YAxis type="category" dataKey="name" width={130} {...axis} tick={tick} />
         <Tooltip content={<ChartTooltip />} cursor={{ fill: "var(--viz-hover)" }} />
-        <Legend iconType="square" wrapperStyle={{ fontSize: 12, color: "var(--viz-muted)" }} />
-        <Bar dataKey="Clients" stackId="v" fill="var(--viz-s1)" stroke="var(--viz-surface)" strokeWidth={2} />
-        <Bar dataKey="Employés" stackId="v" fill="var(--viz-s2)" stroke="var(--viz-surface)" strokeWidth={2} radius={[0, 4, 4, 0]} />
+        <Bar dataKey="Votes" fill="var(--viz-s1)" radius={[0, 4, 4, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );

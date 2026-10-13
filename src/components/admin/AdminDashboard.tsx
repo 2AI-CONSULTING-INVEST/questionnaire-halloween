@@ -32,7 +32,7 @@ export function AdminDashboard({ role }: { role: Role }) {
   const router = useRouter();
   const canWrite = role === "admin";
   const [dark, setDark] = useState(false);
-  const [filters, setFilters] = useState<Filters>({ from: "", to: "", voter: "all", restaurant: "all" });
+  const [filters, setFilters] = useState<Filters>({ from: "", to: "", restaurant: "all" });
   const [summary, setSummary] = useState<Summary | null>(null);
   const [responses, setResponses] = useState<ResponseRow[]>([]);
   const [decorations, setDecorations] = useState<Decoration[]>([]);
@@ -61,7 +61,6 @@ export function AdminDashboard({ role }: { role: Role }) {
     const qs = new URLSearchParams();
     if (filters.from) qs.set("from", filters.from);
     if (filters.to) qs.set("to", filters.to);
-    if (filters.voter !== "all") qs.set("voter", filters.voter);
     if (filters.restaurant !== "all") qs.set("restaurant", filters.restaurant);
     try {
       const [s, r, d, rest] = await Promise.all([
@@ -109,7 +108,7 @@ export function AdminDashboard({ role }: { role: Role }) {
     "whitespace-nowrap border-b-2 border-transparent px-1 pb-3 text-sm font-semibold text-muted transition-colors hover:text-ink data-[state=active]:border-brand data-[state=active]:text-ink dark:text-zinc-400 dark:hover:text-zinc-100 dark:data-[state=active]:text-zinc-100";
 
   return (
-    <div className="viz-root min-h-dvh bg-canvas text-ink dark:bg-zinc-950 dark:text-zinc-100">
+    <div className={`viz-root min-h-dvh bg-canvas text-ink dark:bg-zinc-950 dark:text-zinc-100 ${dark ? "[color-scheme:dark]" : "[color-scheme:light]"}`}>
       <header className="sticky top-0 z-20 border-b border-line bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/90">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-8">
           <div className="flex items-center gap-3">

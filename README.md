@@ -1,12 +1,12 @@
 # 🎃 Vote Halloween Chamas Tacos
 
-Questionnaire de vote façon Typeform, avec enregistrement en direct et mini-backoffice.
+Questionnaire de vote façon Typeform, avec enregistrement en direct, décor 3D animé et mini-backoffice.
 
 - **Questionnaire** `/` : une question par écran, raccourcis clavier (A/B/C, O/N, Entrée), auto-save à chaque réponse, reprise après fermeture d'onglet.
 - **Résultats publics** `/resultats` : classement en direct, sans aucune donnée personnelle.
 - **Backoffice** `/admin` : KPI, résultats, graphiques, participants au tirage (marquer les gagnants), réponses, gestion des photos et des restaurants, exports Excel/CSV, mode sombre, actualisation toutes les 30 s.
 
-Stack : Next.js 16 (App Router) · React 19 · Tailwind CSS 4 · Radix UI · Zustand · Zod · Framer Motion · Recharts · Supabase · papaparse + SheetJS.
+Stack : Next.js 16 (App Router) · React 19 · Tailwind CSS 4 · Radix UI · Zustand · Zod · Framer Motion · Three.js · Recharts · Supabase · papaparse + SheetJS.
 
 ## Démarrage local (sans Supabase)
 
@@ -56,26 +56,27 @@ Le RLS est activé **sans policy** : la clé publique `anon` ne peut rien lire n
 | `SUPABASE_STORAGE_BUCKET` | | `decorations` par défaut |
 
 3. Déployez, puis ajoutez votre domaine dans **Settings → Domains**.
-4. Allez sur `/admin` → onglet **Décorations** et ajoutez les 4 à 6 photos (format paysage 16:9 conseillé). Elles sont servies automatiquement en WebP/AVIF.
+4. Allez sur `/admin` → onglet **Décorations** et ajoutez les photos et vidéos de chaque restaurant (format vertical conseillé, voir « Médias » plus bas).
 
 > Les variables Supabase doivent être présentes **au moment du build** : la page d'accueil est pré-générée, puis régénérée au plus toutes les 60 s et immédiatement après chaque modification faite dans le backoffice.
 
 ## Fonctionnement
 
-### Parcours (7 étapes)
+### Parcours (6 étapes)
 
-| Écran | Question | Obligatoire |
+| Étape | Question | Obligatoire |
 | --- | --- | --- |
-| 1 | Qui êtes-vous ? (Client / Employé) | ✅ |
-| 2 | Chamas Tacos préféré (liste avec recherche) | ✅ |
-| 2 | Période de visite | — |
-| 3 | Vote : meilleure décoration (galerie photo) | ✅ |
-| 4 | Influence de la décoration | ✅ |
-| 5 | Commentaire (300 caractères max) | — |
-| 6 | Tirage au sort : oui/non, puis nom, téléphone FR, email | ✅ si oui |
-| 7 | Remerciements, confettis, résultats, partage | |
+| 1 | Q1 · Chamas Tacos préféré (liste avec recherche) | ✅ |
+| 1 | Q2 · Période de visite | — |
+| 2 | Q3 · Vote : meilleure décoration (une carte par restaurant, photos et vidéos) | ✅ |
+| 3 | Q4 · Influence de la décoration | ✅ |
+| 4 | Q5 · Commentaire (300 caractères max) | — |
+| 5 | Q6 · Tirage au sort : oui/non, puis nom, téléphone FR, email | ✅ si oui |
+| 6 | Remerciements, confettis, résultats, partage | |
 
-Comme dans le Typeform d'origine, **le vote est validé à la fin de l'étape 5**, avant le tirage au sort. Un votant qui ne laisse pas ses coordonnées est quand même compté. Une fois le vote validé, seuls les champs du tirage restent modifiables.
+La question « Qui êtes-vous ? » a été retirée ; la colonne `voter_type` reste en base pour les éventuelles anciennes réponses.
+
+Comme dans le Typeform d'origine, **le vote est validé à la fin de l'étape 4**, avant le tirage au sort. Un votant qui ne laisse pas ses coordonnées est quand même compté. Une fois le vote validé, seuls les champs du tirage restent modifiables.
 
 ### Enregistrement en direct
 
@@ -84,6 +85,20 @@ Comme dans le Typeform d'origine, **le vote est validé à la fin de l'étape 5*
 - En cas d'échec : les réponses restent en file d'attente et sont renvoyées automatiquement (délai progressif, retour du réseau). Un toast prévient l'utilisateur et un indicateur « Enregistré » s'affiche en bas à droite.
 - À la fermeture de l'onglet, les réponses en attente partent via `sendBeacon`. Les réponses sont aussi gardées dans le `localStorage` : en rouvrant la page, le votant reprend là où il s'était arrêté.
 - Si le vote est déjà fait sur cet appareil, la page de remerciement s'affiche. C'est une protection légère : l'IP et le navigateur sont stockés pour repérer les abus dans l'export.
+
+### Médias des décorations
+
+- Plusieurs photos et vidéos par restaurant. Le **premier** média sert de couverture ; l'ordre se règle avec les flèches du backoffice.
+- Le vote porte sur le **restaurant** : supprimer un média reporte ses votes sur un autre média du même restaurant. Le dernier média d'un restaurant déjà voté ne peut pas être supprimé.
+- Côté votant : carte verticale (3:4) avec carrousel au doigt, icône ⤢ pour la visionneuse plein écran (glisser, flèches, clavier), lecture vidéo au toucher, bouton « Voter pour… ».
+- À l'envoi, le navigateur de l'admin prépare les fichiers : photos redressées, réduites à 2048 px et ré-encodées en JPEG (données GPS retirées) ; vidéos vérifiées (lisibles, 50 Mo max) avec une affiche JPEG générée (`<nom>.poster.jpg`). Les fichiers partent **directement** vers Supabase Storage via une URL signée (Vercel limite les requêtes à 4,5 Mo).
+- Vidéos conseillées : MP4 H.264, moins de 30 s, 720p, moins de 20 Mo. Les vidéos ne se chargent que si le votant appuie sur lecture (quota de bande passante Supabase : 5 Go/mois en gratuit).
+
+### Décor et thème
+
+- Décor 3D (Three.js) chargé après l'affichage : cimetière low-poly, brume, fumée, braises, nuées de chauves-souris (au démarrage du vote, à la validation, puis de temps en temps), yeux qui s'allument dans la pénombre. Qualité réduite automatiquement sur les téléphones modestes ; décor figé si l'utilisateur a choisi de réduire les animations ; ciel seul sans WebGL.
+- Thème **sombre par défaut**. Easter egg : **toucher 3 fois la lune** (en haut à gauche) ou taper **« lumos »** au clavier passe en mode jour ; 3 fois le soleil ou **« nox »** ramène la nuit. Le choix est mémorisé sur l'appareil.
+- Aucun effet d'agrandissement au survol.
 
 ### API
 
@@ -96,9 +111,10 @@ Comme dans le Typeform d'origine, **le vote est validé à la fin de l'étape 5*
 | GET / DELETE | `/api/responses/[id]` | admin (lecture / écriture) |
 | PATCH | `/api/responses/[id]/winner` | admin (écriture) |
 | GET/POST | `/api/responses/export?scope=all\|raffle&format=xlsx\|csv` | admin |
-| GET | `/api/analytics/summary` · `by-restaurant` · `by-voter` (filtres `from`, `to`, `voter`, `restaurant`) | admin |
+| GET | `/api/analytics/summary` · `by-restaurant` (filtres `from`, `to`, `restaurant`) | admin |
 | GET | `/api/results` | public (totaux uniquement) |
 | GET/POST/PATCH/DELETE | `/api/decorations`, `/api/restaurants` | lecture publique, écriture admin |
+| POST | `/api/decorations/upload` | admin (URL d'envoi signée) |
 
 ### Sécurité
 
@@ -111,4 +127,5 @@ Comme dans le Typeform d'origine, **le vote est validé à la fin de l'étape 5*
 ## Notes
 
 - Emojis 3D : [Microsoft Fluent UI Emoji](https://github.com/microsoft/fluentui-emoji) (licence MIT), copiés dans `public/emoji`.
-- Le décor Halloween (toiles, araignées, chauves-souris, citrouilles) reprend l'univers de jeu.startsurf.fr, adapté au fond clair. Ses animations sont coupées si l'utilisateur a choisi de réduire les animations.
+- Modèles 3D : [KayKit Halloween Bits](https://kaylousberg.itch.io/halloween-bits) par Kay Lousberg (licence CC0). Les modèles utilisés sont regroupés dans `public/3d/halloween.glb` (un seul fichier, une texture partagée, géométrie quantifiée, ~400 Ko) avec [glTF-Transform](https://gltf-transform.dev) (`mergeDocuments`, `dedup`, `prune`, `quantize`). Le dossier source `KayKit_HalloweenBits_1.0_FREE/` n'est pas versionné.
+- Fumée, brume, chauves-souris et yeux sont procéduraux (shaders), sans fichier supplémentaire.

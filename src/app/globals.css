@@ -2,6 +2,8 @@
 
 /* Dark mode du backoffice : piloté par la classe .dark sur <html> */
 @custom-variant dark (&:where(.dark, .dark *));
+/* Site public : sombre par défaut, clair via l'easter egg (data-theme="light" sur <html>) */
+@custom-variant day (&:where([data-theme="light"], [data-theme="light"] *));
 
 :root {
   --color-primary: #facc15; /* Jaune Chamas */
@@ -13,6 +15,50 @@
   --color-border-inactive: #e5e7eb;
   --color-success: #10b981;
   --color-error: #ef4444;
+
+  /* Site public — nuit (défaut) */
+  --pub-page: #0c0a12;
+  --pub-surface: #17131f;
+  --pub-surface-2: #211b2c;
+  --pub-solid: #1b1624;
+  --pub-fg: #f5f1e8;
+  --pub-muted: #b3abc0;
+  --pub-edge: #332b40;
+  --pub-edge-strong: #554a66;
+  --pub-placeholder: #6c6379;
+  --pub-accent-soft: rgba(250, 204, 21, 0.13);
+  --pub-danger-bg: rgba(239, 68, 68, 0.14);
+  --pub-danger-fg: #fca5a5;
+  --sky-top: #05040a;
+  --sky-mid: #120d1e;
+  --sky-low: #2a1b33;
+  --sky-glow: rgba(255, 128, 43, 0.16);
+  --scrim: rgba(12, 10, 18, 0.5);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --pub-page: #f7f2ea;
+  --pub-surface: #fffdf8;
+  --pub-surface-2: #f3ece1;
+  --pub-solid: #ffffff;
+  --pub-fg: #231d2b;
+  --pub-muted: #6b6274;
+  --pub-edge: #e4dccf;
+  --pub-edge-strong: #b9ae9f;
+  --pub-placeholder: #b9b0a6;
+  --pub-accent-soft: #fef6c7;
+  --pub-danger-bg: #fee2e2;
+  --pub-danger-fg: #b91c1c;
+  --sky-top: #cfe0ee;
+  --sky-mid: #f2e7d6;
+  --sky-low: #f6dcc0;
+  --sky-glow: rgba(255, 170, 80, 0.25);
+  --scrim: rgba(247, 242, 234, 0.72);
 }
 
 @theme inline {
@@ -28,6 +74,20 @@
   --color-error: var(--color-error);
   --color-canvas: var(--color-bg-light);
 
+  /* Site public */
+  --color-page: var(--pub-page);
+  --color-surface: var(--pub-surface);
+  --color-surface-2: var(--pub-surface-2);
+  --color-solid: var(--pub-solid);
+  --color-fg: var(--pub-fg);
+  --color-fg-muted: var(--pub-muted);
+  --color-edge: var(--pub-edge);
+  --color-edge-strong: var(--pub-edge-strong);
+  --color-placeholder: var(--pub-placeholder);
+  --color-accent-soft: var(--pub-accent-soft);
+  --color-danger-bg: var(--pub-danger-bg);
+  --color-danger-fg: var(--pub-danger-fg);
+
   --animate-shake: shake 300ms ease-in-out;
   --animate-pop: pop 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -36,6 +96,11 @@
   0%, 100% { transform: translateX(0); }
   20%, 60% { transform: translateX(-6px); }
   40%, 80% { transform: translateX(6px); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes pop {
@@ -48,8 +113,8 @@ html {
 }
 
 body {
-  background: var(--color-bg-light);
-  color: var(--color-text-dark);
+  background: var(--pub-page);
+  color: var(--pub-fg);
 }
 
 @layer base {
@@ -67,37 +132,111 @@ body {
   }
 }
 
-/* ---- Décor Halloween (inspiré de jeu.startsurf.fr, adapté au fond clair) ---- */
-.hw-deco { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
-.hw-web { position: absolute; top: 0; width: 140px; height: 140px; opacity: 0.55; }
-.hw-web.l { left: 0; }
-.hw-web.r { right: 0; transform: scaleX(-1); }
-.hw-spider { position: absolute; top: 0; left: var(--x); width: 2px; transform-origin: top; animation: hw-drop var(--d) ease-in-out infinite; animation-delay: var(--dl); }
-.hw-spider i { position: absolute; left: 0; top: 0; width: 1px; height: 100%; background: rgba(31, 41, 55, 0.35); }
-.hw-spider svg { position: absolute; bottom: -18px; left: -16px; width: 30px; height: 30px; }
-.hw-bat { position: absolute; width: 40px; height: 22px; left: -60px; top: var(--y); opacity: 0.8; animation: hw-fly var(--d) linear infinite; animation-delay: var(--dl); }
-.hw-bat svg { width: 100%; height: 100%; animation: hw-flap 0.18s ease-in-out infinite alternate; transform-origin: center; }
-.hw-pumps { position: absolute; bottom: 0; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 6px; align-items: flex-end; }
-.hw-pumps svg { width: 40px; height: 36px; filter: drop-shadow(0 0 8px rgba(255, 140, 30, 0.45)); }
-.hw-pumps svg .fl { animation: hw-candle 1.4s infinite; }
-
-@keyframes hw-drop { 0%, 100% { height: 30px; } 50% { height: var(--h); } }
-@keyframes hw-fly {
-  0% { transform: translate(0, 0); }
-  25% { transform: translate(30vw, -30px); }
-  50% { transform: translate(60vw, 20px); }
-  75% { transform: translate(90vw, -20px); }
-  100% { transform: translate(calc(100vw + 120px), 10px); }
+/* ---- Ciel du décor (le graveyard 3D est dessiné par-dessus, dans un <canvas>) ---- */
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 55% at 50% 100%, var(--sky-glow), transparent 70%),
+    linear-gradient(to bottom, var(--sky-top) 0%, var(--sky-mid) 55%, var(--sky-low) 100%);
+  transition: background 900ms ease;
 }
-@keyframes hw-flap { from { transform: scaleY(1); } to { transform: scaleY(0.45); } }
-@keyframes hw-candle { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
-
-@media (prefers-reduced-motion: reduce) {
-  .hw-bat { display: none; }
+.sky-stars {
+  position: absolute;
+  inset: 0 0 35% 0;
+  opacity: 1;
+  transition: opacity 900ms ease;
 }
-@media (max-width: 640px) {
-  .hw-web { width: 90px; height: 90px; }
-  .hw-spider:nth-of-type(2) { display: none; }
+.sky-stars i {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: #fff;
+  opacity: 0.7;
+  animation: twinkle var(--d) ease-in-out infinite;
+  animation-delay: var(--dl);
+}
+[data-theme="light"] .sky-stars { opacity: 0; }
+@keyframes twinkle {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.85; }
+}
+
+.sky-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100vw;
+  height: 100lvh;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1200ms ease;
+}
+.sky-canvas[data-ready] { opacity: 1; }
+/* Halo doux derrière le contenu : le texte reste lisible devant le décor. */
+.sky-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 70% 55% at 50% 45%, var(--scrim) 0%, transparent 70%);
+  transition: background 900ms ease;
+}
+
+/* Lune / soleil : c'est aussi l'easter egg (3 tapes pour changer de thème). */
+.moon {
+  position: fixed;
+  z-index: 20;
+  top: max(2.25rem, calc(env(safe-area-inset-top) + 1rem));
+  left: 1.25rem;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  background: radial-gradient(circle at 35% 35%, #fffbe8 0%, #f3e6bf 45%, #d6c391 100%);
+  box-shadow: 0 0 22px 6px rgba(255, 240, 200, 0.28), 0 0 90px 30px rgba(190, 170, 255, 0.12);
+  transition: background 900ms ease, box-shadow 900ms ease, transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.moon::before,
+.moon::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(150, 130, 90, 0.28);
+  transition: opacity 600ms ease;
+}
+.moon::before { width: 11px; height: 11px; top: 14px; left: 26px; }
+.moon::after { width: 7px; height: 7px; top: 30px; left: 14px; }
+.moon[data-nudge="1"] { transform: rotate(-14deg); }
+.moon[data-nudge="2"] { transform: rotate(18deg); }
+[data-theme="light"] .moon {
+  background: radial-gradient(circle at 40% 40%, #fff7c2 0%, #ffd34d 55%, #ffb020 100%);
+  box-shadow: 0 0 30px 10px rgba(255, 200, 60, 0.45), 0 0 120px 50px rgba(255, 190, 90, 0.25);
+}
+[data-theme="light"] .moon::before,
+[data-theme="light"] .moon::after { opacity: 0; }
+@media (min-width: 640px) {
+  .moon { left: 2rem; width: 64px; height: 64px; }
+  .moon::before { width: 13px; height: 13px; top: 17px; left: 32px; }
+  .moon::after { width: 9px; height: 9px; top: 37px; left: 17px; }
+}
+
+/* Transition de thème : un cercle de lumière s'ouvre depuis la lune (View Transitions). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  animation: theme-reveal 900ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+@keyframes theme-reveal {
+  from { clip-path: circle(0 at var(--reveal-x, 3rem) var(--reveal-y, 3rem)); }
+  to { clip-path: circle(150vmax at var(--reveal-x, 3rem) var(--reveal-y, 3rem)); }
 }
 
 /* ---- Graphiques du backoffice (palette validée, clair / sombre) ---- */
@@ -107,8 +246,8 @@ body {
   --viz-axis: #c3c2b7;
   --viz-muted: #6b7280;
   --viz-hover: rgba(11, 11, 11, 0.04);
-  --viz-s1: #2a78d6; /* clients */
-  --viz-s2: #eb6834; /* employés */
+  --viz-s1: #2a78d6;
+  --viz-s2: #eb6834;
 }
 .dark .viz-root {
   --viz-surface: #18181b;
@@ -119,3 +258,7 @@ body {
   --viz-s1: #3987e5;
   --viz-s2: #d95926;
 }
+
+/* Défilement horizontal des carrousels sans barre visible. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

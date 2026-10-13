@@ -30,7 +30,21 @@ export interface Store {
   addDecoration(d: Pick<Decoration, "restaurant_name" | "image_url" | "display_order">): Promise<Decoration>;
   updateDecoration(id: string, d: Partial<Pick<Decoration, "restaurant_name" | "display_order">>): Promise<void>;
   deleteDecoration(id: string): Promise<void>;
-  uploadImage(file: File): Promise<string>;
+  /** Nombre de réponses qui pointent vers ce média. */
+  countVotes(decorationId: string): Promise<number>;
+  /** Reporte les votes d'un média vers un autre (même restaurant) avant sa suppression. */
+  moveVotes(fromId: string, toId: string): Promise<void>;
+
+  /**
+   * Supabase : URL signée pour envoyer un fichier directement depuis le navigateur
+   * (les fonctions Vercel refusent les requêtes de plus de 4,5 Mo). null en local.
+   */
+  createUploadTarget(name: string): Promise<{ signedUrl: string; publicUrl: string } | null>;
+  /** Enregistre un fichier reçu par le serveur (stockage local). */
+  saveFile(file: Blob, name: string): Promise<string>;
+  /** Vrai si l'URL désigne un fichier de notre propre stockage. */
+  isOwnFile(url: string): boolean;
+  removeFiles(urls: string[]): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,14 +191,55 @@ class SupabaseStore implements Store {
     this.check(await this.sb.from("decorations").delete().eq("id", id));
   }
 
-  async uploadImage(file: File) {
-    const ext = extensionFor(file.type);
-    const key = `${randomUUID()}.${ext}`;
+  async countVotes(decorationId: string) {
+    const res = await this.sb
+      .from("responses")
+      .select("id", { count: "exact", head: true })
+      .eq("selected_decoration_id", decorationId);
+    this.check(res);
+    return res.count ?? 0;
+  }
+
+  async moveVotes(fromId: string, toId: string) {
+    this.check(
+      await this.sb.from("responses").update({ selected_decoration_id: toId }).eq("selected_decoration_id", fromId),
+    );
+  }
+
+  private publicUrl(name: string) {
+    return this.sb.storage.from(this.bucket).getPublicUrl(name).data.publicUrl;
+  }
+
+  async createUploadTarget(name: string) {
+    const { data, error } = await this.sb.storage.from(this.bucket).createSignedUploadUrl(name);
+    if (error) throw new Error(error.message);
+    return { signedUrl: data.signedUrl, publicUrl: this.publicUrl(name) };
+  }
+
+  async saveFile(file: Blob, name: string) {
     const { error } = await this.sb.storage
       .from(this.bucket)
-      .upload(key, await file.arrayBuffer(), { contentType: file.type, cacheControl: "31536000" });
+      .upload(name, await file.arrayBuffer(), { contentType: file.type, cacheControl: "31536000" });
     if (error) throw new Error(error.message);
-    return this.sb.storage.from(this.bucket).getPublicUrl(key).data.publicUrl;
+    return this.publicUrl(name);
+  }
+
+  /** Nom du fichier dans le bucket, si l'URL vient bien de notre stockage. */
+  private keyOf(url: string) {
+    const prefix = this.publicUrl("");
+    const key = url.startsWith(prefix) ? url.slice(prefix.length).replace(/^\//, "") : "";
+    return FILE_NAME_RE.test(key) ? key : null;
+  }
+
+  isOwnFile(url: string) {
+    return this.keyOf(url) !== null;
+  }
+
+  async removeFiles(urls: string[]) {
+    const keys = urls.map((u) => this.keyOf(u)).filter((k): k is string => k !== null);
+    if (keys.length === 0) return;
+    const { error } = await this.sb.storage.from(this.bucket).remove(keys);
+    if (error) console.error("Suppression de fichiers impossible :", error.message);
   }
 }
 
@@ -396,17 +451,40 @@ class LocalStore implements Store {
     });
   }
 
-  async uploadImage(file: File) {
-    const name = `${randomUUID()}.${extensionFor(file.type)}`;
+  async countVotes(decorationId: string) {
+    const d = await this.read();
+    return d.responses.filter((r) => r.selected_decoration_id === decorationId).length;
+  }
+
+  async moveVotes(fromId: string, toId: string) {
+    await this.mutate((d) => {
+      for (const r of d.responses) if (r.selected_decoration_id === fromId) r.selected_decoration_id = toId;
+    });
+  }
+
+  async createUploadTarget() {
+    return null;
+  }
+
+  async saveFile(file: Blob, name: string) {
     await fs.mkdir(UPLOAD_DIR, { recursive: true });
     await fs.writeFile(path.join(UPLOAD_DIR, name), Buffer.from(await file.arrayBuffer()));
     return `/uploads/${name}`;
   }
+
+  isOwnFile(url: string) {
+    return url.startsWith("/uploads/") && FILE_NAME_RE.test(url.slice("/uploads/".length));
+  }
+
+  async removeFiles(urls: string[]) {
+    for (const u of urls.filter((x) => this.isOwnFile(x))) {
+      await fs.rm(path.join(UPLOAD_DIR, u.slice("/uploads/".length)), { force: true });
+    }
+  }
 }
 
-function extensionFor(mime: string) {
-  return ({ "image/webp": "webp", "image/png": "png", "image/jpeg": "jpg", "image/avif": "avif" } as Record<string, string>)[mime] ?? "bin";
-}
+/** Noms de fichiers générés par le serveur : « <uuid>.<ext> » ou « <uuid>.poster.jpg ». */
+export const FILE_NAME_RE = /^[0-9a-f-]{36}(\.poster)?\.[a-z0-9]{2,4}$/;
 
 // ---------------------------------------------------------------------------
 

@@ -1,38 +1,69 @@
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { getStore } from "@/lib/db";
 import { requireRole } from "@/lib/guard";
-import { error, json } from "@/lib/http";
-
-const MAX_BYTES = 8 * 1024 * 1024;
-const TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
+import { error, json, readJson, zodError } from "@/lib/http";
+import { MEDIA_LIMITS, MEDIA_TYPES, mediaKind } from "@/lib/schema";
 
 export async function GET() {
   return json(await getStore().listDecorations());
 }
 
-/** Admin : ajout d'une photo de décoration (multipart : restaurant_name, image, display_order). */
+const directSchema = z.object({
+  restaurant_name: z.string().trim().min(2).max(150),
+  image_url: z.string().url().max(500),
+});
+
+/**
+ * Admin : ajoute une photo ou une vidéo à un restaurant (question 3).
+ * - JSON { restaurant_name, image_url } : fichier déjà envoyé au stockage (voir /api/decorations/upload).
+ * - multipart { restaurant_name, media, poster? } : stockage local (développement).
+ */
 export async function POST(req: Request) {
   const denied = await requireRole("admin");
   if (denied) return denied;
-
-  const form = await req.formData().catch(() => null);
-  if (!form) return error("Formulaire invalide");
-  const name = String(form.get("restaurant_name") ?? "").trim();
-  const order = Number(form.get("display_order") ?? 0);
-  const image = form.get("image");
-
-  if (name.length < 2 || name.length > 150) return error("Nom du restaurant requis");
-  if (!(image instanceof File) || image.size === 0) return error("Image requise");
-  if (!TYPES.includes(image.type)) return error("Format accepté : JPG, PNG, WebP ou AVIF");
-  if (image.size > MAX_BYTES) return error("Image trop lourde (8 Mo max)");
-
   const store = getStore();
-  const imageUrl = await store.uploadImage(image);
+
+  let restaurantName: string;
+  let imageUrl: string;
+
+  if (req.headers.get("content-type")?.includes("application/json")) {
+    const parsed = directSchema.safeParse(await readJson(req));
+    if (!parsed.success) return zodError(parsed.error);
+    if (!store.isOwnFile(parsed.data.image_url)) return error("Fichier inconnu");
+    restaurantName = parsed.data.restaurant_name;
+    imageUrl = parsed.data.image_url;
+  } else {
+    const form = await req.formData().catch(() => null);
+    if (!form) return error("Formulaire invalide");
+    restaurantName = String(form.get("restaurant_name") ?? "").trim();
+    const media = form.get("media");
+    const poster = form.get("poster");
+    if (!(media instanceof File) || media.size === 0) return error("Fichier requis");
+    const ext = MEDIA_TYPES[media.type];
+    if (!ext) return error("Format accepté : JPG, PNG, WebP, AVIF, MP4 ou WebM");
+    const isVideo = media.type.startsWith("video/");
+    if (media.size > (isVideo ? MEDIA_LIMITS.videoBytes : MEDIA_LIMITS.imageBytes)) return error("Fichier trop lourd");
+    const id = randomUUID();
+    imageUrl = await store.saveFile(media, `${id}.${ext}`);
+    if (isVideo && poster instanceof File && poster.type === "image/jpeg" && poster.size < MEDIA_LIMITS.imageBytes) {
+      await store.saveFile(poster, `${id}.poster.jpg`);
+    }
+  }
+
+  const [restaurants, decorations] = await Promise.all([store.listRestaurants(), store.listDecorations()]);
+  if (!restaurants.some((r) => r.name === restaurantName)) {
+    await store.removeFiles([imageUrl]);
+    return error("Restaurant inconnu : ajoutez-le d'abord dans l'onglet « Restaurants »");
+  }
+
   const deco = await store.addDecoration({
-    restaurant_name: name,
+    restaurant_name: restaurantName,
     image_url: imageUrl,
-    display_order: Number.isFinite(order) ? Math.trunc(order) : 0,
+    display_order: Math.max(-1, ...decorations.map((d) => d.display_order)) + 1,
   });
   revalidatePath("/");
-  return json(deco, 201);
+  revalidatePath("/resultats");
+  return json({ ...deco, kind: mediaKind(deco.image_url) }, 201);
 }
