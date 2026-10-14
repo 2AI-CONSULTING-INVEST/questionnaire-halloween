@@ -4,7 +4,7 @@ import { AdminDashboard } from "@/components/admin/AdminDashboard";
 import { currentRole } from "@/lib/auth";
 
 export const metadata: Metadata = {
-  title: "Backoffice — Vote Halloween Chamas Tacos",
+  title: "Backoffice du vote Halloween",
   robots: { index: false, follow: false },
 };
 

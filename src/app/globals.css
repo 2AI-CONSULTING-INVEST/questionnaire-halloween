@@ -90,6 +90,10 @@
 
   --animate-shake: shake 300ms ease-in-out;
   --animate-pop: pop 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-nudge-next: nudge-next 1100ms ease-in-out;
+  --animate-nudge-prev: nudge-prev 1100ms ease-in-out;
+  --animate-peek-in: peek-in 1100ms ease-out both;
+  --animate-peek-in-left: peek-in-left 1100ms ease-out both;
 }
 
 @keyframes shake {
@@ -101,6 +105,62 @@
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+/* Dernier (premier) média d'un restaurant : petit élan vers la gauche (droite), « il y a une suite ». */
+@keyframes nudge-next {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-36px); }
+  45% { transform: translateX(0); }
+  62% { transform: translateX(-16px); }
+  80% { transform: translateX(0); }
+}
+
+@keyframes nudge-prev {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(36px); }
+  45% { transform: translateX(0); }
+  62% { transform: translateX(16px); }
+  80% { transform: translateX(0); }
+}
+
+@keyframes peek-in-left {
+  0% { opacity: 0; transform: translateX(-24px); }
+  30% { opacity: 1; transform: translateX(6px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes peek-in {
+  0% { opacity: 0; transform: translateX(24px); }
+  30% { opacity: 1; transform: translateX(-6px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+/* Lanterne suspendue de la modale du classement : léger balancement au bout de sa chaîne. */
+@keyframes sway {
+  0%, 100% { transform: rotate(-3.5deg); }
+  50% { transform: rotate(3.5deg); }
+}
+
+/* Insectes autour de la lanterne : orbite (rayon --r) et vol hésitant. */
+@keyframes orbit {
+  from { transform: rotate(0turn) translateX(var(--r)); }
+  to { transform: rotate(1turn) translateX(var(--r)); }
+}
+
+@keyframes flutter {
+  0%, 100% { transform: translate(0, 0); opacity: 0.9; }
+  25% { transform: translate(2px, -3px); opacity: 0.55; }
+  50% { transform: translate(-1px, 2px); opacity: 1; }
+  75% { transform: translate(-3px, -1px); opacity: 0.7; }
+}
+
+/* Flamme de la lanterne : vacille un peu. */
+@keyframes flicker {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  20% { opacity: 0.7; transform: scale(0.96); }
+  45% { opacity: 1; transform: scale(1.04); }
+  70% { opacity: 0.78; transform: scale(0.98); }
 }
 
 @keyframes pop {
@@ -186,44 +246,12 @@ body {
   transition: background 900ms ease;
 }
 
-/* Lune / soleil : c'est aussi l'easter egg (3 tapes pour changer de thème). */
-.moon {
-  position: fixed;
-  z-index: 20;
-  top: max(2.25rem, calc(env(safe-area-inset-top) + 1rem));
-  left: 1.25rem;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  background: radial-gradient(circle at 35% 35%, #fffbe8 0%, #f3e6bf 45%, #d6c391 100%);
-  box-shadow: 0 0 22px 6px rgba(255, 240, 200, 0.28), 0 0 90px 30px rgba(190, 170, 255, 0.12);
-  transition: background 900ms ease, box-shadow 900ms ease, transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.moon::before,
-.moon::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-  background: rgba(150, 130, 90, 0.28);
-  transition: opacity 600ms ease;
-}
-.moon::before { width: 11px; height: 11px; top: 14px; left: 26px; }
-.moon::after { width: 7px; height: 7px; top: 30px; left: 14px; }
-.moon[data-nudge="1"] { transform: rotate(-14deg); }
-.moon[data-nudge="2"] { transform: rotate(18deg); }
-[data-theme="light"] .moon {
-  background: radial-gradient(circle at 40% 40%, #fff7c2 0%, #ffd34d 55%, #ffb020 100%);
-  box-shadow: 0 0 30px 10px rgba(255, 200, 60, 0.45), 0 0 120px 50px rgba(255, 190, 90, 0.25);
-}
-[data-theme="light"] .moon::before,
-[data-theme="light"] .moon::after { opacity: 0; }
-@media (min-width: 640px) {
-  .moon { left: 2rem; width: 64px; height: 64px; }
-  .moon::before { width: 13px; height: 13px; top: 17px; left: 32px; }
-  .moon::after { width: 9px; height: 9px; top: 37px; left: 17px; }
-}
+/* Dans la crypte : plus de ciel ni de lune. */
+.sky, .sky-scrim { transition-property: opacity, background, box-shadow, transform; }
+.backdrop[data-indoor] .sky,
+.backdrop[data-indoor] .sky-scrim { opacity: 0; }
+
+/* La lune / le soleil est un objet 3D du décor (world.ts) : clic via le canvas. */
 
 /* Transition de thème : un cercle de lumière s'ouvre depuis la lune (View Transitions). */
 ::view-transition-old(root),

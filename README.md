@@ -50,7 +50,7 @@ Le RLS est activé **sans policy** : la clé publique `anon` ne peut rien lire n
 | `ADMIN_PASSWORD` | ✅ | Mot de passe backoffice en lecture/écriture |
 | `ADMIN_SESSION_SECRET` | ✅ | 32+ caractères aléatoires (`openssl rand -hex 32`) |
 | `ADMIN_READONLY_PASSWORD` | | Mot de passe en lecture seule |
-| `NEXT_PUBLIC_SITE_URL` | | URL publique, utilisée pour les partages et l'Open Graph |
+| `NEXT_PUBLIC_SITE_URL` | | URL publique, utilisée pour les partages et l'Open Graph (à défaut : l'URL de production Vercel) |
 | `NEXT_PUBLIC_SOCIAL_URL` / `NEXT_PUBLIC_SOCIAL_LABEL` | | Lien vers le réseau social du tirage en direct (page de remerciement) |
 | `NEXT_PUBLIC_VOTE_VIDEO_URL` | | Vidéo optionnelle au-dessus de la question 4 |
 | `SUPABASE_STORAGE_BUCKET` | | `decorations` par défaut |
@@ -90,14 +90,30 @@ Comme dans le Typeform d'origine, **le vote est validé à la fin de l'étape 4*
 
 - Plusieurs photos et vidéos par restaurant. Le **premier** média sert de couverture ; l'ordre se règle avec les flèches du backoffice.
 - Le vote porte sur le **restaurant** : supprimer un média reporte ses votes sur un autre média du même restaurant. Le dernier média d'un restaurant déjà voté ne peut pas être supprimé.
-- Côté votant : carte verticale (3:4) avec carrousel au doigt, icône ⤢ pour la visionneuse plein écran (glisser, flèches, clavier), lecture vidéo au toucher, bouton « Voter pour… ».
+- Côté votant : carte verticale (3:4) avec carrousel au doigt, icône ⤢ pour la visionneuse plein écran (glisser, flèches, clavier), lecture vidéo au toucher, bouton « Voter pour… ». Dans la visionneuse, les restaurants s'enchaînent : sur le dernier média, un petit élan et une étiquette annoncent le restaurant suivant (sur le premier, le précédent), et glisser encore fait glisser toute la page vers ce restaurant.
+- Une fois un restaurant choisi, les autres cartes sont légèrement grisées ; toucher la coche verte (ou retaper sa lettre au clavier) annule le choix.
 - À l'envoi, le navigateur de l'admin prépare les fichiers : photos redressées, réduites à 2048 px et ré-encodées en JPEG (données GPS retirées) ; vidéos vérifiées (lisibles, 50 Mo max) avec une affiche JPEG générée (`<nom>.poster.jpg`). Les fichiers partent **directement** vers Supabase Storage via une URL signée (Vercel limite les requêtes à 4,5 Mo).
 - Vidéos conseillées : MP4 H.264, moins de 30 s, 720p, moins de 20 Mo. Les vidéos ne se chargent que si le votant appuie sur lecture (quota de bande passante Supabase : 5 Go/mois en gratuit).
 
-### Décor et thème
+### Décor 3D : trois lieux sur un même parcours
 
-- Décor 3D (Three.js) chargé après l'affichage : cimetière low-poly, brume, fumée, braises, nuées de chauves-souris (au démarrage du vote, à la validation, puis de temps en temps), yeux qui s'allument dans la pénombre. Qualité réduite automatiquement sur les téléphones modestes ; décor figé si l'utilisateur a choisi de réduire les animations ; ciel seul sans WebGL.
-- Thème **sombre par défaut**. Easter egg : **toucher 3 fois la lune** (en haut à gauche) ou taper **« lumos »** au clavier passe en mode jour ; 3 fois le soleil ou **« nox »** ramène la nuit. Le choix est mémorisé sur l'appareil.
+Le décor (Three.js) est monté une seule fois dans `src/app/(public)/layout.tsx` : il persiste entre le questionnaire et la page des résultats. La caméra suit un parcours continu : du cimetière, elle part vers le **centre gauche**, dépasse le poteau-lanterne et découvre la clairière dans une fumée épaisse qui se dissipe (en restant lourde) ; de là, elle repart vers le **centre droit** jusqu'à la crypte et y entre sans s'arrêter.
+
+| Lieu | Quand | Contenu |
+| --- | --- | --- |
+| Cimetière | Accueil, questions | Tombes, citrouilles, brume, nuées de chauves-souris, yeux dans la pénombre ; logo « CHAMAS TACOS » au premier plan à gauche ; grande lune en 3D dans le ciel ; fantôme flottant près de la crypte ; forêt dense au loin ; la crypte au fond à droite, la clairière devinée à gauche |
+| Clairière de la faucheuse (centre gauche, derrière le poteau-lanterne) | Tirage au sort, remerciements | Chaudron rempli de bonbons tout près de la caméra (pas sur le feu), faucheuse animée juste derrière (robe fermée à grandes manches, capuche, grande faux), brume épaisse et stagnante, cadeaux éparpillés à droite, arbres morts et rochers |
+| Intérieur de la crypte | `/resultats` | La caméra continue d'avancer pendant que les chauves-souris sortent par la porte. Salle en pierre (pack Dungeon), torches, étagères à bougies, tonneaux ; un grand bras squelette articulé, vu comme dans un jeu (il entre par le bas de l'écran, coude et épaule toujours hors champ), dépoussière le classement en direct (en colonne), qui s'ouvre en grand au clic (modale posée sur une motte de terre garnie de citrouilles, crânes, bougies et pierre tombale, avec un poteau-lanterne planté dedans — rendus des modèles Halloween Bits et Forest Nature ; podium or, argent, bronze) ; table avec chapeaux de sorcière, bougies et grosse citrouille ; badge Chamas Tacos sur un tonneau, cercueil debout ; toiles d'araignée en 3D tendues entre piliers et plafond, araignées suspendues ; la caméra respire largement ; à gauche de la salle, la lumière est constante |
+
+- Fidélité au style KayKit : le décor réutilise au maximum les packs **Halloween Bits**, **Dungeon**, **Forest Nature**, **Skeletons** et les **logos Chamas Tacos 3D** (style KayKit, versions Halloween) (la faucheuse est le « Skeleton Rogue », repeint). Les objets construits dans le code (chaudron, bonbons, cadeaux, chapeaux de sorcière, faux, robe, mains, toiles, araignées) sont peints avec **les atlas de couleurs des packs** (même dégradé vertical par cellule).
+- Code : `src/components/scene/` — `world.ts` (rendu, chargement progressif, caméra, lumières, chauves-souris, yeux, fumée), `outdoor.ts` (cimetière, clairière), `crypt.ts` (intérieur et mur du classement), `props.ts` (objets peints avec les atlas), `core.ts` (utilitaires, particules). Préparation des modèles : `scripts/3d/`.
+- Chargement progressif : le cimetière (`halloween.glb`) s'affiche d'abord, puis les logos et la clairière (`logos.glb`, `reaper.glb`, `forest.glb`) ; la crypte (`dungeon.glb`) n'est construite qu'au moment d'y aller. Environ 1,4 Mo de modèles au total, compressés Meshopt. La forêt du fond (220 arbres, 110 sur appareil modeste) est instanciée : 4 appels de dessin.
+- Performances : matériaux partagés par pack, **nombre fixe de lumières** attribuées aux flammes les plus proches (pas de recompilation de shader), particules instanciées, résolution réduite si le téléphone peine. Environ 130 appels de dessin par image au cimetière, 80 dans la clairière, 45 dans la crypte (mesuré sur mobile). Décor désactivé en mode « économie de données » ou en 2G (ciel seul), allégé en 3G. Sans WebGL, la page des résultats affiche la liste classique.
+- Animations réduites (réglage système) : pas de mouvements de caméra ni d'animations, le classement est affiché directement.
+
+### Thème
+
+- Thème **sombre par défaut**. Easter egg : **toucher la lune (objet 3D du ciel) au moins 30 fois, vite** (moins de 0,6 s entre deux tapes ; son halo s'avive à chaque tape) ou taper **« lumos »** au clavier passe en mode jour ; pareil sur le soleil ou **« nox »** pour revenir à la nuit. Le choix est mémorisé sur l'appareil.
 - Aucun effet d'agrandissement au survol.
 
 ### API
@@ -127,5 +143,5 @@ Comme dans le Typeform d'origine, **le vote est validé à la fin de l'étape 4*
 ## Notes
 
 - Emojis 3D : [Microsoft Fluent UI Emoji](https://github.com/microsoft/fluentui-emoji) (licence MIT), copiés dans `public/emoji`.
-- Modèles 3D : [KayKit Halloween Bits](https://kaylousberg.itch.io/halloween-bits) par Kay Lousberg (licence CC0). Les modèles utilisés sont regroupés dans `public/3d/halloween.glb` (un seul fichier, une texture partagée, géométrie quantifiée, ~400 Ko) avec [glTF-Transform](https://gltf-transform.dev) (`mergeDocuments`, `dedup`, `prune`, `quantize`). Le dossier source `KayKit_HalloweenBits_1.0_FREE/` n'est pas versionné.
-- Fumée, brume, chauves-souris et yeux sont procéduraux (shaders), sans fichier supplémentaire.
+- Modèles 3D : [KayKit Halloween Bits](https://kaylousberg.itch.io/halloween-bits), [Dungeon Remastered](https://kaylousberg.itch.io/kaykit-dungeon-remastered), [Forest Nature](https://kaylousberg.itch.io/kaykit-forest), [Skeletons](https://kaylousberg.itch.io/kaykit-skeletons) par Kay Lousberg (licence CC0). Les modèles utilisés sont regroupés par pack dans `public/3d/` (`halloween.glb`, `dungeon.glb`, `forest.glb`, `reaper.glb`, `logos.glb` ; texture partagée, géométrie quantifiée et compressée Meshopt) avec [glTF-Transform](https://gltf-transform.dev). Le dossier source `KayKit_HalloweenBits_1.0_FREE/` n'est pas versionné.
+- Fumée, brume, chauves-souris, yeux, chaudron, bonbons, cadeaux, chapeaux, faux, mains, araignées et toiles sont générés par le code, sans fichier supplémentaire.

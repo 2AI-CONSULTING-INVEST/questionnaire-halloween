@@ -17,7 +17,9 @@ import {
   type Impact,
   type VisitPeriod,
 } from "@/lib/schema";
-import { SpookyBackdrop, triggerSwarm } from "../scene/SpookyBackdrop";
+import { HOME, tabTitle } from "@/lib/site";
+import { useSceneState } from "../scene/scene-state";
+import { triggerSwarm } from "../scene/SpookyBackdrop";
 import { Confetti } from "./Confetti";
 import { DecorationGallery, LETTERS } from "./DecorationGallery";
 import { RestaurantCombobox } from "./RestaurantCombobox";
@@ -36,6 +38,22 @@ const IMPACT_OPTIONS: { value: Impact; label: string; emoji: EmojiName }[] = [
   { value: "un_peu", label: "Un peu - C'était sympa", emoji: "thumbsup" },
   { value: "pas_du_tout", label: "Pas du tout - Neutre pour moi", emoji: "neutral" },
 ];
+
+/** Titre d'onglet de chaque écran (après « CHAMAS | »). */
+const stepTitle = (s: Screen, label: string) => `Étape ${STEP_OF[s]}/${STEP_COUNT} · ${label}`;
+const STEP_TITLE: Record<Screen, string> = {
+  welcome: HOME.title,
+  restaurant: stepTitle("restaurant", "Votre Chamas Tacos préféré"),
+  period: stepTitle("period", "Votre période de visite"),
+  vote: stepTitle("vote", "Votez pour la meilleure déco Halloween"),
+  impact: stepTitle("impact", "L'effet de la déco sur votre visite"),
+  comment: stepTitle("comment", "Votre commentaire"),
+  raffle: stepTitle("raffle", "Tirage au sort Halloween"),
+  name: stepTitle("name", "Vos coordonnées pour le tirage"),
+  phone: stepTitle("phone", "Vos coordonnées pour le tirage"),
+  email: stepTitle("email", "Vos coordonnées pour le tirage"),
+  thanks: "Merci pour votre vote !",
+};
 
 const VOTE_FIELDS = ["selected_restaurant", "visit_period", "selected_decoration_id", "decoration_impact", "comment"];
 
@@ -126,6 +144,17 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
   );
 
   useEffect(() => () => clearTimeout(advanceTimer.current), [index]);
+
+  // Titre de l'onglet : « CHAMAS | » suivi de l'étape en cours (jamais de donnée saisie).
+  useEffect(() => {
+    if (hydrated) document.title = tabTitle(STEP_TITLE[screen]);
+  }, [screen, hydrated]);
+
+  // Décor 3D : cimetière pendant les questions, clairière de la faucheuse au tirage au sort.
+  useEffect(() => {
+    const atReaper = screen === "raffle" || screen === "name" || screen === "phone" || screen === "email" || screen === "thanks";
+    useSceneState.getState().setQuestionnaireScene(atReaper ? "reaper" : "graveyard");
+  }, [screen]);
 
   /** Mise à jour locale immédiate + enregistrement en base (debounce pour les champs texte). */
   const answer = useCallback(
@@ -281,7 +310,10 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
     const map: Record<string, () => void> = {};
     if (screen === "period")
       PERIOD_OPTIONS.forEach((o, i) => (map[LETTERS[i]] = () => (answer("visit_period", o.value), autoAdvance())));
-    if (screen === "vote") groups.forEach((g, i) => (map[LETTERS[i]] = () => answer("selected_decoration_id", g.id)));
+    if (screen === "vote")
+      groups.forEach(
+        (g, i) => (map[LETTERS[i]] = () => answer("selected_decoration_id", useQuestionnaire.getState().answers.selected_decoration_id === g.id ? null : g.id)),
+      );
     if (screen === "impact")
       IMPACT_OPTIONS.forEach((o, i) => (map[LETTERS[i]] = () => (answer("decoration_impact", o.value), autoAdvance())));
     if (screen === "raffle") {
@@ -650,7 +682,6 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
   return (
     <Toast.Provider swipeDirection="right" duration={6000}>
       <div className="relative flex min-h-dvh flex-col">
-        <SpookyBackdrop />
 
         {screen !== "welcome" && screen !== "thanks" && (
           <header className="fixed inset-x-0 top-0 z-30">
@@ -670,7 +701,14 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
               </span>
             </div>
             {isRaffle && (
-              <div className="mt-2 border-y border-edge bg-surface/90 px-4 py-2 backdrop-blur sm:px-8">
+              // Le fond du bandeau remonte jusqu'en haut de l'écran, derrière la barre de progression
+              // et l'étape (sans les cacher) ; le texte reste à sa place.
+              // Largeur limitée à 700 px, centré (marges sur les côtés sur petit écran).
+              <div className="relative mx-3 mt-2 px-4 py-2 sm:mx-auto sm:max-w-[700px] sm:px-6">
+                <span
+                  aria-hidden
+                  className="absolute inset-x-0 -top-24 bottom-0 -z-10 rounded-b-2xl border-x border-b border-edge bg-surface/90 shadow-lg shadow-black/20 backdrop-blur"
+                />
                 <p className="mx-auto flex max-w-[600px] items-start gap-2 text-sm text-fg-muted sm:text-base">
                   <span className="mt-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded bg-brand text-[11px] font-bold text-black">6</span>
                   <span>

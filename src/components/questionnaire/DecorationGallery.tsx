@@ -4,7 +4,7 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { Check, ChevronLeft, ChevronRight, Expand, Film, Play } from "lucide-react";
 import { RadioGroup } from "radix-ui";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { MediaLightbox } from "@/components/media/MediaLightbox";
 import { mediaKind, shortName, thumbOf, type DecorationGroup } from "@/lib/schema";
 import { KeyBadge } from "./ui";
@@ -14,7 +14,8 @@ export const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 /**
  * Question « meilleure décoration » : une carte par restaurant (choix unique).
  * Chaque carte fait défiler ses photos / vidéos au doigt ; l'icône « agrandir » ouvre
- * la visionneuse plein écran, d'où l'on peut aussi voter.
+ * la visionneuse plein écran (qui enchaîne les restaurants), d'où l'on peut aussi voter.
+ * Une fois un choix fait, les autres cartes sont grisées ; toucher la coche verte annule le choix.
  */
 export function DecorationGallery({
   groups,
@@ -25,11 +26,13 @@ export function DecorationGallery({
   groups: DecorationGroup[];
   /** Média voté (id de la couverture d'un restaurant). */
   value: string | null;
-  onChange: (groupId: string) => void;
+  /** Restaurant choisi (id de sa couverture), ou `null` pour annuler le choix. */
+  onChange: (groupId: string | null) => void;
   labelledBy: string;
 }) {
-  const [viewer, setViewer] = useState<{ group: DecorationGroup; index: number } | null>(null);
+  const [viewer, setViewer] = useState<{ group: number; index: number } | null>(null);
   const selectedGroup = groups.find((g) => g.items.some((d) => d.id === value))?.id ?? "";
+  const lightboxGroups = useMemo(() => groups.map((g) => ({ id: g.id, title: g.restaurant_name, items: g.items })), [groups]);
 
   return (
     <>
@@ -47,7 +50,9 @@ export function DecorationGallery({
             letter={LETTERS[i]}
             eager={i < 4}
             selected={g.id === selectedGroup}
-            onExpand={(index) => setViewer({ group: g, index })}
+            dimmed={selectedGroup !== "" && g.id !== selectedGroup}
+            onExpand={(index) => setViewer({ group: i, index })}
+            onDeselect={() => onChange(null)}
           />
         ))}
       </RadioGroup.Root>
@@ -55,31 +60,33 @@ export function DecorationGallery({
       <MediaLightbox
         open={viewer !== null}
         onOpenChange={(open) => !open && setViewer(null)}
-        title={viewer ? viewer.group.restaurant_name : ""}
-        items={viewer?.group.items ?? []}
-        startIndex={viewer?.index ?? 0}
-        footer={(close) =>
-          viewer && (
-            <button
-              type="button"
-              onClick={() => {
-                onChange(viewer.group.id);
-                close();
-              }}
-              className={`inline-flex min-h-12 w-full max-w-sm items-center justify-center gap-2 rounded-full px-6 text-lg font-bold transition-[filter] ${
-                viewer.group.id === selectedGroup ? "bg-success text-white" : "bg-brand text-black hover:brightness-105"
-              }`}
-            >
-              {viewer.group.id === selectedGroup ? (
-                <>
-                  <Check className="h-5 w-5" aria-hidden /> Votre choix
-                </>
-              ) : (
-                `Voter pour ${shortName(viewer.group.restaurant_name)}`
-              )}
-            </button>
-          )
-        }
+        groups={lightboxGroups}
+        start={viewer ?? { group: 0, index: 0 }}
+        footer={(groupId, close) => {
+          const g = groups.find((x) => x.id === groupId);
+          return (
+            g && (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange(g.id);
+                  close();
+                }}
+                className={`inline-flex min-h-12 w-full max-w-sm items-center justify-center gap-2 rounded-full px-6 text-lg font-bold transition-[filter] ${
+                  g.id === selectedGroup ? "bg-success text-white" : "bg-brand text-black hover:brightness-105"
+                }`}
+              >
+                {g.id === selectedGroup ? (
+                  <>
+                    <Check className="h-5 w-5" aria-hidden /> Votre choix
+                  </>
+                ) : (
+                  `Voter pour ${shortName(g.restaurant_name)}`
+                )}
+              </button>
+            )
+          );
+        }}
       />
     </>
   );
@@ -89,14 +96,19 @@ function DecorationCard({
   group,
   letter,
   selected,
+  dimmed,
   eager,
   onExpand,
+  onDeselect,
 }: {
   group: DecorationGroup;
   letter: string;
   selected: boolean;
+  /** Un autre restaurant est choisi : carte légèrement grisée. */
+  dimmed: boolean;
   eager: boolean;
   onExpand: (index: number) => void;
+  onDeselect: () => void;
 }) {
   const items = group.items;
   const count = items.length;
@@ -163,9 +175,9 @@ function DecorationCard({
       <RadioGroup.Item
         value={group.id}
         aria-label={`${group.restaurant_name}${count > 1 ? `, ${count} médias` : ""}`}
-        className={`block w-full overflow-hidden rounded-2xl border bg-surface text-left shadow-lg shadow-black/20 transition-[border-color,box-shadow] duration-200 ${
+        className={`block w-full overflow-hidden rounded-2xl border bg-surface text-left shadow-lg shadow-black/20 transition-[border-color,box-shadow,opacity,filter] duration-300 ${
           selected ? "border-brand ring-[3px] ring-brand" : "border-edge hover:border-edge-strong"
-        }`}
+        } ${dimmed ? "opacity-60 grayscale-[70%] hover:opacity-85 hover:grayscale-[35%]" : ""}`}
       >
         <div className="relative aspect-[3/4] w-full touch-pan-y select-none overflow-hidden bg-surface-2" {...swipe}>
           <div
@@ -216,16 +228,6 @@ function DecorationCard({
               ))}
             </div>
           )}
-          {selected && (
-            <motion.span
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", stiffness: 500, damping: 14 }}
-              className="absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-success text-white shadow-lg"
-            >
-              <Check className="h-5 w-5" aria-hidden />
-            </motion.span>
-          )}
         </div>
 
         <div className="flex items-center gap-2 p-2.5 sm:p-3">
@@ -239,6 +241,20 @@ function DecorationCard({
 
       {/* Commandes posées sur la carte (hors du bouton de sélection) */}
       <div className="pointer-events-none absolute inset-x-0 top-0 aspect-[3/4]">
+        {selected && (
+          <motion.button
+            type="button"
+            onClick={onDeselect}
+            aria-label={`Annuler mon choix (${group.restaurant_name})`}
+            title="Annuler mon choix"
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", stiffness: 500, damping: 14 }}
+            className="pointer-events-auto absolute left-1.5 top-1.5 flex h-10 w-10 items-center justify-center rounded-full bg-success text-white shadow-lg ring-2 ring-black/20"
+          >
+            <Check className="h-5 w-5" aria-hidden />
+          </motion.button>
+        )}
         <button
           type="button"
           onClick={() => onExpand(index)}

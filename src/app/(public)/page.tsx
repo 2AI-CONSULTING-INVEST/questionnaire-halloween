@@ -1,5 +1,14 @@
+import type { Metadata } from "next";
 import { Questionnaire } from "@/components/questionnaire/Questionnaire";
 import { getStore } from "@/lib/db";
+import { HOME } from "@/lib/site";
+
+// Titre complet (« CHAMAS | … ») : ensuite le questionnaire l'adapte à l'étape en cours.
+export const metadata: Metadata = {
+  title: HOME.title,
+  description: HOME.description,
+  alternates: { canonical: "/" },
+};
 
 // Liste des restaurants / décorations : régénérée au plus toutes les 60 s
 // (et immédiatement après une modification dans le backoffice).

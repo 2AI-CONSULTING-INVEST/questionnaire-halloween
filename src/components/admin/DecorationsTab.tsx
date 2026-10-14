@@ -30,7 +30,8 @@ export function DecorationsTab({
 }) {
   const groups = useMemo(() => groupDecorations(decorations), [decorations]);
   const missing = restaurants.filter((r) => !groups.some((g) => g.restaurant_name === r));
-  const [viewer, setViewer] = useState<{ group: DecorationGroup; index: number } | null>(null);
+  const [viewer, setViewer] = useState<{ group: number; index: number } | null>(null);
+  const lightboxGroups = useMemo(() => groups.map((g) => ({ id: g.id, title: g.restaurant_name, items: g.items })), [groups]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -41,8 +42,8 @@ export function DecorationsTab({
           <Empty>Aucun média. Les votants verront un message d&apos;attente à la question 3.</Empty>
         ) : (
           <div className="flex flex-col gap-6">
-            {groups.map((g) => (
-              <GroupRow key={g.restaurant_name} group={g} canWrite={canWrite} onChanged={onChanged} onOpen={(index) => setViewer({ group: g, index })} />
+            {groups.map((g, gi) => (
+              <GroupRow key={g.restaurant_name} group={g} canWrite={canWrite} onChanged={onChanged} onOpen={(index) => setViewer({ group: gi, index })} />
             ))}
           </div>
         )}
@@ -56,9 +57,8 @@ export function DecorationsTab({
       <MediaLightbox
         open={viewer !== null}
         onOpenChange={(open) => !open && setViewer(null)}
-        title={viewer?.group.restaurant_name ?? ""}
-        items={viewer?.group.items ?? []}
-        startIndex={viewer?.index ?? 0}
+        groups={lightboxGroups}
+        start={viewer ?? { group: 0, index: 0 }}
       />
     </div>
   );
