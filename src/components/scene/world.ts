@@ -19,6 +19,7 @@ import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { createCrypt, type CryptArea, type ResultsData } from "./crypt";
 import { createGraveyard, createGround, createReaperClearing, outdoorPose, type GraveyardArea } from "./outdoor";
 import type { Area, Flame, Frame, Kit, Pose, SceneName } from "./types";
+import { BASE_PATH } from "@/lib/base-path";
 
 export type { ResultsData } from "./crypt";
 export type { SceneName } from "./types";
@@ -52,17 +53,17 @@ export type World = {
   dispose(): void;
 };
 
-const MODEL_URL = "/3d/halloween.glb";
+const MODEL_URL = BASE_PATH + "/3d/halloween.glb";
 /** Faucheuse : KayKit « Skeleton Rogue » (CC0), capuche repeinte, 3 animations. */
-const REAPER_URL = "/3d/reaper.glb";
+const REAPER_URL = BASE_PATH + "/3d/reaper.glb";
 /** Rochers, arbres nus, buissons (KayKit Forest Nature, feuillage assombri). */
-const FOREST_URL = "/3d/forest.glb";
+const FOREST_URL = BASE_PATH + "/3d/forest.glb";
 /** Salle de la crypte (KayKit Dungeon) — chargée seulement quand on s'en approche. */
-const DUNGEON_URL = "/3d/dungeon.glb";
+const DUNGEON_URL = BASE_PATH + "/3d/dungeon.glb";
 /** Atlas Dungeon seul (violet, or, bois…) pour le chaudron, les cadeaux, la faux, les chapeaux. */
-const DUNGEON_TEX_URL = "/3d/dungeon_texture.png";
+const DUNGEON_TEX_URL = BASE_PATH + "/3d/dungeon_texture.png";
 /** Logos Chamas Tacos 3D style KayKit (versions Halloween) : wordmark au cimetière, badge dans la crypte. */
-const LOGOS_URL = "/3d/logos.glb";
+const LOGOS_URL = BASE_PATH + "/3d/logos.glb";
 
 type Palette = {
   fog: string; near: number; far: number;

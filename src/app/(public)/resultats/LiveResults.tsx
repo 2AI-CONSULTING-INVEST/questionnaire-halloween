@@ -11,6 +11,7 @@ import { Emoji } from "@/components/questionnaire/ui";
 import type { PublicResults } from "@/lib/public-results";
 import { shortName } from "@/lib/schema";
 import { displayName, tabTitle } from "@/lib/site";
+import { withBase } from "@/lib/base-path";
 
 const pct = (v: number) => `${Math.round(v * 1000) / 10}`.replace(".", ",") + " %";
 
@@ -51,7 +52,7 @@ export function LiveResults({ initial }: { initial: PublicResults }) {
     const id = setInterval(async () => {
       if (document.hidden) return;
       try {
-        const res = await fetch("/api/results", { cache: "no-store" });
+        const res = await fetch(withBase("/api/results"), { cache: "no-store" });
         if (res.ok) setData(await res.json());
       } catch {
         /* nouvel essai au prochain tick */
@@ -139,7 +140,7 @@ export function LiveResults({ initial }: { initial: PublicResults }) {
             {/* Motte de terre (rendu des assets KayKit Halloween Bits + Forest Nature), au bas-centre
                 de l'écran, légèrement enfoncée sous le bord. */}
             <Image
-              src="/halloween/modal-mound.png"
+              src={withBase("/decor/modal-mound.png")}
               alt=""
               width={2018}
               height={585}
@@ -170,7 +171,7 @@ function LanternPost({ front = false, className = "" }: { front?: boolean; class
     >
       {/* Devant, l'image (invisible) ne sert qu'à donner au plan la taille du poteau. */}
       <Image
-        src="/halloween/modal-post.png"
+        src={withBase("/decor/modal-post.png")}
         alt=""
         unoptimized
         width={695}
@@ -226,7 +227,7 @@ function Lantern() {
       <Moths back />
       <div className="absolute inset-0 origin-[47%_0] motion-safe:animate-[sway_3.6s_ease-in-out_infinite]">
         <span className="absolute left-[47%] top-[76%] aspect-square w-[300%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(255,170,70,0.4),rgba(255,140,40,0.12)_55%,transparent)] motion-safe:animate-[flicker_2.6s_ease-in-out_infinite]" />
-        <Image src="/halloween/modal-lamp.png" alt="" unoptimized width={350} height={631} className="relative h-full w-full select-none drop-shadow-[0_8px_14px_rgba(0,0,0,0.5)]" />
+        <Image src={withBase("/decor/modal-lamp.png")} alt="" unoptimized width={350} height={631} className="relative h-full w-full select-none drop-shadow-[0_8px_14px_rgba(0,0,0,0.5)]" />
         <span className="absolute left-[47%] top-[77%] aspect-square w-[60%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(255,230,160,0.85),rgba(255,160,60,0.3)_60%,transparent)] mix-blend-screen motion-safe:animate-[flicker_1.7s_ease-in-out_infinite]" />
       </div>
       <Moths />

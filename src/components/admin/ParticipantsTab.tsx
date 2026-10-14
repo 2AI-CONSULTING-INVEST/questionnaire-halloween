@@ -4,6 +4,7 @@ import { ArrowUpDown, Download, Search, Trophy } from "lucide-react";
 import { useMemo, useState } from "react";
 import { formatFrPhone, isRaffleEntry, type Decoration, type ResponseRow } from "@/lib/schema";
 import { Button, Card, DownloadLink, Empty, fmtDate, inputClass } from "./ui";
+import { withBase } from "@/lib/base-path";
 
 type SortKey = "name" | "email" | "date";
 type Sort = { key: SortKey; asc: boolean };
@@ -51,7 +52,7 @@ export function ParticipantsTab({
   async function toggleWinner(r: ResponseRow) {
     setBusy(r.id);
     try {
-      await fetch(`/api/responses/${r.id}/winner`, {
+      await fetch(withBase(`/api/responses/${r.id}/winner`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ is_winner: !r.is_winner }),
@@ -78,7 +79,7 @@ export function ParticipantsTab({
               className={`${inputClass} w-60 pl-8`}
             />
           </div>
-          <DownloadLink href="/api/responses/export?scope=raffle&format=csv">
+          <DownloadLink href={withBase("/api/responses/export?scope=raffle&format=csv")}>
             <Download className="h-4 w-4" aria-hidden /> CSV
           </DownloadLink>
         </div>

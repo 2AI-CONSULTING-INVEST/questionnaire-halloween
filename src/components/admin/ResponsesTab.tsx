@@ -4,6 +4,7 @@ import { FileSpreadsheet, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { LABELS, type Decoration, type ResponseRow } from "@/lib/schema";
 import { Button, Card, ConfirmDialog, DownloadLink, Empty, fmtDate } from "./ui";
+import { withBase } from "@/lib/base-path";
 
 const PAGE = 50;
 
@@ -24,7 +25,7 @@ export function ResponsesTab({
   const rows = onlyCompleted ? responses.filter((r) => r.completed_at) : responses;
 
   async function remove(id: string) {
-    await fetch(`/api/responses/${id}`, { method: "DELETE" });
+    await fetch(withBase(`/api/responses/${id}`), { method: "DELETE" });
     onChanged();
   }
 
@@ -37,7 +38,7 @@ export function ResponsesTab({
             <input type="checkbox" checked={onlyCompleted} onChange={(e) => setOnlyCompleted(e.target.checked)} className="h-4 w-4 accent-yellow-400" />
             Votes validés uniquement
           </label>
-          <DownloadLink href="/api/responses/export?scope=all&format=xlsx">
+          <DownloadLink href={withBase("/api/responses/export?scope=all&format=xlsx")}>
             <FileSpreadsheet className="h-4 w-4" aria-hidden /> Excel
           </DownloadLink>
         </div>

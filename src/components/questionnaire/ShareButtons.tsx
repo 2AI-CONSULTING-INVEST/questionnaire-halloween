@@ -1,9 +1,14 @@
 "use client";
 
+import { BASE_PATH } from "@/lib/base-path";
+
 const TEXT = "🎃 Je viens de voter pour la meilleure décoration Halloween Chamas Tacos ! À votre tour 👻";
 
+/** Lien partagé : la page du vote (www.chamas-nord.fr/halloween). */
 function shareUrl() {
-  return process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  const origin = process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  // Tolère une valeur saisie avec /halloween ou un « / » final.
+  return origin.replace(/\/+$/, "").replace(new RegExp(`${BASE_PATH}$`), "") + BASE_PATH;
 }
 
 export function ShareButtons() {

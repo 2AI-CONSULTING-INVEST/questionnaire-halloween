@@ -1,10 +1,9 @@
 import type { MetadataRoute } from "next";
-import { siteUrl } from "@/lib/site";
+import { appUrl } from "@/lib/site";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = siteUrl();
   return [
-    { url: `${base}/`, changeFrequency: "daily", priority: 1 },
-    { url: `${base}/resultats`, changeFrequency: "hourly", priority: 0.8 },
+    { url: appUrl("/"), changeFrequency: "daily", priority: 1 },
+    { url: appUrl("/resultats"), changeFrequency: "hourly", priority: 0.8 },
   ];
 }

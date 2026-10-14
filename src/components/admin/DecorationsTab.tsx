@@ -8,6 +8,7 @@ import { MediaLightbox } from "@/components/media/MediaLightbox";
 import { groupDecorations, mediaKind, shortName, thumbOf, type Decoration, type DecorationGroup } from "@/lib/schema";
 import { prepareMedia, uploadMedia } from "./upload";
 import { Button, Card, ConfirmDialog, Empty, inputClass } from "./ui";
+import { withBase } from "@/lib/base-path";
 
 type QueueItem = {
   key: string;
@@ -209,7 +210,7 @@ function GroupRow({
         next.map((d, i) =>
           d.display_order === orders[i]
             ? null
-            : fetch(`/api/decorations/${d.id}`, {
+            : fetch(withBase(`/api/decorations/${d.id}`), {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ display_order: orders[i] }),
@@ -224,7 +225,7 @@ function GroupRow({
 
   async function remove(id: string) {
     setError(null);
-    const res = await fetch(`/api/decorations/${id}`, { method: "DELETE" });
+    const res = await fetch(withBase(`/api/decorations/${id}`), { method: "DELETE" });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       setError(body.error ?? "Suppression impossible");

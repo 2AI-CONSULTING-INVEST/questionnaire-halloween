@@ -16,6 +16,7 @@ import { ParticipantsTab } from "./ParticipantsTab";
 import { RestaurantsTab } from "./RestaurantsTab";
 import { ResponsesTab } from "./ResponsesTab";
 import { Button } from "./ui";
+import { withBase } from "@/lib/base-path";
 
 const REFRESH_MS = 30_000;
 const THEME_KEY = "chamas-admin-theme";
@@ -64,10 +65,10 @@ export function AdminDashboard({ role }: { role: Role }) {
     if (filters.restaurant !== "all") qs.set("restaurant", filters.restaurant);
     try {
       const [s, r, d, rest] = await Promise.all([
-        fetch(`/api/analytics/summary?${qs}`, { cache: "no-store" }),
-        fetch("/api/admin/responses", { cache: "no-store" }),
-        fetch("/api/decorations", { cache: "no-store" }),
-        fetch("/api/restaurants", { cache: "no-store" }),
+        fetch(withBase(`/api/analytics/summary?${qs}`), { cache: "no-store" }),
+        fetch(withBase("/api/admin/responses"), { cache: "no-store" }),
+        fetch(withBase("/api/decorations"), { cache: "no-store" }),
+        fetch(withBase("/api/restaurants"), { cache: "no-store" }),
       ]);
       if (s.status === 401 || r.status === 401) {
         router.replace("/admin/login");
@@ -99,7 +100,7 @@ export function AdminDashboard({ role }: { role: Role }) {
   }, [load]);
 
   async function logout() {
-    await fetch("/api/admin/logout", { method: "POST" });
+    await fetch(withBase("/api/admin/logout"), { method: "POST" });
     router.replace("/admin/login");
   }
 

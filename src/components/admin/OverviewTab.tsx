@@ -6,6 +6,7 @@ import { Select } from "radix-ui";
 import type { Summary } from "@/lib/analytics";
 import { FavoriteBarChart, ImpactBars, TimelineChart } from "./Charts";
 import { Card, DownloadLink, Empty, fmtPct, inputClass } from "./ui";
+import { withBase } from "@/lib/base-path";
 
 export type Filters = { from: string; to: string; restaurant: string };
 
@@ -192,13 +193,13 @@ export function OverviewTab({
         <Card title="Export des données">
           <div className="flex flex-col gap-3">
             <DownloadLink
-              href="/api/responses/export?scope=all&format=xlsx"
+              href={withBase("/api/responses/export?scope=all&format=xlsx")}
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-bold text-black transition-[filter] hover:brightness-95"
             >
               <FileSpreadsheet className="h-4 w-4" aria-hidden /> Télécharger Excel (toutes les réponses)
             </DownloadLink>
             <DownloadLink
-              href="/api/responses/export?scope=raffle&format=csv"
+              href={withBase("/api/responses/export?scope=raffle&format=csv")}
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-line px-4 text-sm font-bold text-ink transition-colors hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-800"
             >
               <Download className="h-4 w-4" aria-hidden /> Télécharger CSV (participants tirage)

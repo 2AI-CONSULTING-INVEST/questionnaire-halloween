@@ -9,6 +9,7 @@ import { Billboards, dustTexture, rand, seeded, smooth } from "./core";
 import { cloneModel, makeFlame } from "./outdoor";
 import { createSkeletonArm, createSpider, createWebGeometry, createWitchHat, DCELL, paint, roundedBox, webMaterial } from "./props";
 import type { Area, Flame, Frame, Kit, Pose } from "./types";
+import { BASE_PATH } from "@/lib/base-path";
 
 export const CRYPT_ORIGIN = new THREE.Vector3(140, 0, 0);
 
@@ -639,7 +640,7 @@ export function createCrypt(kit: Kit): CryptArea {
         const img = new Image();
         img.decoding = "async";
         img.onload = () => (dirty = true);
-        img.src = `/_next/image?url=${encodeURIComponent(res.image_url)}&w=128&q=75`;
+        img.src = `${BASE_PATH}/_next/image?url=${encodeURIComponent(res.image_url)}&w=128&q=75`;
         images.set(res.image_url, img);
       }
       dirty = true;

@@ -2,6 +2,8 @@
  * Identité du site pour les onglets et les aperçus de liens (Open Graph, X, WhatsApp…).
  * Tous les titres d'onglet commencent par « CHAMAS | », suivi de la page ou de l'étape en cours.
  */
+import { BASE_PATH } from "./base-path";
+
 export const BRAND = "CHAMAS";
 export const tabTitle = (page: string) => `${BRAND} | ${page}`;
 
@@ -28,15 +30,24 @@ export const RESULTS = {
   shareDescription: "Quel restaurant Chamas Tacos a la décoration Halloween la plus effrayante ? Le classement se met à jour en temps réel.",
 };
 
+/** Domaine de production. */
+export const PROD_ORIGIN = "https://www.chamas-nord.fr";
+
 /**
- * URL publique (liens absolus des aperçus). Sans NEXT_PUBLIC_SITE_URL, on prend l'URL de production
- * Vercel : sinon les images d'aperçu pointeraient vers localhost une fois en ligne.
+ * Origine publique, sans chemin (liens absolus des aperçus, sitemap) : NEXT_PUBLIC_SITE_URL, sinon
+ * le domaine de production sur Vercel (les images d'aperçu ne doivent jamais pointer vers localhost),
+ * l'URL du déploiement pour les prévisualisations, et localhost en local.
+ * Tolère une valeur saisie avec /halloween ou un « / » final.
  */
 export function siteUrl() {
-  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
-  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
-  return vercel ? `https://${vercel}` : "http://localhost:3000";
+  const env = process.env.NEXT_PUBLIC_SITE_URL;
+  if (env) return env.replace(/\/+$/, "").replace(new RegExp(`${BASE_PATH}$`), "");
+  if (process.env.VERCEL_ENV === "production") return PROD_ORIGIN;
+  return process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000";
 }
+
+/** Adresse publique du vote : www.chamas-nord.fr/halloween. */
+export const appUrl = (path = "") => `${siteUrl()}${BASE_PATH}${path}`;
 
 /** « CHAMAS TACOS - LILLE MOULINS » → « Lille Moulins ». */
 export const displayName = (restaurant: string) =>

@@ -1,5 +1,7 @@
 "use client";
 
+import { withBase } from "@/lib/base-path";
+
 /**
  * Auto-save « live » : chaque réponse est envoyée immédiatement (ou après un
  * debounce pour les champs texte). Les envois échoués sont conservés et
@@ -36,7 +38,7 @@ export function initSaver(id: string) {
 export async function createSession(id: string) {
   sessionId = id;
   try {
-    await fetch("/api/responses/create", {
+    await fetch(withBase("/api/responses/create"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: id }),
@@ -70,7 +72,7 @@ export async function flush(): Promise<void> {
 
   inflight = (async () => {
     try {
-      const res = await fetch(`/api/responses/${sessionId}/update`, {
+      const res = await fetch(withBase(`/api/responses/${sessionId}/update`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sent),
@@ -106,6 +108,6 @@ if (typeof window !== "undefined") {
   window.addEventListener("pagehide", () => {
     if (!sessionId || Object.keys(pending).length === 0) return;
     const blob = new Blob([JSON.stringify(pending)], { type: "application/json" });
-    if (navigator.sendBeacon(`/api/responses/${sessionId}/update`, blob)) pending = {};
+    if (navigator.sendBeacon(withBase(`/api/responses/${sessionId}/update`), blob)) pending = {};
   });
 }

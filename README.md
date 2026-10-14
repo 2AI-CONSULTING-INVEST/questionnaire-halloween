@@ -2,9 +2,11 @@
 
 Questionnaire de vote façon Typeform, avec enregistrement en direct, décor 3D animé et mini-backoffice.
 
-- **Questionnaire** `/` : une question par écran, raccourcis clavier (A/B/C, O/N, Entrée), auto-save à chaque réponse, reprise après fermeture d'onglet.
-- **Résultats publics** `/resultats` : classement en direct, sans aucune donnée personnelle.
-- **Backoffice** `/admin` : KPI, résultats, graphiques, participants au tirage (marquer les gagnants), réponses, gestion des photos et des restaurants, exports Excel/CSV, mode sombre, actualisation toutes les 30 s.
+En ligne sur **https://www.chamas-nord.fr/halloween**. L'app est servie sous `/halloween` (`basePath`, voir `src/lib/base-path.ts`) ; pour l'instant, tout le reste du domaine (racine, anciens liens) y est redirigé (307, temporaire).
+
+- **Questionnaire** `/halloween` : une question par écran, raccourcis clavier (A/B/C, O/N, Entrée), auto-save à chaque réponse, reprise après fermeture d'onglet.
+- **Résultats publics** `/halloween/resultats` : classement en direct, sans aucune donnée personnelle.
+- **Backoffice** `/halloween/admin` : KPI, résultats, graphiques, participants au tirage (marquer les gagnants), réponses, gestion des photos et des restaurants, exports Excel/CSV, mode sombre, actualisation toutes les 30 s.
 
 Stack : Next.js 16 (App Router) · React 19 · Tailwind CSS 4 · Radix UI · Zustand · Zod · Framer Motion · Three.js · Recharts · Supabase · papaparse + SheetJS.
 
@@ -50,12 +52,14 @@ Le RLS est activé **sans policy** : la clé publique `anon` ne peut rien lire n
 | `ADMIN_PASSWORD` | ✅ | Mot de passe backoffice en lecture/écriture |
 | `ADMIN_SESSION_SECRET` | ✅ | 32+ caractères aléatoires (`openssl rand -hex 32`) |
 | `ADMIN_READONLY_PASSWORD` | | Mot de passe en lecture seule |
-| `NEXT_PUBLIC_SITE_URL` | | URL publique, utilisée pour les partages et l'Open Graph (à défaut : l'URL de production Vercel) |
+| `NEXT_PUBLIC_SITE_URL` | | Origine publique, sans `/halloween` : `https://www.chamas-nord.fr` (partages, Open Graph, sitemap ; à défaut, ce domaine en production Vercel) |
 | `NEXT_PUBLIC_SOCIAL_URL` / `NEXT_PUBLIC_SOCIAL_LABEL` | | Lien vers le réseau social du tirage en direct (page de remerciement) |
 | `NEXT_PUBLIC_VOTE_VIDEO_URL` | | Vidéo optionnelle au-dessus de la question 4 |
 | `SUPABASE_STORAGE_BUCKET` | | `decorations` par défaut |
 
-3. Déployez, puis ajoutez votre domaine dans **Settings → Domains**.
+3. Déployez, puis ajoutez le domaine dans **Settings → Domains** : `www.chamas-nord.fr` (principal) et `chamas-nord.fr` (redirigé vers www). Chez OVH (zone DNS) : enregistrement A de `@` vers l'IP indiquée par Vercel, CNAME de `www` vers la cible indiquée par Vercel, en supprimant les A/AAAA/CNAME par défaut d'OVH (laisser MX et TXT).
+
+> Tout chemin interne que Next ne réécrit pas (`fetch`, `<a>` bruts, chargeurs 3D, `src` d'images) doit passer par `withBase()`.
 4. Allez sur `/admin` → onglet **Décorations** et ajoutez les photos et vidéos de chaque restaurant (format vertical conseillé, voir « Médias » plus bas).
 
 > Les variables Supabase doivent être présentes **au moment du build** : la page d'accueil est pré-générée, puis régénérée au plus toutes les 60 s et immédiatement après chaque modification faite dans le backoffice.

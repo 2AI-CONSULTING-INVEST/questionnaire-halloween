@@ -27,6 +27,7 @@ import { createSession, discard, flush, initSaver, onSaveStatus, save } from "./
 import { SCREENS, STEP_COUNT, STEP_OF, useQuestionnaire, type Answers, type Screen } from "./store";
 import { ChoicePill, Emoji, FieldError, KeyBadge, OkButton, pillClass, QuestionHeader, type EmojiName } from "./ui";
 import { ShareButtons } from "./ShareButtons";
+import { withBase } from "@/lib/base-path";
 
 const PERIOD_OPTIONS: { value: VisitPeriod; label: string; emoji: EmojiName }[] = [
   { value: "lundi-jeudi", label: "Lundi - Jeudi", emoji: "calendar" },
@@ -208,7 +209,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
     setSubmitting(true);
     try {
       const a = useQuestionnaire.getState().answers;
-      const res = await fetch(`/api/responses/${sessionId}/complete`, {
+      const res = await fetch(withBase(`/api/responses/${sessionId}/complete`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -240,7 +241,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
       setSubmitting(true);
       try {
         const a = useQuestionnaire.getState().answers;
-        const res = await fetch(`/api/responses/${sessionId}/raffle`, {
+        const res = await fetch(withBase(`/api/responses/${sessionId}/raffle`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(

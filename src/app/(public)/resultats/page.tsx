@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getPublicResults } from "@/lib/public-results";
+import { withBase } from "@/lib/base-path";
 import { OG_BASE, RESULTS } from "@/lib/site";
 import { LiveResults } from "./LiveResults";
 
@@ -10,8 +11,9 @@ export const revalidate = 15;
 export const metadata: Metadata = {
   title: RESULTS.title,
   description: RESULTS.description,
-  alternates: { canonical: "/resultats" },
-  openGraph: { ...OG_BASE, url: "/resultats", title: RESULTS.shareTitle, description: RESULTS.shareDescription },
+  // Next ne préfixe pas canonical / og:url par basePath.
+  alternates: { canonical: withBase("/resultats") },
+  openGraph: { ...OG_BASE, url: withBase("/resultats"), title: RESULTS.shareTitle, description: RESULTS.shareDescription },
   twitter: { card: "summary_large_image", title: RESULTS.shareTitle, description: RESULTS.shareDescription },
 };
 

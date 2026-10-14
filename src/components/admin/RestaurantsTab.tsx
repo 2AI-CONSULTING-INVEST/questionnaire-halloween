@@ -4,6 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { Restaurant } from "@/lib/schema";
 import { Button, Card, ConfirmDialog, Empty, inputClass } from "./ui";
+import { withBase } from "@/lib/base-path";
 
 export function RestaurantsTab({ restaurants, canWrite, onChanged }: { restaurants: Restaurant[]; canWrite: boolean; onChanged: () => void }) {
   const [name, setName] = useState("CHAMAS TACOS - ");
@@ -13,7 +14,7 @@ export function RestaurantsTab({ restaurants, canWrite, onChanged }: { restauran
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const res = await fetch("/api/restaurants", {
+    const res = await fetch(withBase("/api/restaurants"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, city }),
@@ -29,7 +30,7 @@ export function RestaurantsTab({ restaurants, canWrite, onChanged }: { restauran
   }
 
   async function remove(id: string) {
-    await fetch(`/api/restaurants/${id}`, { method: "DELETE" });
+    await fetch(withBase(`/api/restaurants/${id}`), { method: "DELETE" });
     onChanged();
   }
 

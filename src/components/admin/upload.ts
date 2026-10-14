@@ -1,6 +1,7 @@
 "use client";
 
 import { MEDIA_LIMITS } from "@/lib/schema";
+import { withBase } from "@/lib/base-path";
 
 /**
  * Préparation des médias dans le navigateur, avant l'envoi :
@@ -192,7 +193,7 @@ type Target = { signedUrl: string; publicUrl: string };
 
 /** Envoie un média préparé et l'ajoute au restaurant. */
 export async function uploadMedia(restaurant: string, media: PreparedMedia, onProgress: (p: number) => void) {
-  const plan = (await postJson("/api/decorations/upload", { type: media.type, poster: !!media.poster })) as
+  const plan = (await postJson(withBase("/api/decorations/upload"), { type: media.type, poster: !!media.poster })) as
     | { mode: "form" }
     | { mode: "direct"; media: Target; poster: Target | null };
 
@@ -201,12 +202,12 @@ export async function uploadMedia(restaurant: string, media: PreparedMedia, onPr
     form.set("restaurant_name", restaurant);
     form.set("media", new File([media.file], `media.${media.type.split("/")[1]}`, { type: media.type }));
     if (media.poster) form.set("poster", new File([media.poster], "poster.jpg", { type: "image/jpeg" }));
-    await send("POST", "/api/decorations", form, {}, onProgress);
+    await send("POST", withBase("/api/decorations"), form, {}, onProgress);
     return;
   }
 
   const headers = (type: string) => ({ "content-type": type, "cache-control": "max-age=31536000", "x-upsert": "false" });
   if (media.poster && plan.poster) await send("PUT", plan.poster.signedUrl, media.poster, headers("image/jpeg"));
   await send("PUT", plan.media.signedUrl, media.file, headers(media.type), onProgress);
-  await postJson("/api/decorations", { restaurant_name: restaurant, image_url: plan.media.publicUrl });
+  await postJson(withBase("/api/decorations"), { restaurant_name: restaurant, image_url: plan.media.publicUrl });
 }

@@ -1,10 +1,22 @@
 import type { NextConfig } from "next";
+import { BASE_PATH } from "./src/lib/base-path";
 
 const supabaseHost = process.env.NEXT_PUBLIC_SUPABASE_URL
   ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname
   : undefined;
 
 const nextConfig: NextConfig = {
+  // L'app vit sous www.chamas-nord.fr/halloween ; le reste du domaine y est renvoyé (voir redirects).
+  basePath: BASE_PATH,
+  async redirects() {
+    return [
+      // Pour l'instant, tout le domaine mène au vote : la racine, et tout chemin hors de /halloween
+      // (robots.txt, favicon.ico, anciens liens /resultats…). Temporaire (307) : la racine
+      // accueillera autre chose plus tard.
+      { source: "/", destination: BASE_PATH, basePath: false, permanent: false },
+      { source: `/:path((?!${BASE_PATH.slice(1)}(?:/|$)).+)`, destination: `${BASE_PATH}/:path`, basePath: false, permanent: false },
+    ];
+  },
   turbopack: {
     rules: {
       "*.css": {

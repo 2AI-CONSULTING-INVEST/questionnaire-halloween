@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 import { Questionnaire } from "@/components/questionnaire/Questionnaire";
 import { getStore } from "@/lib/db";
+import { BASE_PATH } from "@/lib/base-path";
 import { HOME } from "@/lib/site";
 
 // Titre complet (« CHAMAS | … ») : ensuite le questionnaire l'adapte à l'étape en cours.
 export const metadata: Metadata = {
   title: HOME.title,
   description: HOME.description,
-  alternates: { canonical: "/" },
+  // Next ne préfixe pas canonical / og:url par basePath.
+  alternates: { canonical: BASE_PATH },
 };
 
 // Liste des restaurants / décorations : régénérée au plus toutes les 60 s
