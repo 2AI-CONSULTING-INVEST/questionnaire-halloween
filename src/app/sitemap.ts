@@ -5,5 +5,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     { url: appUrl("/"), changeFrequency: "daily", priority: 1 },
     { url: appUrl("/resultats"), changeFrequency: "hourly", priority: 0.8 },
+    { url: appUrl("/participants"), changeFrequency: "hourly", priority: 0.7 },
   ];
 }

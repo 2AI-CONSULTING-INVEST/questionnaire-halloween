@@ -34,7 +34,40 @@ const trimmed = (max: number) => z.string().trim().max(max);
 
 export const commentSchema = trimmed(COMMENT_MAX)
   .refine((v) => COMMENT_RE.test(v) && !/[<>]/.test(v), "Caractères non autorisés");
-export const nameSchema = z.string().trim().min(2, "2 caractères minimum").max(50, "50 caractères maximum");
+
+// ---------------------------------------------------------------------------
+// Pseudonyme du tirage au sort : affiché publiquement dans la liste des participants.
+// 3 à 24 caractères : lettres (accents acceptés), chiffres, espace, « . », « _ », « - ».
+// ---------------------------------------------------------------------------
+
+export const PSEUDO_MIN = 3;
+export const PSEUDO_MAX = 24;
+const PSEUDO_RE = /^[\p{L}\p{N} ._-]+$/u;
+
+/** Espaces de début / fin retirés, espaces multiples fusionnés. */
+export const normalizePseudo = (v: string) => v.trim().replace(/\s+/g, " ");
+
+/**
+ * Clé d'unicité d'un pseudonyme : minuscules, sans accents, espaces fusionnés.
+ * « Élodie  Dupont » et « elodie dupont » désignent le même pseudo.
+ */
+export const pseudoKey = (v: string) =>
+  normalizePseudo(v)
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+
+export const pseudoSchema = z
+  .string()
+  .transform(normalizePseudo)
+  .pipe(
+    z
+      .string()
+      .min(PSEUDO_MIN, `${PSEUDO_MIN} caractères minimum`)
+      .max(PSEUDO_MAX, `${PSEUDO_MAX} caractères maximum`)
+      .regex(PSEUDO_RE, "Lettres, chiffres, espaces, « . », « _ » et « - » uniquement"),
+  );
+
 export const emailSchema = z.string().trim().toLowerCase().max(255).email("Adresse email invalide");
 export const phoneSchema = z
   .string()
@@ -47,7 +80,11 @@ export const phoneSchema = z
     return n;
   });
 
-/** Champs mis à jour en direct (auto-save). Chaque champ est optionnel ; null efface la valeur. */
+/**
+ * Champs mis à jour en direct (auto-save). Chaque champ est optionnel ; null efface la valeur.
+ * Les coordonnées du tirage (pseudo, téléphone, email) ne sont jamais enregistrées en direct :
+ * elles ne partent qu'à la confirmation (minimisation des données).
+ */
 export const responsePatchSchema = z
   .object({
     voter_type: z.enum(VOTER_TYPES).nullable(),
@@ -57,16 +94,14 @@ export const responsePatchSchema = z
     decoration_impact: z.enum(IMPACTS).nullable(),
     comment: commentSchema.nullable(),
     wants_raffle: z.boolean().nullable(),
-    participant_name: nameSchema.nullable(),
-    phone_number: phoneSchema.nullable(),
-    email: emailSchema.nullable(),
   })
   .partial()
   .strict();
 
 export type ResponsePatch = z.infer<typeof responsePatchSchema>;
 
-export const RAFFLE_FIELDS = ["wants_raffle", "participant_name", "phone_number", "email"] as const;
+/** Champs encore modifiables une fois le vote validé. */
+export const RAFFLE_FIELDS = ["wants_raffle"] as const;
 
 /**
  * Validation du vote (questions 1 → 5). Comme dans le Typeform, le vote est enregistré avant le tirage au sort.
@@ -82,23 +117,30 @@ export const voteCompleteSchema = z
   })
   .strict();
 
-/** Validation finale du tirage au sort (Q7). */
+/** Validation finale du tirage au sort (Q6) : pseudonyme + téléphone + email, confirmés dans la modale. */
 export const raffleSchema = z.discriminatedUnion("wants_raffle", [
   z.object({ wants_raffle: z.literal(false) }).strict(),
   z
     .object({
       wants_raffle: z.literal(true),
-      participant_name: nameSchema,
+      pseudo: pseudoSchema,
       phone_number: phoneSchema,
       email: emailSchema,
     })
     .strict(),
 ]);
 
-/** Un participant au tirage est valide si les 3 informations de contact sont présentes. */
-export function isRaffleEntry(r: Pick<ResponseRow, "wants_raffle" | "participant_name" | "phone_number" | "email" | "completed_at">) {
-  return Boolean(r.completed_at && r.wants_raffle && r.participant_name && r.phone_number && r.email);
-}
+export type RaffleEntry = Extract<z.infer<typeof raffleSchema>, { wants_raffle: true }>;
+
+/** Coordonnées d'un participant, prêtes à enregistrer (normalisées, clé de pseudo calculée). */
+export type ParticipantInput = { pseudo: string; pseudo_key: string; email: string; phone_number: string };
+
+export const participantInput = (e: RaffleEntry): ParticipantInput => ({
+  pseudo: e.pseudo,
+  pseudo_key: pseudoKey(e.pseudo),
+  email: e.email,
+  phone_number: e.phone_number,
+});
 
 export type ResponseRow = {
   id: string;
@@ -110,16 +152,49 @@ export type ResponseRow = {
   decoration_impact: Impact | null;
   comment: string | null;
   wants_raffle: boolean | null;
+  /** Anciennes colonnes (réponses d'avant la table participants) : lues, plus jamais écrites. */
   participant_name: string | null;
   phone_number: string | null;
   email: string | null;
   is_winner: boolean;
+  /** Inscription au tirage reliée à cette réponse. */
+  participant_id: string | null;
+  /** Identifiant de l'appareil (cookie hw_voter) et jour du vote à Paris : un vote par jour. */
+  voter_id: string | null;
+  vote_day: string | null;
   completed_at: string | null;
   created_at: string;
   updated_at: string;
   ip_address: string | null;
   user_agent: string | null;
 };
+
+/** Participant au tirage au sort : une personne (email / téléphone / pseudo uniques). */
+export type Participant = {
+  id: string;
+  pseudo: string;
+  pseudo_key: string;
+  email: string;
+  phone_number: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Lot à gagner ; un lot a au plus un gagnant, un participant gagne au plus un lot. */
+export type Prize = {
+  id: string;
+  name: string;
+  description: string | null;
+  image_url: string | null;
+  display_order: number;
+  winner_participant_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export const PRIZE_DESCRIPTION_MAX = 500;
+export const prizeNameSchema = z.string().trim().min(2, "2 caractères minimum").max(120, "120 caractères maximum");
+export const prizeDescriptionSchema = z.string().trim().max(PRIZE_DESCRIPTION_MAX, `${PRIZE_DESCRIPTION_MAX} caractères maximum`);
 
 export type Decoration = {
   id: string;
@@ -172,6 +247,13 @@ export function posterOf(url: string) {
 export function thumbOf(d: Pick<Decoration, "image_url">) {
   return mediaKind(d.image_url) === "video" ? posterOf(d.image_url) : d.image_url;
 }
+
+/**
+ * Média du stockage local (développement : /seed, /uploads) et non du bucket Supabase (URL absolue).
+ * Ceux-là sont affichés sans l'optimiseur d'images : sa requête interne ignore le basePath et tombe
+ * sur la redirection globale vers /halloween.
+ */
+export const isLocalMedia = (url: string) => url.startsWith("/");
 
 export type DecorationGroup = {
   /** Média de couverture : c'est son id qui est enregistré comme vote. */

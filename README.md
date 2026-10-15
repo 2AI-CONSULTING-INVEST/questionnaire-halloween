@@ -4,9 +4,10 @@ Questionnaire de vote façon Typeform, avec enregistrement en direct, décor 3D 
 
 En ligne sur **https://www.chamas-nord.fr/halloween**. L'app est servie sous `/halloween` (`basePath`, voir `src/lib/base-path.ts`) ; pour l'instant, tout le reste du domaine (racine, anciens liens) y est redirigé (307, temporaire).
 
-- **Questionnaire** `/halloween` : une question par écran, raccourcis clavier (A/B/C, O/N, Entrée), auto-save à chaque réponse, reprise après fermeture d'onglet.
+- **Questionnaire** `/halloween` : une question par écran, raccourcis clavier (A/B/C, O/N, Entrée), auto-save à chaque réponse, reprise après fermeture d'onglet, **un vote par appareil et par jour** (réinitialisé à minuit, heure de Paris).
 - **Résultats publics** `/halloween/resultats` : classement en direct, sans aucune donnée personnelle.
-- **Backoffice** `/halloween/admin` : KPI, résultats, graphiques, participants au tirage (marquer les gagnants), réponses, gestion des photos et des restaurants, exports Excel/CSV, mode sombre, actualisation toutes les 30 s.
+- **Tirage au sort** `/halloween/participants` : les lots à gagner, la liste des participants (pseudonymes uniquement, recherche, affichage par paquets) et les gagnants dès qu'ils sont désignés.
+- **Backoffice** `/halloween/admin` : KPI, résultats, graphiques, participants au tirage (attribuer les lots, modérer les pseudos), lots (photos, descriptions), réponses, gestion des photos et des restaurants, exports Excel/CSV, mode sombre, actualisation toutes les 30 s.
 
 Stack : Next.js 16 (App Router) · React 19 · Tailwind CSS 4 · Radix UI · Zustand · Zod · Framer Motion · Three.js · Recharts · Supabase · papaparse + SheetJS.
 
@@ -35,10 +36,29 @@ Sans variables Supabase, l'app utilise un fichier local `.data/db.json`, pré-re
 ### 1. Supabase (~5 min)
 
 1. Créez un projet sur [supabase.com](https://supabase.com) (région UE, ex. Paris ou Francfort).
-2. **SQL Editor** → collez puis exécutez `supabase/schema.sql`. Ce script crée les tables, les index, le trigger `updated_at`, le bucket public `decorations` et la liste des 6 restaurants.
+2. **SQL Editor** → collez puis exécutez `supabase/schema.sql`. Ce script crée les tables (dont `participants` et `prizes`), les index, les triggers `updated_at`, le bucket public `decorations` et la liste des 3 restaurants participants (Lille Fives, Lille Moulins, Villeneuve d'Ascq).
 3. **Project settings → API** : notez l'URL du projet et la clé `service_role`.
 
 Le RLS est activé **sans policy** : la clé publique `anon` ne peut rien lire ni écrire. Tout passe par les routes API Next.js, côté serveur, avec la clé `service_role`. Cette clé ne doit jamais être exposée au navigateur (pas de préfixe `NEXT_PUBLIC_`).
+
+#### Repartir d'une base vide (remise à zéro complète)
+
+**Irréversible** : supprime tous les votes, participants, lots, restaurants et décorations. À faire juste avant de déployer, tant qu'il n'y a pas de vrais votes.
+
+1. **SQL Editor** → exécutez `supabase/reset.sql` (supprime les tables et fonctions de l'application).
+2. **SQL Editor** → exécutez `supabase/schema.sql` (recrée toute la structure et les 3 restaurants).
+3. Facultatif : **Storage → decorations**, supprimez les anciens fichiers (ils ne sont plus référencés).
+4. Déployez, puis rajoutez les photos des décorations et les lots dans le backoffice.
+
+La migration ci-dessous est alors inutile.
+
+#### Base déjà en service : migration « tirage au sort et vote quotidien »
+
+À faire **avant** de déployer le code qui contient la table `participants` (sinon les inscriptions au tirage et la validation des votes échouent) :
+
+1. **SQL Editor** → collez puis exécutez `supabase/migrations/2026-10-14_tirage-vote-quotidien.sql`. Le script est idempotent (relançable) et transactionnel : il crée `participants` et `prizes`, ajoute `participant_id`, `voter_id` et `vote_day` à `responses` avec l'index unique « un vote par appareil et par jour », renseigne `vote_day` des votes déjà validés (heure de Paris), puis reprend les inscriptions existantes au tirage dans `participants` (même email ou même téléphone = même personne, la plus ancienne est gardée ; pseudos rendus uniques par un suffixe 2, 3…).
+2. Exécutez les deux requêtes commentées à la fin du fichier : la première liste les anciens gagnants (`is_winner`) à reporter à la main dans l'onglet **Participants** (aucun lot n'est attribué automatiquement), la seconde les éventuelles inscriptions non reprises (coordonnées invalides).
+3. Déployez le nouveau code, puis vérifiez dans le backoffice (onglets **Participants** et **Lots**) et sur `/halloween/participants`.
 
 ### 2. Vercel
 
@@ -61,6 +81,7 @@ Le RLS est activé **sans policy** : la clé publique `anon` ne peut rien lire n
 
 > Tout chemin interne que Next ne réécrit pas (`fetch`, `<a>` bruts, chargeurs 3D, `src` d'images) doit passer par `withBase()`.
 4. Allez sur `/admin` → onglet **Décorations** et ajoutez les photos et vidéos de chaque restaurant (format vertical conseillé, voir « Médias » plus bas).
+5. Onglet **Lots** : saisissez les lots à gagner (nom, description, photo). Tant qu'aucun lot n'est renseigné, la page `/halloween/participants` affiche « Les lots seront dévoilés très bientôt ».
 
 > Les variables Supabase doivent être présentes **au moment du build** : la page d'accueil est pré-générée, puis régénérée au plus toutes les 60 s et immédiatement après chaque modification faite dans le backoffice.
 
@@ -75,12 +96,30 @@ Le RLS est activé **sans policy** : la clé publique `anon` ne peut rien lire n
 | 2 | Q3 · Vote : meilleure décoration (une carte par restaurant, photos et vidéos) | ✅ |
 | 3 | Q4 · Influence de la décoration | ✅ |
 | 4 | Q5 · Commentaire (300 caractères max) | — |
-| 5 | Q6 · Tirage au sort : oui/non, puis nom, téléphone FR, email | ✅ si oui |
-| 6 | Remerciements, confettis, résultats, partage | |
+| 5 | Q6 · Tirage au sort : oui/non, puis pseudonyme (public), téléphone FR, email, et **modale de vérification** avant l'envoi | ✅ si oui |
+| 6 | Remerciements, confettis, résultats, lien vers les participants et les lots, cartes « S'abonner » Instagram / TikTok, partage | |
 
 La question « Qui êtes-vous ? » a été retirée ; la colonne `voter_type` reste en base pour les éventuelles anciennes réponses.
 
-Comme dans le Typeform d'origine, **le vote est validé à la fin de l'étape 4**, avant le tirage au sort. Un votant qui ne laisse pas ses coordonnées est quand même compté. Une fois le vote validé, seuls les champs du tirage restent modifiables.
+Comme dans le Typeform d'origine, **le vote est validé à la fin de l'étape 4**, avant le tirage au sort. Un votant qui ne laisse pas ses coordonnées est quand même compté. Une fois le vote validé, seul le choix oui / non du tirage reste modifiable.
+
+### Un vote par jour
+
+- Le serveur pose un cookie d'appareil `hw_voter` (uuid aléatoire, `httpOnly`, `SameSite=Lax`, `Secure` en production, chemin `/halloween`, ≈ 400 jours) à l'ouverture de la session de vote ; il est enregistré dans `responses.voter_id` avec le jour du vote `vote_day` (Europe/Paris).
+- À la validation (`POST /api/responses/[session]/complete`), un second vote le même jour est refusé (409 `already_voted_today`) : garanti par l'index unique partiel `(voter_id, vote_day) where completed_at is not null`, y compris en requêtes parallèles. `GET /api/vote-status` indique si l'appareil a déjà voté et l'heure de réouverture.
+- Sur l'appareil, l'écran « Vous avez déjà voté aujourd'hui » remplace l'accueil, avec un compte à rebours jusqu'à minuit (heure de Paris) qui rouvre le vote sans recharger. Le lendemain, une nouvelle session démarre (coordonnées du tirage pré-remplies). Si l'inscription au tirage n'a pas été faite après le vote du jour, elle reste possible.
+- Limites, assumées : sans compte, effacer ses cookies **et** son stockage local permet de revoter. Le cookie `httpOnly`, la limitation de débit et l'unicité email / téléphone / pseudo du tirage (une seule participation par personne) atténuent les abus ; pas de blocage par IP (réseaux partagés des restaurants, 4G).
+
+### Espace démo
+
+`/halloween/demo` (réservé aux comptes du backoffice, lien « Espace démo » dans l'en-tête du backoffice) : le vrai questionnaire, avec les vrais restaurants, photos et décor 3D, mais **rien n'est envoyé au serveur**. Pas de vote compté, pas d'inscription au tirage, pas de cookie « déjà voté ». Les appels de l'API sont simulés dans le navigateur (`src/components/questionnaire/demo.ts`) avec les mêmes validations que les routes, et la session de démo a sa propre clé `localStorage` (elle ne touche pas au vrai vote de l'appareil). Un bandeau « Mode démo · rien n'est enregistré » permet de tout recommencer. Seule différence : l'unicité du pseudo, de l'email et du téléphone n'est pas vérifiée (elle demande la base).
+
+### Tirage au sort
+
+- Table `participants` : une personne = un pseudonyme (3 à 24 caractères, unique sans tenir compte de la casse ni des accents), un email et un téléphone uniques. Les coordonnées ne sont jamais enregistrées en direct pendant la saisie : elles partent à la confirmation dans la modale (minimisation des données) et ne sont gardées que dans le `localStorage` de l'appareil.
+- Même personne qui revote un autre jour (pseudo, email **et** téléphone identiques) : sa réponse est reliée à son inscription existante (« Vous êtes déjà inscrit au tirage au sort »). Conflit partiel : refus 409 avec le détail par champ, affiché dans la modale.
+- Table `prizes` : un lot a au plus un gagnant, un participant gagne au plus un lot (plusieurs exemplaires = plusieurs lots). Attribution depuis l'onglet **Participants** du backoffice.
+- Page publique `/halloween/participants` : gagnants (si un lot est attribué), lots, liste des pseudonymes (jamais d'email ni de téléphone), régénérée au plus toutes les 60 s et après chaque inscription ou modification.
 
 ### Enregistrement en direct
 
@@ -88,7 +127,7 @@ Comme dans le Typeform d'origine, **le vote est validé à la fin de l'étape 4*
 - Champs texte : envoi 1 s après la dernière frappe, et à la sortie du champ. Seules les valeurs valides sont envoyées.
 - En cas d'échec : les réponses restent en file d'attente et sont renvoyées automatiquement (délai progressif, retour du réseau). Un toast prévient l'utilisateur et un indicateur « Enregistré » s'affiche en bas à droite.
 - À la fermeture de l'onglet, les réponses en attente partent via `sendBeacon`. Les réponses sont aussi gardées dans le `localStorage` : en rouvrant la page, le votant reprend là où il s'était arrêté.
-- Si le vote est déjà fait sur cet appareil, la page de remerciement s'affiche. C'est une protection légère : l'IP et le navigateur sont stockés pour repérer les abus dans l'export.
+- Si le vote du jour est déjà fait sur cet appareil, l'écran « déjà voté » s'affiche (voir « Un vote par jour »). L'IP et le navigateur sont stockés pour repérer les abus dans l'export.
 
 ### Médias des décorations
 
@@ -124,13 +163,16 @@ Le décor (Three.js) est monté une seule fois dans `src/app/(public)/layout.tsx
 
 | Méthode | Route | Accès |
 | --- | --- | --- |
-| POST | `/api/responses/create` | public |
+| POST | `/api/responses/create` | public (pose le cookie `hw_voter` ; 409 si déjà voté aujourd'hui) |
 | PATCH/POST | `/api/responses/[session]/update` | public (auto-save) |
-| POST | `/api/responses/[session]/complete` | public (validation du vote) |
-| POST | `/api/responses/[session]/raffle` | public (validation du tirage) |
+| POST | `/api/responses/[session]/complete` | public (validation du vote ; 409 `already_voted_today`) |
+| POST | `/api/responses/[session]/raffle` | public (inscription au tirage ; 409 par champ en conflit) |
+| GET | `/api/vote-status` | public (l'appareil a-t-il voté aujourd'hui, heure de réouverture) |
 | GET / DELETE | `/api/responses/[id]` | admin (lecture / écriture) |
-| PATCH | `/api/responses/[id]/winner` | admin (écriture) |
-| GET/POST | `/api/responses/export?scope=all\|raffle&format=xlsx\|csv` | admin |
+| GET | `/api/admin/participants` | admin (lecture) |
+| PATCH / DELETE | `/api/participants/[id]` | admin (modération du pseudo, suppression) |
+| GET / POST | `/api/prizes` · PATCH / DELETE `/api/prizes/[id]` | admin (lots, image, gagnant) |
+| GET/POST | `/api/responses/export?scope=all\|participants&format=xlsx\|csv` | admin |
 | GET | `/api/analytics/summary` · `by-restaurant` (filtres `from`, `to`, `restaurant`) | admin |
 | GET | `/api/results` | public (totaux uniquement) |
 | GET/POST/PATCH/DELETE | `/api/decorations`, `/api/restaurants` | lecture publique, écriture admin |
@@ -140,7 +182,9 @@ Le décor (Three.js) est monté une seule fois dans `src/app/(public)/layout.tsx
 
 - Validation Zod côté client **et** côté serveur. Commentaire limité à 300 caractères, sans `<` ni `>`. Téléphone FR normalisé en `+33…`. Email validé.
 - Limitation à 100 requêtes/min par IP (10/min sur la connexion admin). Ce compteur est en mémoire, donc propre à chaque instance serverless : il freine les abus simples mais ne remplace pas un WAF.
-- Cookie admin signé HMAC, `httpOnly`, `SameSite=Strict`, `Secure` en production, valable 12 h.
+- Cookie admin signé HMAC, `httpOnly`, `SameSite=Strict`, `Secure` en production, valable 12 h. Cookie d'appareil `hw_voter` `httpOnly`, `SameSite=Lax`, sans donnée personnelle.
+- Unicité (pseudo, email, téléphone, gagnant d'un lot) garantie par la base : l'erreur `23505` est traduite en champ en conflit d'après le nom de la contrainte, pas de « vérifier puis insérer » seul.
+- La page `/halloween/participants` et ses données ne contiennent que des pseudonymes (React échappe le texte ; aucun `dangerouslySetInnerHTML`).
 - Les exports neutralisent l'injection de formules Excel.
 - En-têtes de sécurité : `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`.
 

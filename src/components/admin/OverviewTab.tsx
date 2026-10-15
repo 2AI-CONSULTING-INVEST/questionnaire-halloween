@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Check, ChevronDown, Download, FileSpreadsheet, Trophy } from "lucide-react";
 import { Select } from "radix-ui";
 import type { Summary } from "@/lib/analytics";
+import { isLocalMedia } from "@/lib/schema";
 import { FavoriteBarChart, ImpactBars, TimelineChart } from "./Charts";
 import { Card, DownloadLink, Empty, fmtPct, inputClass } from "./ui";
 import { withBase } from "@/lib/base-path";
@@ -165,7 +166,7 @@ export function OverviewTab({
                       <div className="flex items-center gap-3">
                         <span className="w-4 text-xs font-bold text-muted">{i + 1}</span>
                         <div className="relative aspect-[3/4] w-10 shrink-0 overflow-hidden rounded bg-gray-100">
-                          <Image src={d.image_url} alt="" fill sizes="40px" className="object-cover" />
+                          <Image src={d.image_url} alt="" fill sizes="40px" unoptimized={isLocalMedia(d.image_url)} className="object-cover" />
                         </div>
                         <span className="font-medium text-ink dark:text-zinc-100">{d.restaurant_name}</span>
                       </div>
@@ -199,7 +200,7 @@ export function OverviewTab({
               <FileSpreadsheet className="h-4 w-4" aria-hidden /> Télécharger Excel (toutes les réponses)
             </DownloadLink>
             <DownloadLink
-              href={withBase("/api/responses/export?scope=raffle&format=csv")}
+              href={withBase("/api/responses/export?scope=participants&format=csv")}
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-line px-4 text-sm font-bold text-ink transition-colors hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-800"
             >
               <Download className="h-4 w-4" aria-hidden /> Télécharger CSV (participants tirage)

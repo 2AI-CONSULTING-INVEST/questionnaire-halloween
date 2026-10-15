@@ -29,6 +29,13 @@ export async function prepareMedia(file: File): Promise<PreparedMedia> {
   throw new Error("Format non pris en charge (photo ou vidéo uniquement).");
 }
 
+/** Photos uniquement (image d'un lot). */
+export async function prepareImageOnly(file: File): Promise<PreparedMedia> {
+  const name = file.name.toLowerCase();
+  if (file.type.startsWith("image/") || /\.(jpe?g|png|webp|avif|heic|heif)$/.test(name)) return prepareImage(file);
+  throw new Error("Format non pris en charge (photo uniquement).");
+}
+
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
   return new Promise<Blob>((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Conversion impossible"))), type, quality),
@@ -160,7 +167,7 @@ async function prepareVideo(file: File): Promise<PreparedMedia> {
 
 // ---------------------------------------------------------------------------
 
-function send(method: "PUT" | "POST", url: string, body: Blob | FormData, headers: Record<string, string>, onProgress?: (p: number) => void) {
+function send(method: "PUT" | "POST" | "PATCH", url: string, body: Blob | FormData, headers: Record<string, string>, onProgress?: (p: number) => void) {
   return new Promise<string>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open(method, url);
@@ -182,8 +189,8 @@ function send(method: "PUT" | "POST", url: string, body: Blob | FormData, header
   });
 }
 
-async function postJson(url: string, data: unknown) {
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+async function sendJson(method: "POST" | "PATCH", url: string, data: unknown) {
+  const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown> & { error?: string };
   if (!res.ok) throw new Error(body.error ?? `Erreur ${res.status}`);
   return body;
@@ -191,23 +198,60 @@ async function postJson(url: string, data: unknown) {
 
 type Target = { signedUrl: string; publicUrl: string };
 
-/** Envoie un média préparé et l'ajoute au restaurant. */
-export async function uploadMedia(restaurant: string, media: PreparedMedia, onProgress: (p: number) => void) {
-  const plan = (await postJson(withBase("/api/decorations/upload"), { type: media.type, poster: !!media.poster })) as
+/**
+ * Envoie un média préparé vers le stockage (Supabase : URL signée, directement depuis le navigateur).
+ * Renvoie son URL publique, ou null en stockage local : le fichier doit alors partir en multipart
+ * avec la ressource (décoration, lot) qui le reçoit.
+ */
+export async function storeMedia(media: PreparedMedia, onProgress: (p: number) => void): Promise<string | null> {
+  const plan = (await sendJson("POST", withBase("/api/decorations/upload"), { type: media.type, poster: !!media.poster })) as
     | { mode: "form" }
     | { mode: "direct"; media: Target; poster: Target | null };
+  if (plan.mode === "form") return null;
+  const headers = (type: string) => ({ "content-type": type, "cache-control": "max-age=31536000", "x-upsert": "false" });
+  if (media.poster && plan.poster) await send("PUT", plan.poster.signedUrl, media.poster, headers("image/jpeg"));
+  await send("PUT", plan.media.signedUrl, media.file, headers(media.type), onProgress);
+  return plan.media.publicUrl;
+}
 
-  if (plan.mode === "form") {
+const asFile = (media: PreparedMedia) => new File([media.file], `media.${media.type.split("/")[1]}`, { type: media.type });
+
+/** Envoie un média préparé et l'ajoute au restaurant. */
+export async function uploadMedia(restaurant: string, media: PreparedMedia, onProgress: (p: number) => void) {
+  const url = await storeMedia(media, onProgress);
+  if (url === null) {
     const form = new FormData();
     form.set("restaurant_name", restaurant);
-    form.set("media", new File([media.file], `media.${media.type.split("/")[1]}`, { type: media.type }));
+    form.set("media", asFile(media));
     if (media.poster) form.set("poster", new File([media.poster], "poster.jpg", { type: "image/jpeg" }));
     await send("POST", withBase("/api/decorations"), form, {}, onProgress);
     return;
   }
+  await sendJson("POST", withBase("/api/decorations"), { restaurant_name: restaurant, image_url: url });
+}
 
-  const headers = (type: string) => ({ "content-type": type, "cache-control": "max-age=31536000", "x-upsert": "false" });
-  if (media.poster && plan.poster) await send("PUT", plan.poster.signedUrl, media.poster, headers("image/jpeg"));
-  await send("PUT", plan.media.signedUrl, media.file, headers(media.type), onProgress);
-  await postJson(withBase("/api/decorations"), { restaurant_name: restaurant, image_url: plan.media.publicUrl });
+/** Crée un lot, avec son image éventuelle (même chaîne d'envoi que les décorations). */
+export async function createPrize(fields: { name: string; description: string }, image: PreparedMedia | null, onProgress: (p: number) => void) {
+  const url = image ? await storeMedia(image, onProgress) : null;
+  if (image && url === null) {
+    const form = new FormData();
+    form.set("name", fields.name);
+    form.set("description", fields.description);
+    form.set("image", asFile(image));
+    await send("POST", withBase("/api/prizes"), form, {}, onProgress);
+    return;
+  }
+  await sendJson("POST", withBase("/api/prizes"), { ...fields, image_url: url });
+}
+
+/** Remplace l'image d'un lot (l'ancienne est supprimée par le serveur). */
+export async function replacePrizeImage(prizeId: string, image: PreparedMedia, onProgress: (p: number) => void) {
+  const url = await storeMedia(image, onProgress);
+  if (url === null) {
+    const form = new FormData();
+    form.set("image", asFile(image));
+    await send("PATCH", withBase(`/api/prizes/${prizeId}`), form, {}, onProgress);
+    return;
+  }
+  await sendJson("PATCH", withBase(`/api/prizes/${prizeId}`), { image_url: url });
 }

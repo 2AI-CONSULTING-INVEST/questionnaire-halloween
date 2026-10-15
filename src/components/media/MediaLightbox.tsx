@@ -4,7 +4,7 @@ import Image from "next/image";
 import { ChevronLeft, ChevronRight, Play, VideoOff, X } from "lucide-react";
 import { Dialog } from "radix-ui";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { mediaKind, posterOf, shortName, type Decoration } from "@/lib/schema";
+import { isLocalMedia, mediaKind, posterOf, shortName, type Decoration } from "@/lib/schema";
 
 export type LightboxGroup = { id: string; title: string; items: Decoration[] };
 
@@ -226,6 +226,7 @@ function Viewer({
                     alt={`${group.title} — photo ${i + 1}`}
                     fill
                     sizes="100vw"
+                    unoptimized={isLocalMedia(item.image_url)}
                     className="object-contain"
                     draggable={false}
                     loading={Math.abs(i - index) <= 1 ? "eager" : "lazy"}

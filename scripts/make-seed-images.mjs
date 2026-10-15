@@ -1,7 +1,7 @@
 // Génère des images de démonstration (stockage local uniquement) : node scripts/make-seed-images.mjs
 import sharp from "sharp";
 
-const names = ["LILLE FIVES", "LILLE MOULINS", "VILLENEUVE D'ASCQ", "ROUBAIX", "DUNKERQUE", "CALAIS"];
+const names = ["LILLE FIVES", "LILLE MOULINS", "VILLENEUVE D'ASCQ"];
 const palettes = [
   ["#1d0f33", "#ff7a1a"], ["#140b22", "#facc15"], ["#2a0d0d", "#c3122b"],
   ["#0b1a12", "#7cff4f"], ["#1a1033", "#b48cff"], ["#1f1305", "#ff9f1a"],

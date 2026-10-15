@@ -6,7 +6,8 @@
  */
 import * as THREE from "three";
 import { Billboards, dustTexture, rand, seeded, smooth } from "./core";
-import { cloneModel, makeFlame } from "./outdoor";
+import { applyCutGlow } from "./glow";
+import { cloneModel, cutSpecFor, makeFlame } from "./outdoor";
 import { createSkeletonArm, createSpider, createWebGeometry, createWitchHat, DCELL, paint, roundedBox, webMaterial } from "./props";
 import type { Area, Flame, Frame, Kit, Pose } from "./types";
 import { BASE_PATH } from "@/lib/base-path";
@@ -232,6 +233,9 @@ export function createCrypt(kit: Kit): CryptArea {
     if (!obj) return null;
     group.updateMatrixWorld(true);
     const f = makeFlame(kit, group, tag, over);
+    // Citrouilles-lanternes : découpes émissives au rythme de la flamme (le porteur est le modèle cloné).
+    const cut = cutSpecFor(obj.children[0]?.name ?? "");
+    if (cut) f.cut = applyCutGlow(kit, obj, cut, !kit.low);
     f.pos.set(...local).applyMatrix4(obj.matrixWorld);
     f.glow.position.copy(group.worldToLocal(f.pos.clone()));
     f.scale = obj.scale.x;
@@ -640,7 +644,9 @@ export function createCrypt(kit: Kit): CryptArea {
         const img = new Image();
         img.decoding = "async";
         img.onload = () => (dirty = true);
-        img.src = `${BASE_PATH}/_next/image?url=${encodeURIComponent(res.image_url)}&w=128&q=75`;
+        // Médias locaux (/seed, /uploads) : fichier direct, comme `unoptimized` ailleurs (l'optimiseur
+        // d'images ignore le basePath et tombe sur la redirection : 500). Les autres : vignette optimisée.
+        img.src = res.image_url.startsWith("/") ? `${BASE_PATH}${res.image_url}` : `${BASE_PATH}/_next/image?url=${encodeURIComponent(res.image_url)}&w=128&q=75`;
         images.set(res.image_url, img);
       }
       dirty = true;

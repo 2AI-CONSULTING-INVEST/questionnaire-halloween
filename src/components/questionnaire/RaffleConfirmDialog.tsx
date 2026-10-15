@@ -1,0 +1,242 @@
+"use client";
+
+import { Loader2 } from "lucide-react";
+import Image from "next/image";
+import { Dialog } from "radix-ui";
+import { useId, useState } from "react";
+import { withBase } from "@/lib/base-path";
+import { emailSchema, normalizeFrPhone, PSEUDO_MAX, pseudoSchema } from "@/lib/schema";
+
+export type RaffleValues = { pseudo: string; phone_number: string; email: string };
+export type RaffleField = keyof RaffleValues;
+export type RaffleErrors = Partial<Record<RaffleField, string>>;
+
+/** Validation locale (même règles que le serveur) ; message par champ invalide. */
+export function validateRaffle(v: RaffleValues): RaffleErrors {
+  const errors: RaffleErrors = {};
+  const p = pseudoSchema.safeParse(v.pseudo);
+  if (!p.success) errors.pseudo = p.error.issues[0]?.message ?? "Pseudonyme invalide";
+  if (!normalizeFrPhone(v.phone_number)) errors.phone_number = "Numéro de téléphone français invalide (ex. 07 13 55 44 67)";
+  if (!emailSchema.safeParse(v.email).success) errors.email = "Adresse email invalide";
+  return errors;
+}
+
+const FIELDS: { key: RaffleField; label: string; type: string; autoComplete: string; inputMode?: "tel" | "email"; maxLength: number; placeholder: string }[] = [
+  { key: "pseudo", label: "Pseudonyme (affiché publiquement)", type: "text", autoComplete: "nickname", maxLength: PSEUDO_MAX, placeholder: "Votre pseudonyme" },
+  { key: "phone_number", label: "Numéro de téléphone", type: "tel", autoComplete: "tel-national", inputMode: "tel", maxLength: 20, placeholder: "07 13 55 44 67" },
+  { key: "email", label: "Adresse email", type: "email", autoComplete: "email", inputMode: "email", maxLength: 255, placeholder: "votreemail@gmail.com" },
+];
+
+/**
+ * Modale de vérification avant l'inscription au tirage au sort : les trois coordonnées restent
+ * modifiables, validées en direct ; les refus du serveur (pseudo / email / téléphone déjà
+ * inscrits) s'affichent sous le champ concerné sans fermer la modale.
+ *
+ * Décor (rendus KayKit en PNG, scripts/3d/raffle-props) : une grappe de citrouilles allumées
+ * derrière le coin bas-gauche du panneau, une lanterne pendue au coin haut-droit, une toile
+ * d'araignée dans le coin haut-gauche, et dans l'avertissement un squelette inspecteur qui
+ * vérifie un téléphone à la loupe, une enveloppe à la main. Rien ne recouvre champs ni boutons.
+ */
+type FormProps = {
+  initial: RaffleValues;
+  formatPhone: (v: string) => string;
+  /** Envoie ; renvoie les erreurs par champ (vide = succès, la modale se ferme). */
+  onConfirm: (values: RaffleValues) => Promise<RaffleErrors & { form?: string }>;
+  onBusy: (busy: boolean) => void;
+};
+
+export function RaffleConfirmDialog({
+  open,
+  onOpenChange,
+  ...form
+}: Omit<FormProps, "onBusy"> & { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Dialog.Root open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-[fade-in_200ms_ease-out]" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 outline-none data-[state=open]:animate-pop">
+          <div className="relative flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-3xl border border-edge bg-solid shadow-2xl shadow-black/60">
+            <Cobweb />
+            {/* Démonté à la fermeture : chaque ouverture repart des valeurs saisies, sans erreur affichée. */}
+            {open && <RaffleForm {...form} onBusy={setBusy} />}
+          </div>
+          {/* Citrouilles et bougies : sous le coin bas-gauche sur téléphone (pas de place sur les
+              côtés), posées à gauche du panneau sur grand écran. Jamais sur les champs ni les boutons. */}
+          <Image
+            src={withBase("/decor/raffle-pumpkins.png")}
+            alt=""
+            width={784}
+            height={657}
+            unoptimized
+            aria-hidden
+            className="pointer-events-none absolute -left-1 top-full -mt-4 w-[112px] max-w-none select-none drop-shadow-[0_8px_16px_rgba(0,0,0,0.55)] sm:-bottom-9 sm:-left-[150px] sm:top-auto sm:mt-0 sm:w-[190px]"
+          />
+          <HangingLantern />
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+/** Toile d'araignée dans le coin haut-gauche du panneau (traits fins, discrète). */
+function Cobweb() {
+  const radii = [14, 28, 44, 62];
+  const angles = [0, 18, 36, 54, 72, 90];
+  return (
+    <svg aria-hidden viewBox="0 0 70 70" className="pointer-events-none absolute left-0 top-0 h-[68px] w-[68px] text-fg/35 sm:h-20 sm:w-20">
+      <g fill="none" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round">
+        {angles.map((a) => {
+          const r = (a * Math.PI) / 180;
+          return <line key={a} x1="0" y1="0" x2={Math.cos(r) * 68} y2={Math.sin(r) * 68} />;
+        })}
+        {radii.map((rad) =>
+          angles.slice(0, -1).map((a, i) => {
+            const a1 = (a * Math.PI) / 180;
+            const a2 = (angles[i + 1] * Math.PI) / 180;
+            const sag = rad * 0.88;
+            const mx = Math.cos((a1 + a2) / 2) * sag;
+            const my = Math.sin((a1 + a2) / 2) * sag;
+            return <path key={`${rad}-${a}`} d={`M${Math.cos(a1) * rad} ${Math.sin(a1) * rad} Q${mx} ${my} ${Math.cos(a2) * rad} ${Math.sin(a2) * rad}`} />;
+          }),
+        )}
+      </g>
+    </svg>
+  );
+}
+
+/**
+ * Lanterne KayKit pendue au-dessus du coin haut-droit (sa chaîne vient du haut de l'écran), qui se
+ * balance ; halo chaud sur le verre. Entièrement au-dessus du panneau (elle n'en mord que le bord) :
+ * elle ne touche ni le titre ni le squelette inspecteur.
+ */
+function HangingLantern() {
+  return (
+    <div aria-hidden className="pointer-events-none absolute bottom-full right-4 w-[48px] origin-top translate-y-[10px] motion-safe:animate-[sway_4.2s_ease-in-out_infinite] sm:right-6 sm:w-[58px] sm:translate-y-[12px]">
+      <span className="absolute left-1/2 top-[72%] aspect-square w-[260%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(255,170,70,0.38),rgba(255,140,40,0.1)_55%,transparent)] motion-safe:animate-[flicker_2.4s_ease-in-out_infinite]" />
+      <Image src={withBase("/decor/raffle-lantern.png")} alt="" width={325} height={695} unoptimized className="relative h-auto w-full select-none drop-shadow-[0_6px_12px_rgba(0,0,0,0.5)]" />
+      <span className="absolute left-1/2 top-[74%] aspect-square w-[55%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(255,230,160,0.8),rgba(255,160,60,0.25)_60%,transparent)] mix-blend-screen motion-safe:animate-[flicker_1.7s_ease-in-out_infinite]" />
+    </div>
+  );
+}
+
+function RaffleForm({ initial, formatPhone, onConfirm, onBusy }: FormProps) {
+  const id = useId();
+  const [values, setValues] = useState(initial);
+  const [touched, setTouched] = useState<Partial<Record<RaffleField, boolean>>>({});
+  const [serverErrors, setServerErrors] = useState<RaffleErrors & { form?: string }>({});
+  const [busy, setBusyState] = useState(false);
+  const setBusy = (b: boolean) => {
+    setBusyState(b);
+    onBusy(b);
+  };
+
+  const local = validateRaffle(values);
+  const errorOf = (k: RaffleField) => serverErrors[k] ?? (touched[k] ? local[k] : undefined);
+  const valid = Object.keys(local).length === 0;
+
+  const change = (k: RaffleField, v: string) => {
+    setValues((s) => ({ ...s, [k]: k === "phone_number" ? formatPhone(v) : v }));
+    setServerErrors((e) => (e[k] || e.form ? { ...e, [k]: undefined, form: undefined } : e));
+  };
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    setTouched({ pseudo: true, phone_number: true, email: true });
+    if (!valid) return;
+    setBusy(true);
+    try {
+      const errors = await onConfirm({ pseudo: values.pseudo.trim(), phone_number: values.phone_number, email: values.email.trim() });
+      if (Object.keys(errors).length) setServerErrors(errors);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} noValidate className="flex min-h-0 flex-col">
+      <div className="min-h-0 overflow-y-auto px-5 pt-5 sm:px-6 sm:pt-6">
+        {/* Même police et même graisse que les titres des questions (QuestionHeader). */}
+        <Dialog.Title className="text-xl leading-snug text-fg sm:text-2xl">Vérifiez vos coordonnées</Dialog.Title>
+        <Dialog.Description asChild>
+          <div className="relative mt-4 flex items-end gap-1.5 rounded-2xl bg-accent-soft py-3 pl-3.5 pr-1.5 text-[13px] leading-snug text-fg sm:gap-2 sm:text-sm">
+            <p className="min-w-0 flex-1 self-center">
+              {/* Espaces insécables avant « : » (typographie française : jamais de « : » en début de ligne). */}
+              <strong>Attention&nbsp;:</strong> le tirage au sort sera effectué à partir de ce numéro de téléphone et de cette adresse email.
+              Vérifiez qu&apos;ils sont exacts&nbsp;: c&apos;est par ce biais que nous contacterons le gagnant.
+            </p>
+            {/* Squelette inspecteur (rendu KayKit) : il vérifie le téléphone à la loupe, l'enveloppe à la main. */}
+            <Image
+              src={withBase("/decor/raffle-inspector.png")}
+              alt=""
+              width={725}
+              height={947}
+              unoptimized
+              aria-hidden
+              className="-mb-3 -mt-7 h-[112px] w-auto shrink-0 select-none drop-shadow-[0_6px_10px_rgba(0,0,0,0.4)] sm:-mt-8 sm:h-[132px]"
+            />
+          </div>
+        </Dialog.Description>
+
+        <div className="mt-4 flex flex-col gap-3.5">
+          {FIELDS.map((f) => {
+            const err = errorOf(f.key);
+            return (
+              <div key={f.key} className="flex flex-col gap-1">
+                <label htmlFor={`${id}-${f.key}`} className="text-xs font-semibold uppercase tracking-wide text-fg-muted">
+                  {f.label}
+                </label>
+                <input
+                  id={`${id}-${f.key}`}
+                  type={f.type}
+                  inputMode={f.inputMode}
+                  autoComplete={f.autoComplete}
+                  maxLength={f.maxLength}
+                  placeholder={f.placeholder}
+                  value={values[f.key]}
+                  onChange={(e) => change(f.key, e.target.value)}
+                  onBlur={() => setTouched((t) => ({ ...t, [f.key]: true }))}
+                  aria-invalid={!!err}
+                  aria-describedby={err ? `${id}-${f.key}-error` : undefined}
+                  className={`min-h-11 w-full rounded-xl border bg-surface px-3.5 text-base text-fg outline-none transition-colors placeholder:text-placeholder focus:border-brand focus:ring-2 focus:ring-brand/40 ${
+                    err ? "border-danger-fg" : "border-edge-strong"
+                  }`}
+                />
+                {err && (
+                  <p id={`${id}-${f.key}-error`} role="alert" className="flex items-center gap-1.5 text-sm font-medium text-danger-fg">
+                    <span aria-hidden>⚠️</span> {err}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+          {serverErrors.form && (
+            <p role="alert" className="rounded-md bg-danger-bg px-3 py-1.5 text-sm font-medium text-danger-fg">
+              {serverErrors.form}
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-col-reverse gap-2 px-5 pb-5 pt-4 sm:flex-row sm:justify-end sm:px-6 sm:pb-6">
+        <Dialog.Close asChild>
+          <button
+            type="button"
+            disabled={busy}
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-edge-strong px-5 text-base font-semibold text-fg transition-colors hover:bg-surface-2 disabled:opacity-60"
+          >
+            Retour
+          </button>
+        </Dialog.Close>
+        <button
+          type="submit"
+          disabled={busy}
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-brand px-5 text-base font-bold text-black shadow-[0_0_24px_rgba(250,204,21,0.25)] transition-[filter] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+          Confirmer ma participation
+        </button>
+      </div>
+    </form>
+  );
+}

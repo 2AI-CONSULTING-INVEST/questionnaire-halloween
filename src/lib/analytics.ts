@@ -1,6 +1,6 @@
 import "server-only";
 import { getStore } from "./db";
-import { groupDecorations, IMPACTS, isRaffleEntry, thumbOf, type Decoration, type Impact, type ResponseRow } from "./schema";
+import { groupDecorations, IMPACTS, thumbOf, type Decoration, type Impact, type Participant, type ResponseRow } from "./schema";
 
 export type AnalyticsFilter = {
   from?: string;
@@ -45,16 +45,20 @@ export function parseFilter(url: URL): AnalyticsFilter {
 
 export async function loadFiltered(filter: AnalyticsFilter) {
   const store = getStore();
-  const [all, decorations] = await Promise.all([
+  const [all, decorations, participants] = await Promise.all([
     store.listResponses({ from: filter.from, to: filter.to }),
     store.listDecorations(),
+    store.listParticipants(),
   ]);
   const scoped = all.filter((r) => !filter.restaurant || r.selected_restaurant === filter.restaurant);
-  return { started: scoped, completed: scoped.filter((r) => r.completed_at), decorations };
+  return { started: scoped, completed: scoped.filter((r) => r.completed_at), decorations, participants };
 }
 
-export function summarize(started: ResponseRow[], completed: ResponseRow[], decorations: Decoration[]): Summary {
+export function summarize(started: ResponseRow[], completed: ResponseRow[], decorations: Decoration[], participants: Participant[] = []): Summary {
   const total = completed.length;
+  // Participants au tirage : la table `participants`, restreinte aux réponses du périmètre filtré.
+  const linked = new Set(completed.map((r) => r.participant_id).filter((id): id is string => !!id));
+  const raffleParticipants = participants.filter((p) => linked.has(p.id)).length;
 
   const byDecoration = groupDecorations(decorations).map<DecorationResult>((g) => {
     const ids = new Set(g.items.map((d) => d.id));
@@ -87,7 +91,7 @@ export function summarize(started: ResponseRow[], completed: ResponseRow[], deco
   return {
     kpis: {
       totalVotes: total,
-      raffleParticipants: completed.filter(isRaffleEntry).length,
+      raffleParticipants,
       started: started.length,
       completionRate: started.length ? total / started.length : 0,
     },
@@ -113,6 +117,6 @@ function fillDays(entries: [string, number][]) {
 }
 
 export async function getSummary(filter: AnalyticsFilter) {
-  const { started, completed, decorations } = await loadFiltered(filter);
-  return summarize(started, completed, decorations);
+  const { started, completed, decorations, participants } = await loadFiltered(filter);
+  return summarize(started, completed, decorations, participants);
 }

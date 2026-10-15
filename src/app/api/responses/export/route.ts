@@ -1,10 +1,10 @@
 import { getStore } from "@/lib/db";
-import { allResponsesRows, raffleRows, toCsv, toXlsx } from "@/lib/export";
+import { allResponsesRows, participantsRows, toCsv, toXlsx } from "@/lib/export";
 import { requireRole } from "@/lib/guard";
 
 /**
  * Admin : export des données.
- *   ?scope=all|raffle   (toutes les réponses / participants au tirage)
+ *   ?scope=all|participants   (toutes les réponses / participants au tirage ; « raffle » = participants)
  *   ?format=xlsx|csv
  */
 async function handle(req: Request) {
@@ -12,15 +12,21 @@ async function handle(req: Request) {
   if (denied) return denied;
 
   const url = new URL(req.url);
-  const scope = url.searchParams.get("scope") === "raffle" ? "raffle" : "all";
+  const scopeParam = url.searchParams.get("scope");
+  const scope = scopeParam === "participants" || scopeParam === "raffle" ? "participants" : "all";
   const format = url.searchParams.get("format") === "csv" ? "csv" : "xlsx";
 
   const store = getStore();
-  const [responses, decorations] = await Promise.all([store.listResponses(), store.listDecorations()]);
-  const rows = scope === "raffle" ? raffleRows(responses, decorations) : allResponsesRows(responses, decorations);
+  const [responses, decorations, participants, prizes] = await Promise.all([
+    store.listResponses(),
+    store.listDecorations(),
+    store.listParticipants(),
+    store.listPrizes(),
+  ]);
+  const rows = scope === "participants" ? participantsRows(participants, responses, prizes) : allResponsesRows(responses, decorations, participants);
 
   const stamp = new Date().toISOString().slice(0, 10);
-  const base = scope === "raffle" ? `participants-tirage-${stamp}` : `reponses-halloween-${stamp}`;
+  const base = scope === "participants" ? `participants-tirage-${stamp}` : `reponses-halloween-${stamp}`;
   const headers = {
     "Cache-Control": "no-store",
     "Content-Disposition": `attachment; filename="${base}.${format}"`,
@@ -29,7 +35,7 @@ async function handle(req: Request) {
   if (format === "csv") {
     return new Response(toCsv(rows), { headers: { ...headers, "Content-Type": "text/csv; charset=utf-8" } });
   }
-  const buf = toXlsx(rows, scope === "raffle" ? "Participants" : "Réponses");
+  const buf = toXlsx(rows, scope === "participants" ? "Participants" : "Réponses");
   return new Response(new Uint8Array(buf), {
     headers: { ...headers, "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
   });

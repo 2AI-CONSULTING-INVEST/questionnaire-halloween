@@ -5,7 +5,7 @@ import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Film, Loader2, Play
 import { Label } from "radix-ui";
 import { useMemo, useRef, useState } from "react";
 import { MediaLightbox } from "@/components/media/MediaLightbox";
-import { groupDecorations, mediaKind, shortName, thumbOf, type Decoration, type DecorationGroup } from "@/lib/schema";
+import { groupDecorations, isLocalMedia, mediaKind, shortName, thumbOf, type Decoration, type DecorationGroup } from "@/lib/schema";
 import { prepareMedia, uploadMedia } from "./upload";
 import { Button, Card, ConfirmDialog, Empty, inputClass } from "./ui";
 import { withBase } from "@/lib/base-path";
@@ -252,7 +252,7 @@ function GroupRow({
                 aria-label={`Voir le média ${i + 1}`}
                 className="relative block aspect-[3/4] w-full bg-gray-100 dark:bg-zinc-800"
               >
-                <Image src={thumbOf(d)} alt="" fill sizes="112px" className="object-cover" />
+                <Image src={thumbOf(d)} alt="" fill sizes="112px" unoptimized={isLocalMedia(d.image_url)} className="object-cover" />
                 {isVideo && (
                   <span className="absolute inset-0 flex items-center justify-center">
                     <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white">

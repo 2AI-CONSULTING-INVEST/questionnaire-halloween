@@ -1,7 +1,7 @@
 import "server-only";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { formatFrPhone, isRaffleEntry, LABELS, type Decoration, type ResponseRow } from "./schema";
+import { formatFrPhone, LABELS, type Decoration, type Participant, type Prize, type ResponseRow } from "./schema";
 
 type Row = Record<string, string | number>;
 
@@ -13,8 +13,9 @@ function safe(v: string | null | undefined): string {
 
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleString("fr-FR", { timeZone: "Europe/Paris" }) : "");
 
-export function allResponsesRows(rows: ResponseRow[], decorations: Decoration[]): Row[] {
+export function allResponsesRows(rows: ResponseRow[], decorations: Decoration[], participants: Participant[] = []): Row[] {
   const decoName = new Map(decorations.map((d) => [d.id, d.restaurant_name]));
+  const pseudo = new Map(participants.map((p) => [p.id, p.pseudo]));
   return rows.map((r) => ({
     "ID": r.id,
     "Statut": r.completed_at ? "Vote validé" : "Incomplet",
@@ -24,10 +25,13 @@ export function allResponsesRows(rows: ResponseRow[], decorations: Decoration[])
     "Q4 - Influence de la décoration": r.decoration_impact ? LABELS.decoration_impact[r.decoration_impact] : "",
     "Q5 - Commentaire": safe(r.comment),
     "Q6 - Tirage au sort": r.wants_raffle == null ? "" : r.wants_raffle ? "Oui" : "Non",
-    "Nom": safe(r.participant_name),
-    "Téléphone": formatFrPhone(r.phone_number),
-    "Email": safe(r.email),
-    "Gagnant": r.is_winner ? "Oui" : "",
+    "Participant (pseudo)": safe(r.participant_id ? pseudo.get(r.participant_id) ?? "(supprimé)" : ""),
+    "Jour du vote": r.vote_day ?? "",
+    // Anciennes colonnes (réponses d'avant la table participants).
+    "Nom (ancien)": safe(r.participant_name),
+    "Téléphone (ancien)": formatFrPhone(r.phone_number),
+    "Email (ancien)": safe(r.email),
+    "Gagnant (ancien)": r.is_winner ? "Oui" : "",
     "Créé le": date(r.created_at),
     "Validé le": date(r.completed_at),
     "Adresse IP": r.ip_address ?? "",
@@ -35,16 +39,18 @@ export function allResponsesRows(rows: ResponseRow[], decorations: Decoration[])
   }));
 }
 
-export function raffleRows(rows: ResponseRow[], decorations: Decoration[]): Row[] {
-  const decoName = new Map(decorations.map((d) => [d.id, d.restaurant_name]));
-  return rows.filter(isRaffleEntry).map((r) => ({
-    "Nom": safe(r.participant_name),
-    "Email": safe(r.email),
-    "Téléphone": formatFrPhone(r.phone_number),
-    "Restaurant voté": safe(r.selected_decoration_id ? decoName.get(r.selected_decoration_id) ?? "" : ""),
-    "Chamas Tacos préféré": safe(r.selected_restaurant),
-    "Date inscription": date(r.completed_at),
-    "Gagnant": r.is_winner ? "Oui" : "",
+/** Participants au tirage : une ligne par personne, avec le nombre de votes reliés et le lot gagné. */
+export function participantsRows(participants: Participant[], responses: ResponseRow[], prizes: Prize[]): Row[] {
+  const votes = new Map<string, number>();
+  for (const r of responses) if (r.completed_at && r.participant_id) votes.set(r.participant_id, (votes.get(r.participant_id) ?? 0) + 1);
+  const won = new Map(prizes.filter((p) => p.winner_participant_id).map((p) => [p.winner_participant_id!, p.name]));
+  return participants.map((p) => ({
+    "Pseudo": safe(p.pseudo),
+    "Email": safe(p.email),
+    "Téléphone": formatFrPhone(p.phone_number),
+    "Date inscription": date(p.created_at),
+    "Votes": votes.get(p.id) ?? 0,
+    "Lot gagné": safe(won.get(p.id)),
   }));
 }
 

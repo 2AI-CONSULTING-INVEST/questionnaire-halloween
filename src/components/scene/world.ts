@@ -15,11 +15,12 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import type { Theme } from "@/lib/theme";
 import { Billboards, easeInOut, flicker, glowTexture, rand, shadowTexture, smokeTexture, smooth } from "./core";
+import { cutGlowWarmup, updateCutGlow } from "./glow";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { createCrypt, type CryptArea, type ResultsData } from "./crypt";
 import { createGraveyard, createGround, createReaperClearing, outdoorPose, type GraveyardArea } from "./outdoor";
 import type { Area, Flame, Frame, Kit, Pose, SceneName } from "./types";
-import { BASE_PATH } from "@/lib/base-path";
+import { ASSETS } from "./assets";
 
 export type { ResultsData } from "./crypt";
 export type { SceneName } from "./types";
@@ -53,18 +54,6 @@ export type World = {
   dispose(): void;
 };
 
-const MODEL_URL = BASE_PATH + "/3d/halloween.glb";
-/** Faucheuse : KayKit « Skeleton Rogue » (CC0), capuche repeinte, 3 animations. */
-const REAPER_URL = BASE_PATH + "/3d/reaper.glb";
-/** Rochers, arbres nus, buissons (KayKit Forest Nature, feuillage assombri). */
-const FOREST_URL = BASE_PATH + "/3d/forest.glb";
-/** Salle de la crypte (KayKit Dungeon) — chargée seulement quand on s'en approche. */
-const DUNGEON_URL = BASE_PATH + "/3d/dungeon.glb";
-/** Atlas Dungeon seul (violet, or, bois…) pour le chaudron, les cadeaux, la faux, les chapeaux. */
-const DUNGEON_TEX_URL = BASE_PATH + "/3d/dungeon_texture.png";
-/** Logos Chamas Tacos 3D style KayKit (versions Halloween) : wordmark au cimetière, badge dans la crypte. */
-const LOGOS_URL = BASE_PATH + "/3d/logos.glb";
-
 type Palette = {
   fog: string; near: number; far: number;
   hemiSky: string; hemiGround: string; hemi: number;
@@ -81,9 +70,11 @@ const OUTDOOR: Record<Theme, Palette> = {
     fog: "#160f22", near: 12, far: 44, hemiSky: "#6d65a3", hemiGround: "#150d1a", hemi: 0.6, sun: "#9fb0f2", sunI: 0.78,
     ground: "#241c2d", lights: 0.92, glow: 0.88, mist: "#8a7eae", mistA: 0.32, smoke: "#988fac", smokeA: 0.3, eyes: 1, bat: "#43375a", batGlow: "#1f1630",
   },
+  // « Plein jour » : jour couvert de fin d'après-midi, brume grise, soleil bas et roux — l'ambiance
+  // reste sombre et inquiétante, mais on voit le ciel et le soleil, et les lanternes brillent encore.
   light: {
-    fog: "#e9d6bf", near: 9, far: 40, hemiSky: "#f3e8d2", hemiGround: "#a48c66", hemi: 1.45, sun: "#f6e6c6", sunI: 1.6,
-    ground: "#a8936c", lights: 0.2, glow: 0.12, mist: "#ffffff", mistA: 0.36, smoke: "#ffffff", smokeA: 0.22, eyes: 0, bat: "#3a3040", batGlow: "#000000",
+    fog: "#857b90", near: 9, far: 36, hemiSky: "#b3abc4", hemiGround: "#3f332f", hemi: 0.95, sun: "#ffbf80", sunI: 0.95,
+    ground: "#6a5c4d", lights: 0.5, glow: 0.45, mist: "#aca2b6", mistA: 0.3, smoke: "#c4bac8", smokeA: 0.22, eyes: 0.25, bat: "#2e2733", batGlow: "#000000",
   },
 };
 
@@ -93,8 +84,8 @@ const INDOOR: Record<Theme, Palette> = {
     ground: "#241c2d", lights: 0.9, glow: 0.85, mist: "#8a7eae", mistA: 0, smoke: "#b9af98", smokeA: 0.2, eyes: 1, bat: "#43375a", batGlow: "#1f1630",
   },
   light: {
-    fog: "#2b2431", near: 10, far: 40, hemiSky: "#c9bcd6", hemiGround: "#4a3a30", hemi: 1.1, sun: "#ffd6a0", sunI: 0.6,
-    ground: "#241c2d", lights: 0.85, glow: 0.7, mist: "#ffffff", mistA: 0, smoke: "#e8e0d0", smokeA: 0.2, eyes: 0.4, bat: "#3a3040", batGlow: "#000000",
+    fog: "#221b28", near: 10, far: 38, hemiSky: "#b3a7c4", hemiGround: "#3e3028", hemi: 0.9, sun: "#ffcf9a", sunI: 0.5,
+    ground: "#241c2d", lights: 0.85, glow: 0.72, mist: "#ffffff", mistA: 0, smoke: "#e8e0d0", smokeA: 0.2, eyes: 0.5, bat: "#3a3040", batGlow: "#000000",
   },
 };
 
@@ -230,10 +221,40 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   const modelMat = new THREE.MeshLambertMaterial();
   const dungeonMat = new THREE.MeshLambertMaterial();
   const dungeonFlatMat = new THREE.MeshLambertMaterial({ flatShading: true });
-  const kit: Kit = { models: new Map(), modelMat, dungeonMat, dungeonFlatMat, glowTex, smokeTex, shadowTex, time, low, reduce, mists: [] };
+  const kit: Kit = { models: new Map(), modelMat, dungeonMat, dungeonFlatMat, glowTex, smokeTex, shadowTex, time, glowLevel: { value: 1 }, low, reduce, mists: [] };
 
   const outdoor = new THREE.Group();
   scene.add(outdoor);
+
+  // ----- Préchauffage des shaders : tous les programmes de la scène 1 sont compilés dès maintenant,
+  // en parallèle du téléchargement des modèles (les matériaux sont connus ; un atlas 1×1 tient lieu
+  // de texture). Au moment de l'affichage, il ne reste rien à compiler : pas de saccade. -----
+  const warmTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  warmTex.colorSpace = THREE.SRGBColorSpace;
+  warmTex.needsUpdate = true;
+  modelMat.map = warmTex;
+  const warm = new THREE.Group();
+  warm.position.y = -500;
+  const warmGeo = new THREE.BoxGeometry(1, 1, 1);
+  warm.add(new THREE.Mesh(warmGeo, modelMat)); // modèles KayKit
+  warm.add(new THREE.InstancedMesh(warmGeo, modelMat, 1)); // forêt instanciée
+  warm.add(new THREE.Mesh(warmGeo, new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }))); // ombres
+  warm.add(new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }))); // halos
+  warm.add(new THREE.Mesh(warmGeo, new THREE.MeshLambertMaterial({ map: warmTex, transparent: true, opacity: 0.86, emissive: new THREE.Color("#8fa3ff"), emissiveIntensity: 0.22, side: THREE.DoubleSide }))); // fantôme
+  warm.add(new THREE.Mesh(warmGeo, new THREE.MeshBasicMaterial({ color: "#140f1c" }))); // yeux du fantôme
+  warm.add(cutGlowWarmup(kit, warmGeo)); // découpes des citrouilles, vitres des lanternes (deux passes)
+  scene.add(warm);
+  let warmed: Promise<void> | null = null;
+  const warmUp = () => {
+    warmed ??= renderer
+      .compileAsync(scene, camera)
+      .catch(() => undefined)
+      .then(() => {
+        scene.remove(warm);
+        warmGeo.dispose();
+      });
+    return warmed;
+  };
 
   // ----- Lune : vrai objet 3D du ciel, très loin en haut à gauche (hors brouillard). Elle reste
   // dans le décor : quand la caméra voyage, elle peut sortir du cadre. En mode jour, c'est le soleil. -----
@@ -279,10 +300,11 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   }
   function paintMoon() {
     const day = theme === "light";
-    moonMat.color.set(day ? "#ffe07a" : "#f4e8c4");
-    moonMat.emissive.set(day ? "#ffb020" : "#cdbb8a");
-    moonMat.emissiveIntensity = day ? 0.9 : 0.62;
-    moonHalo.material.color.set(day ? "#ffc861" : "#fff0c8");
+    // Jour : soleil bas et roux de fin d'après-midi (ciel couvert), toujours bien visible.
+    moonMat.color.set(day ? "#ffd166" : "#f4e8c4");
+    moonMat.emissive.set(day ? "#ff9a1c" : "#cdbb8a");
+    moonMat.emissiveIntensity = day ? 1.0 : 0.62;
+    moonHalo.material.color.set(day ? "#ffb24a" : "#fff0c8");
   }
   paintMoon();
   const ground = createGround(palette);
@@ -426,6 +448,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
 
   function planTo(next: SceneName) {
     wanted = next;
+    if (next === "reaper") void ensureClearing();
     if (next !== "graveyard") ensureDungeon();
     if (!graveyard) return;
     if (next === "reaper" && !reaper) return; // la clairière arrive : on s'y rendra dès qu'elle est prête
@@ -560,8 +583,10 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   }
 
   // ----- Chargement progressif -----
-  // 1) cimetière (scène d'origine) ; 2) clairière (faucheuse, forêt, atlas Dungeon) ;
-  // 3) crypte (pack Dungeon), seulement quand on se dirige vers les résultats.
+  // 1) cimetière + logo (scène 1) : les deux fichiers sont annoncés dans le <head> et chargés en
+  //    parallèle ; on attend les deux, on compile les shaders, puis le décor apparaît d'un bloc ;
+  // 2) clairière (faucheuse, forêt, atlas Dungeon), lancée ensuite sans retarder la scène 1 ;
+  // 3) crypte (pack Dungeon), seulement quand on se dirige vers les résultats (prioritaire alors).
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
   let disposed = false;
@@ -574,8 +599,8 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       if (!mesh.isMesh) return;
       const src = mesh.material as THREE.MeshStandardMaterial;
       if (!packMat) packMat = new THREE.MeshLambertMaterial({ map: src.map });
-      else if (!packMat.map) {
-        packMat.map = src.map;
+      else if (packMat.map !== src.map) {
+        packMat.map = src.map; // remplace l'atlas de préchauffage (même programme : pas de recompilation)
         packMat.needsUpdate = true;
       }
       mesh.material = packMat;
@@ -583,54 +608,59 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     for (const c of [...gltf.scene.children]) kit.models.set(c.name, c);
   }
 
-  const dungeonTex = new THREE.TextureLoader().loadAsync(DUNGEON_TEX_URL).then((tex) => {
-    tex.flipY = false; // convention glTF, comme les autres atlas
-    tex.colorSpace = THREE.SRGBColorSpace;
-    for (const m of [dungeonMat, dungeonFlatMat]) {
-      m.map = tex;
-      m.needsUpdate = true;
-    }
-  });
-  const clearingFiles = Promise.all([loader.loadAsync(REAPER_URL).catch(() => null), loader.loadAsync(FOREST_URL).catch(() => null), dungeonTex.catch(() => null)]);
+  /** Atlas Dungeon seul (chaudron, cadeaux, faux, chapeaux) : demandé avec la clairière ou la crypte. */
+  let dungeonTexReady: Promise<void> | null = null;
+  function ensureDungeonTex() {
+    dungeonTexReady ??= new THREE.TextureLoader().loadAsync(ASSETS.dungeonTexture).then((tex) => {
+      tex.flipY = false; // convention glTF, comme les autres atlas
+      tex.colorSpace = THREE.SRGBColorSpace;
+      for (const m of [dungeonMat, dungeonFlatMat]) {
+        m.map = tex;
+        m.needsUpdate = true;
+      }
+    });
+    return dungeonTexReady;
+  }
+
   let clearingReady: Promise<void> | null = null;
   function ensureClearing() {
-    clearingReady ??= clearingFiles.then(([reaperGltf, forest]) => {
-      if (disposed || !graveyard) return;
+    // Attend aussi le pack Halloween (citrouilles, tombes de la clairière) : les fichiers de la
+    // clairière peuvent arriver avant lui, la clairière doit quand même être construite.
+    clearingReady ??= Promise.all([
+      loader.loadAsync(ASSETS.reaper).catch(() => null),
+      loader.loadAsync(ASSETS.forest).catch(() => null),
+      ensureDungeonTex().catch(() => null),
+      halloween,
+    ]).then(([reaperGltf, forest]) => {
+      if (disposed) return;
       if (forest) registerPack(forest);
       reaper = createReaperClearing(kit, reaperGltf);
       outdoor.add(reaper.group);
       reaper.layout(frame);
       if (wanted === "reaper" && !shots.length) {
-        if (active === graveyard && cam.pos.distanceTo(graveyard.pose(frame).pos) < 0.5 && booted) planTo("reaper");
+        if (graveyard && active === graveyard && cam.pos.distanceTo(graveyard.pose(frame).pos) < 0.5 && booted) planTo("reaper");
         else if (!booted) active = reaper;
       }
     });
     return clearingReady;
   }
 
-  /** Logos : chargés juste après le cimetière (le badge de la crypte attend ce chargement). */
-  let logosReady: Promise<void> | null = null;
-  function ensureLogos() {
-    logosReady ??= loader
-      .loadAsync(LOGOS_URL)
-      .then((gltf) => {
-        if (disposed) return;
-        registerPack(gltf);
-        graveyard?.addLogo();
-      })
-      .catch((e) => console.warn("Logos indisponibles :", e));
-    return logosReady;
-  }
-
   // Pack Halloween : utilisé par les trois lieux (la crypte en a besoin aussi : citrouilles, crâne,
   // cercueil). Sur /resultats, la crypte est demandée tout de suite : elle attend ce pack.
-  const halloween = loader.loadAsync(MODEL_URL).then((gltf) => {
+  const halloween = loader.loadAsync(ASSETS.halloween).then((gltf) => {
     if (!disposed) registerPack(gltf, modelMat);
   });
+  // Logos : font partie de la scène 1 (wordmark au cimetière) ; sans eux, le décor s'affiche quand même.
+  const logos = loader
+    .loadAsync(ASSETS.logos)
+    .then((gltf) => {
+      if (!disposed) registerPack(gltf);
+    })
+    .catch((e) => console.warn("Logos indisponibles :", e));
 
   let dungeonReady: Promise<void> | null = null;
   function ensureDungeon() {
-    dungeonReady ??= Promise.all([loader.loadAsync(DUNGEON_URL), dungeonTex, ensureLogos(), halloween]).then(([gltf]) => {
+    dungeonReady ??= Promise.all([loader.loadAsync(ASSETS.dungeon), ensureDungeonTex(), logos, halloween]).then(([gltf]) => {
       if (disposed) return;
       registerPack(gltf, dungeonMat);
       crypt = createCrypt(kit);
@@ -644,24 +674,36 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   }
 
   let booted = false;
-  const ready = halloween
+  const ready = Promise.all([halloween, logos])
     .then(async () => {
       if (disposed) return;
       graveyard = createGraveyard(kit);
       outdoor.add(graveyard.group);
-      graveyard.addLogo(); // si les logos sont déjà là (chargés pour la crypte)
+      graveyard.addLogo();
       layout();
       // Rechargement en plein tirage au sort : on attend la clairière pour ouvrir directement dessus.
-      void ensureLogos();
       if (wanted === "reaper") await ensureClearing();
-      else void ensureClearing();
       const start = wanted === "reaper" && reaper ? reaper : graveyard;
       active = start;
       const p = start.pose(frame);
       cam.pos.copy(p.pos);
       cam.target.copy(p.target);
+      // Shaders déjà compilés pendant le téléchargement (préchauffage) ; on complète ce qui manque.
+      try {
+        await warmUp();
+        scene.updateMatrixWorld();
+        await renderer.compileAsync(scene, camera);
+      } catch {
+        /* compilation anticipée indisponible : les shaders se compileront à la première image */
+      }
       booted = true;
-      if (wanted === "crypt") planTo("crypt");
+      if (wanted === "crypt") {
+        planTo("crypt");
+        // La crypte reste prioritaire : la clairière attend qu'elle soit chargée.
+        void (dungeonReady ?? Promise.resolve()).then(() => ensureClearing());
+      } else {
+        void ensureClearing();
+      }
     })
     .catch((e) => console.warn("Décor 3D indisponible :", e));
 
@@ -706,6 +748,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     batMat.emissive.set(palette.batGlow);
     smoke.color.set(palette.smoke);
     smoke.opacity = palette.smokeA;
+    kit.glowLevel.value = palette.glow;
     for (const m of kit.mists) {
       m.color.set(palette.mist);
       m.opacity = palette.mistA;
@@ -793,6 +836,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       const g = f.glowSize * (0.9 + 0.15 * k) * f.scale;
       f.glow.scale.set(g, g, 1);
       f.glow.material.opacity = 0.55 * k * palette.glow;
+      if (f.cut) updateCutGlow(f.cut, k, palette.glow);
     }
     const lit = flames
       .filter((f) => f.light && f.intensity > 0)
@@ -967,7 +1011,8 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   const onPointer = (e: PointerEvent) => {
     pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
     pointer.y = -((e.clientY / window.innerHeight) * 2 - 1);
-    if (e.pointerType === "mouse") document.documentElement.style.cursor = plaqueAt(e) || moonAt(e) ? "pointer" : "";
+    // Curseur « main » sur le panneau du classement seulement ; la lune / le soleil (easter egg) ne le trahit pas.
+    if (e.pointerType === "mouse") document.documentElement.style.cursor = plaqueAt(e) ? "pointer" : "";
   };
   // Clic sur le classement (le décor est sous la page : on écoute la fenêtre, hors liens et boutons).
   const raycaster = new THREE.Raycaster();

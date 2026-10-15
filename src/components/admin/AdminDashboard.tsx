@@ -7,12 +7,12 @@ import { Switch, Tabs } from "radix-ui";
 import { useCallback, useEffect, useState } from "react";
 import type { Summary } from "@/lib/analytics";
 import type { Role } from "@/lib/auth";
-import type { Decoration, Restaurant, ResponseRow } from "@/lib/schema";
-import { isRaffleEntry } from "@/lib/schema";
+import type { Decoration, Participant, Prize, Restaurant, ResponseRow } from "@/lib/schema";
 import { Emoji } from "../questionnaire/ui";
 import { DecorationsTab } from "./DecorationsTab";
 import { OverviewTab, type Filters } from "./OverviewTab";
 import { ParticipantsTab } from "./ParticipantsTab";
+import { PrizesTab } from "./PrizesTab";
 import { RestaurantsTab } from "./RestaurantsTab";
 import { ResponsesTab } from "./ResponsesTab";
 import { Button } from "./ui";
@@ -38,6 +38,8 @@ export function AdminDashboard({ role }: { role: Role }) {
   const [responses, setResponses] = useState<ResponseRow[]>([]);
   const [decorations, setDecorations] = useState<Decoration[]>([]);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [prizes, setPrizes] = useState<Prize[]>([]);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [failed, setFailed] = useState(false);
@@ -64,21 +66,25 @@ export function AdminDashboard({ role }: { role: Role }) {
     if (filters.to) qs.set("to", filters.to);
     if (filters.restaurant !== "all") qs.set("restaurant", filters.restaurant);
     try {
-      const [s, r, d, rest] = await Promise.all([
+      const [s, r, d, rest, p, pr] = await Promise.all([
         fetch(withBase(`/api/analytics/summary?${qs}`), { cache: "no-store" }),
         fetch(withBase("/api/admin/responses"), { cache: "no-store" }),
         fetch(withBase("/api/decorations"), { cache: "no-store" }),
         fetch(withBase("/api/restaurants"), { cache: "no-store" }),
+        fetch(withBase("/api/admin/participants"), { cache: "no-store" }),
+        fetch(withBase("/api/prizes"), { cache: "no-store" }),
       ]);
       if (s.status === 401 || r.status === 401) {
         router.replace("/admin/login");
         return;
       }
-      if (!s.ok || !r.ok || !d.ok || !rest.ok) throw new Error("load");
+      if (!s.ok || !r.ok || !d.ok || !rest.ok || !p.ok || !pr.ok) throw new Error("load");
       setSummary(await s.json());
       setResponses(await r.json());
       setDecorations(await d.json());
       setRestaurants(await rest.json());
+      setParticipants(await p.json());
+      setPrizes(await pr.json());
       setUpdatedAt(new Date());
       setFailed(false);
     } catch {
@@ -104,7 +110,6 @@ export function AdminDashboard({ role }: { role: Role }) {
     router.replace("/admin/login");
   }
 
-  const raffleCount = responses.filter(isRaffleEntry).length;
   const tabClass =
     "whitespace-nowrap border-b-2 border-transparent px-1 pb-3 text-sm font-semibold text-muted transition-colors hover:text-ink data-[state=active]:border-brand data-[state=active]:text-ink dark:text-zinc-400 dark:hover:text-zinc-100 dark:data-[state=active]:text-zinc-100";
 
@@ -146,6 +151,14 @@ export function AdminDashboard({ role }: { role: Role }) {
             <Link href="/" target="_blank" className="inline-flex min-h-9 items-center gap-1 rounded-lg px-3 text-sm font-semibold text-muted hover:bg-gray-100 hover:text-ink dark:text-zinc-400 dark:hover:bg-zinc-800">
               Questionnaire <ExternalLink className="h-3.5 w-3.5" aria-hidden />
             </Link>
+            <Link
+              href="/demo"
+              target="_blank"
+              title="Parcours complet du questionnaire, sans enregistrer de vote ni d'inscription au tirage"
+              className="inline-flex min-h-9 items-center gap-1 rounded-lg px-3 text-sm font-semibold text-muted hover:bg-gray-100 hover:text-ink dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              Espace démo <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+            </Link>
             <Button variant="ghost" onClick={logout}>
               <LogOut className="h-4 w-4" aria-hidden /> Déconnexion
             </Button>
@@ -156,7 +169,8 @@ export function AdminDashboard({ role }: { role: Role }) {
       <Tabs.Root defaultValue="overview" className="mx-auto max-w-7xl px-4 py-6 sm:px-8">
         <Tabs.List aria-label="Sections" className="mb-6 flex gap-6 overflow-x-auto border-b border-line dark:border-zinc-800">
           <Tabs.Trigger value="overview" className={tabClass}>Tableau de bord</Tabs.Trigger>
-          <Tabs.Trigger value="participants" className={tabClass}>Tirage au sort ({raffleCount})</Tabs.Trigger>
+          <Tabs.Trigger value="participants" className={tabClass}>Participants ({participants.length})</Tabs.Trigger>
+          <Tabs.Trigger value="prizes" className={tabClass}>Lots ({prizes.length})</Tabs.Trigger>
           <Tabs.Trigger value="responses" className={tabClass}>Réponses</Tabs.Trigger>
           <Tabs.Trigger value="decorations" className={tabClass}>Décorations ({decorations.length})</Tabs.Trigger>
           <Tabs.Trigger value="restaurants" className={tabClass}>Restaurants</Tabs.Trigger>
@@ -165,7 +179,10 @@ export function AdminDashboard({ role }: { role: Role }) {
           <OverviewTab summary={summary} filters={filters} setFilters={setFilters} restaurants={restaurants.map((r) => r.name)} />
         </Tabs.Content>
         <Tabs.Content value="participants">
-          <ParticipantsTab responses={responses} decorations={decorations} canWrite={canWrite} onChanged={load} />
+          <ParticipantsTab participants={participants} responses={responses} prizes={prizes} canWrite={canWrite} onChanged={load} />
+        </Tabs.Content>
+        <Tabs.Content value="prizes">
+          <PrizesTab prizes={prizes} participants={participants} canWrite={canWrite} onChanged={load} />
         </Tabs.Content>
         <Tabs.Content value="responses">
           <ResponsesTab responses={responses} decorations={decorations} canWrite={canWrite} onChanged={load} />

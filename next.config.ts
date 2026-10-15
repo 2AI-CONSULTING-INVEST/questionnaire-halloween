@@ -42,6 +42,12 @@ const nextConfig: NextConfig = {
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
         ],
       },
+      {
+        // Modèles 3D (public/3d, non versionnés dans leur nom) : un jour en cache, puis réutilisés
+        // pendant une semaine le temps d'être revérifiés en arrière-plan. Pas d'« immutable ».
+        source: "/3d/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }],
+      },
     ];
   },
 };

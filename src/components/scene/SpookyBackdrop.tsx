@@ -8,12 +8,28 @@ import type { SceneName, World } from "./world";
 
 type CSSVars = React.CSSProperties & Record<`--${string}`, string>;
 
-// Étoiles à positions fixes (même rendu serveur / client).
+// Étoiles à positions fixes (même rendu serveur / client). Rythmes variés et rapides, amplitude
+// forte (--lo : opacité au creux) ; quelques-unes, plus grosses, brillent avec un halo et un éclat en croix.
 const STARS = (() => {
   let seed = 7;
   const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  return Array.from({ length: 70 }, () => ({ x: r() * 100, y: r() * 100, d: 2.5 + r() * 4, dl: -r() * 6, s: r() < 0.15 ? 3 : 2 }));
+  return Array.from({ length: 96 }, () => {
+    const bright = r() < 0.14;
+    return {
+      x: r() * 100,
+      y: r() * 100,
+      d: bright ? 1.4 + r() * 1.8 : 1.1 + r() * 2.4,
+      dl: -r() * 5,
+      s: bright ? 4 : r() < 0.3 ? 3 : 2,
+      lo: 0.04 + r() * 0.2,
+      bright,
+    };
+  });
 })();
+
+// Le code du monde 3D part dès l'évaluation de ce module (avant l'hydratation), en parallèle des
+// modèles de la scène 1 annoncés dans le <head> du layout. Un échec réseau sera retenté dans start().
+const worldModule = typeof window !== "undefined" ? import("./world").catch(() => null) : null;
 
 const SWARM_EVENT = "hw:swarm";
 /** Easter egg de la lune : nombre de tapes rapides et écart maximal entre deux tapes. */
@@ -43,9 +59,9 @@ function canRun3D() {
 }
 
 /**
- * Décor du site public, monté une seule fois (layout) : il persiste entre le questionnaire et
- * la page des résultats, ce qui permet à la caméra de voyager d'un lieu à l'autre.
- * Ciel étoilé et lune en CSS, monde 3D chargé après le premier affichage.
+ * Décor du site public, monté une seule fois (layout) : il persiste entre le questionnaire, la page
+ * des résultats et celle des participants, ce qui permet à la caméra de voyager d'un lieu à l'autre.
+ * Ciel étoilé en CSS ; monde 3D démarré immédiatement (le cimetière et le logo apparaissent d'un bloc).
  *
  * Easter egg : toucher la lune au moins 30 fois, vite (ou taper « lumos »), allume le jour ;
  * de même sur le soleil (ou « nox ») pour ramener la nuit.
@@ -57,7 +73,8 @@ export function SpookyBackdrop() {
   const [indoor, setIndoor] = useState(false);
   const pathname = usePathname();
   const questionnaireScene = useSceneState((s) => s.questionnaireScene);
-  const scene: SceneName = pathname.startsWith("/resultats") ? "crypt" : questionnaireScene;
+  // Résultats : la crypte ; participants et lots : la clairière de la faucheuse (les cadeaux) ; sinon la scène du questionnaire.
+  const scene: SceneName = pathname.startsWith("/resultats") ? "crypt" : pathname.startsWith("/participants") ? "reaper" : questionnaireScene;
   const sceneRef = useRef(scene);
 
   useEffect(() => {
@@ -66,14 +83,13 @@ export function SpookyBackdrop() {
     let cancelled = false;
 
     const start = async () => {
-      if (cancelled) return;
       if (!canRun3D()) return store.setStatus("unsupported");
-      const { createWorld } = await import("./world");
+      const mod = (await worldModule) ?? (await import("./world"));
       if (cancelled) return;
       const nav = navigator as Navigator & { deviceMemory?: number; connection?: { effectiveType?: string } };
       const low = (nav.deviceMemory ?? 8) <= 4 || (nav.hardwareConcurrency ?? 8) <= 4 || nav.connection?.effectiveType === "3g";
       try {
-        const world = createWorld(canvas, {
+        const world = mod.createWorld(canvas, {
           theme: getTheme(),
           reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
           quality: low ? "low" : "high",
@@ -109,9 +125,7 @@ export function SpookyBackdrop() {
         store.setStatus("unsupported"); // pas de WebGL exploitable : le ciel CSS suffit
       }
     };
-    const idle = window.requestIdleCallback
-      ? window.requestIdleCallback(() => void start(), { timeout: 1200 })
-      : window.setTimeout(() => void start(), 300);
+    void start();
 
     const unsubTheme = subscribeTheme(() => worldRef.current?.setTheme(getTheme()));
     const unsubResults = useSceneState.subscribe((s, prev) => {
@@ -134,8 +148,6 @@ export function SpookyBackdrop() {
 
     return () => {
       cancelled = true;
-      if (window.cancelIdleCallback) window.cancelIdleCallback(idle);
-      else window.clearTimeout(idle);
       unsubTheme();
       unsubResults();
       window.removeEventListener(SWARM_EVENT, onSwarm);
@@ -157,7 +169,11 @@ export function SpookyBackdrop() {
       <div className="sky" aria-hidden>
         <div className="sky-stars">
           {STARS.map((s, i) => (
-            <i key={i} style={{ left: `${s.x}%`, top: `${s.y}%`, width: s.s, height: s.s, "--d": `${s.d}s`, "--dl": `${s.dl}s` } as CSSVars} />
+            <i
+              key={i}
+              className={s.bright ? "b" : undefined}
+              style={{ left: `${s.x}%`, top: `${s.y}%`, width: s.s, height: s.s, "--d": `${s.d}s`, "--dl": `${s.dl}s`, "--lo": `${s.lo}` } as CSSVars}
+            />
           ))}
         </div>
       </div>

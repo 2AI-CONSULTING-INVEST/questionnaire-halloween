@@ -1,5 +1,6 @@
 import type * as THREE from "three";
 import type { Billboards } from "./core";
+import type { CutGlow } from "./glow";
 
 export type SceneName = "graveyard" | "reaper" | "crypt";
 
@@ -21,6 +22,8 @@ export type Kit = {
   smokeTex: THREE.Texture;
   shadowTex: THREE.Texture;
   time: { value: number };
+  /** Intensité des lueurs selon le thème (1 la nuit, presque 0 le jour), suivie par les matériaux émissifs. */
+  glowLevel: { value: number };
   low: boolean;
   reduce: boolean;
   /** Nappes de brume (couleur / opacité pilotées par le thème). */
@@ -48,6 +51,8 @@ export type Flame = {
   smoke: number;
   rise: number;
   embers: boolean;
+  /** Découpes / vitres émissives de l'objet porteur, au rythme de cette flamme (glow.ts). */
+  cut?: CutGlow;
 };
 
 export interface Area {

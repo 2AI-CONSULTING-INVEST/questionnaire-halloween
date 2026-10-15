@@ -1,6 +1,7 @@
 "use client";
 
 import { withBase } from "@/lib/base-path";
+import { apiFetch, isDemoMode } from "./demo";
 
 /**
  * Auto-save « live » : chaque réponse est envoyée immédiatement (ou après un
@@ -35,18 +36,24 @@ export function initSaver(id: string) {
   sessionId = id;
 }
 
-export async function createSession(id: string) {
+/** Ouvre la session côté serveur. Renvoie l'heure de réouverture si l'appareil a déjà voté aujourd'hui. */
+export async function createSession(id: string): Promise<{ alreadyVoted: string } | null> {
   sessionId = id;
   try {
-    await fetch(withBase("/api/responses/create"), {
+    const res = await apiFetch("/api/responses/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: id }),
       keepalive: true,
     });
+    if (res.status === 409) {
+      const body = (await res.json().catch(() => ({}))) as { details?: { code?: string; nextResetAt?: string } };
+      if (body.details?.code === "already_voted_today" && body.details.nextResetAt) return { alreadyVoted: body.details.nextResetAt };
+    }
   } catch {
     // Pas grave : la première mise à jour créera la ligne.
   }
+  return null;
 }
 
 /** Planifie l'enregistrement d'un ou plusieurs champs. */
@@ -72,7 +79,7 @@ export async function flush(): Promise<void> {
 
   inflight = (async () => {
     try {
-      const res = await fetch(withBase(`/api/responses/${sessionId}/update`), {
+      const res = await apiFetch(`/api/responses/${sessionId}/update`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sent),
@@ -106,7 +113,7 @@ if (typeof window !== "undefined") {
   });
   // Dernière chance d'envoi si l'utilisateur ferme l'onglet.
   window.addEventListener("pagehide", () => {
-    if (!sessionId || Object.keys(pending).length === 0) return;
+    if (isDemoMode() || !sessionId || Object.keys(pending).length === 0) return;
     const blob = new Blob([JSON.stringify(pending)], { type: "application/json" });
     if (navigator.sendBeacon(withBase(`/api/responses/${sessionId}/update`), blob)) pending = {};
   });

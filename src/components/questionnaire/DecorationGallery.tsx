@@ -6,7 +6,7 @@ import { Check, ChevronLeft, ChevronRight, Expand, Film, Play } from "lucide-rea
 import { RadioGroup } from "radix-ui";
 import { useMemo, useRef, useState } from "react";
 import { MediaLightbox } from "@/components/media/MediaLightbox";
-import { mediaKind, shortName, thumbOf, type DecorationGroup } from "@/lib/schema";
+import { isLocalMedia, mediaKind, shortName, thumbOf, type DecorationGroup } from "@/lib/schema";
 import { KeyBadge } from "./ui";
 
 export const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -202,6 +202,7 @@ function DecorationCard({
                       alt={`Décoration Halloween — ${group.restaurant_name}${count > 1 ? ` (${i + 1}/${count})` : ""}`}
                       fill
                       sizes="(min-width: 1024px) 300px, (min-width: 640px) 45vw, 48vw"
+                      unoptimized={isLocalMedia(src)}
                       className="object-cover"
                       draggable={false}
                       loading={eager && i === 0 ? "eager" : "lazy"}

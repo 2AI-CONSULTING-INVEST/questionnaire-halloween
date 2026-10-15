@@ -13,6 +13,7 @@ import * as THREE from "three";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { Billboards, groundHeight, rand, seeded, smooth } from "./core";
+import { applyCutGlow, JACK_CUT, LANTERN_GLASS } from "./glow";
 import { armReaper, createCauldron, createGhost, createGift, createRobeSkirt, createRobeTop, DCELL, merge, toFloat } from "./props";
 import type { Area, Flame, Frame, Kit, Pose } from "./types";
 
@@ -73,6 +74,13 @@ export function makeFlame(kit: Kit, parent: THREE.Object3D, tag: Tag | "torch" |
   };
 }
 
+/** Cellule émissive d'un modèle : citrouilles à visage (jamais les citrouilles pleines), lanternes. */
+export function cutSpecFor(name: string) {
+  if (/jackolantern/.test(name)) return JACK_CUT;
+  if (/lantern/.test(name)) return LANTERN_GLASS;
+  return null;
+}
+
 /** Instancie un modèle KayKit (il garde le matériau / l'atlas de son pack, sauf si mat est donné). */
 export function cloneModel(kit: Kit, name: string, mat?: THREE.Material) {
   const tpl = kit.models.get(name);
@@ -107,6 +115,9 @@ function placeAll(kit: Kit, group: THREE.Group, list: Placement[], flames: Flame
       const flame = makeFlame(kit, group, p.tag);
       const local = new THREE.Vector3(...FLAME_CFG[p.tag].local);
       if (p.name === "skull_candle") local.y = 1.3;
+      // Découpes des citrouilles-lanternes et vitres des lanternes : émissives, au rythme de la flamme.
+      const cut = cutSpecFor(p.name);
+      if (cut) flame.cut = applyCutGlow(kit, obj, cut, !kit.low);
       entry.flames.push({ flame, local });
       flames.push(flame);
     }
@@ -397,18 +408,33 @@ export function createGraveyard(kit: Kit): GraveyardArea {
 // Repère local : x vers la droite de la caméra, z vers la caméra, origine au pied de la faucheuse.
 // ---------------------------------------------------------------------------
 
-type Local = { name: string; x: number; z: number; s?: number; ry?: number; tag?: Tag; shadow?: boolean };
+type Local = {
+  name: string;
+  x: number;
+  z: number;
+  s?: number;
+  ry?: number;
+  tag?: Tag;
+  shadow?: boolean;
+  /** Socle de la grosse citrouille. */
+  pedestal?: boolean;
+  /** Position x en format portrait (sinon x, resserré comme le reste de la clairière). */
+  px?: number;
+  /** Profondeur z en format portrait (sinon z). */
+  pz?: number;
+};
 
 /** Décor KayKit de la clairière (Halloween Bits, Forest Nature). */
 const CLEARING: Local[] = [
   // Arbres morts et rochers qui ferment la clairière
-  { name: "Tree_Bare_2_A_Color1", x: -2.7, z: -2.6, s: 1.3, ry: 0.6 },
+  { name: "Tree_Bare_2_A_Color1", x: -3.5, z: -3.8, s: 1.3, ry: 0.6 },
   { name: "Tree_Bare_1_A_Color1", x: 4.4, z: -7.2, s: 1.5, ry: 2.1 },
-  { name: "Rock_1_E_Color1", x: -1.9, z: -0.6, s: 1.1, ry: 0.4, shadow: true },
+  // Rocher de gauche : gros bloc bas (à demi enterré), en retrait, socle de la grosse citrouille-lanterne.
+  { name: "Rock_3_E_Color1", x: -1.7, z: -3.0, s: 1.4, ry: 0.9, shadow: true, pedestal: true, px: -0.8, pz: -1.4 },
   { name: "Rock_3_E_Color1", x: 0.5, z: -3.9, s: 1.2, ry: 1.2 },
   { name: "Rock_1_A_Color1", x: 3.7, z: 1.2, s: 1.0, ry: 2.4 },
   { name: "Rock_3_A_Color1", x: -1.2, z: 1.7, s: 0.8, ry: 0.8 },
-  { name: "Bush_2_C_Color1", x: -2.3, z: -1.7, s: 1.1 },
+  { name: "Bush_2_C_Color1", x: -3.4, z: -0.9, s: 1.1 }, // sur le côté : ne cache pas la grosse citrouille
   { name: "Bush_2_C_Color1", x: 3.2, z: -3.3, s: 0.9, ry: 1.4 },
   { name: "Grass_2_B_Color1", x: -0.9, z: 0.9, s: 1.2 },
   { name: "Grass_2_B_Color1", x: 1.6, z: 0.6, s: 1.1, ry: 1 },
@@ -416,7 +442,7 @@ const CLEARING: Local[] = [
   { name: "Grass_1_A_Color1", x: 0.2, z: -1.6, s: 1.2 },
   { name: "Bush_1_A_Color1", x: 2.6, z: 1.1, s: 2 },
   // Tombes et lueurs
-  { name: "gravemarker_B", x: -1.1, z: -2.4, ry: 0.3, shadow: true },
+  { name: "gravemarker_B", x: -0.55, z: -2.9, ry: 0.3, shadow: true },
   { name: "grave_B", x: 1.0, z: -4.8, ry: -0.2, shadow: true },
   { name: "candle_triple", x: -1.35, z: 0.7, s: 0.7, tag: "candle", shadow: true },
   { name: "skull_candle", x: -1.75, z: -1.0, s: 0.6, ry: 0.5, tag: "candle", shadow: true },
@@ -446,6 +472,43 @@ const GIFTS_SHIFT = 0.45;
 
 const CLEARING_EYES: [number, number][] = [[-2.4, -3.2], [3.6, -4.2], [-3.2, -0.8], [0.6, -5.2], [2.7, -5.6]];
 
+// ---------------------------------------------------------------------------
+// Très grosse citrouille-lanterne, posée sur le rocher de gauche, éclairée de l'intérieur.
+// ---------------------------------------------------------------------------
+
+/** Échelle de la grosse citrouille : 1,7 m de large pour 1,5 m de haut (les autres font 0,55 à 0,8). */
+const BIG_JACK_SCALE = 1.15;
+const JACK_FLAME_LOCAL = new THREE.Vector3(...FLAME_CFG.jack.local);
+
+type BigJack = { obj: THREE.Group; flame: Flame };
+
+/**
+ * Modèle KayKit `pumpkin_orange_jackolantern` dont les découpes sont émissives (glow.ts : même
+ * recette que toutes les citrouilles-lanternes, seconde passe après la fumée toujours active ici,
+ * la clairière baignant dans son rideau). La lumière réelle (éclairage du rocher et du sol) vient du
+ * pool de lumières, via la flamme « jack », plus forte et prioritaire pour cette grosse citrouille.
+ */
+function createBigJack(kit: Kit, group: THREE.Group, flames: Flame[]): BigJack | null {
+  const obj = cloneModel(kit, "pumpkin_orange_jackolantern");
+  if (!obj) return null;
+  group.add(obj);
+  const flame = makeFlame(kit, group, "jack", { intensity: 9, distance: 11, glowSize: 2.0, priority: 2, color: "#ff7a1a" });
+  flame.cut = applyCutGlow(kit, obj, JACK_CUT, true);
+  flames.push(flame);
+  return { obj, flame };
+}
+
+const downRay = new THREE.Raycaster();
+/** Point du sommet d'un objet (visée verticale au centre de sa boîte), pour y poser quelque chose. */
+function topOf(obj: THREE.Object3D) {
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  const c = box.getCenter(new THREE.Vector3());
+  downRay.set(new THREE.Vector3(c.x, box.max.y + 1, c.z), new THREE.Vector3(0, -1, 0));
+  const hit = downRay.intersectObject(obj, true)[0];
+  return hit ? hit.point.clone() : new THREE.Vector3(c.x, box.max.y, c.z);
+}
+
 export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
   const group = new THREE.Group();
   const flames: Flame[] = [];
@@ -459,6 +522,10 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
     const pl = placeAll(kit, group, [{ name: l.name, nx: 0, z: 0, ry: l.ry, shadow: l.shadow, tag: l.tag }], flames)[0];
     return pl ? { l, pl } : null;
   }).filter((x): x is { l: Local; pl: Placed } => !!x);
+
+  // --- Très grosse citrouille-lanterne sur le rocher de gauche ---
+  const rock = items.find((i) => i.l.pedestal)?.pl ?? null;
+  const bigJack = createBigJack(kit, group, flames);
 
   // --- Faucheuse : squelette KayKit à capuche, robe longue jusqu'au sol, faux ---
   const reaper = new THREE.Group();
@@ -601,9 +668,24 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
       const s = portrait ? 0.85 : 1;
 
       for (const { l, pl } of items) {
-        toWorld(l.x, l.z, tmp);
+        // px : position portrait donnée en unités locales réelles (toWorld resserre x par sx).
+        toWorld(portrait && l.px !== undefined ? l.px / sx : l.x, portrait && l.pz !== undefined ? l.pz : l.z, tmp);
         pl.obj.rotation.y = (l.ry ?? 0) + yaw;
         setPlaced(pl, tmp.x, tmp.z, (l.s ?? 1) * s);
+      }
+      const camW = toWorld(camLocal.x, camLocal.z);
+      if (bigJack) {
+        // Posée au sommet du rocher (visée verticale sur sa surface, légèrement enfoncée : pas de
+        // lévitation), tournée vers la caméra, de trois quarts.
+        const seat = rock ? topOf(rock.obj) : toWorld(-1.7, -3.0);
+        const scale = BIG_JACK_SCALE * s;
+        bigJack.obj.position.set(seat.x, seat.y - 0.04 * scale, seat.z);
+        bigJack.obj.scale.setScalar(scale);
+        bigJack.obj.rotation.y = Math.atan2(camW.x - seat.x, camW.z - seat.z) - 0.22;
+        bigJack.obj.updateMatrixWorld(true);
+        bigJack.flame.pos.copy(JACK_FLAME_LOCAL).applyMatrix4(bigJack.obj.matrixWorld);
+        bigJack.flame.glow.position.copy(bigJack.flame.pos);
+        bigJack.flame.scale = scale;
       }
       // Faucheuse juste derrière le chaudron, à droite de l'axe de la caméra : sur ordinateur, les
       // choix de réponse (à gauche du centre) ne la cachent pas.
@@ -611,7 +693,6 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
       reaper.position.copy(tmp);
       reaperSize = 1.45 * s;
       reaper.scale.setScalar(reaperSize / modelHeight);
-      const camW = toWorld(camLocal.x, camLocal.z);
       const cauldronW = toWorld(CAULDRON_AT[0], CAULDRON_AT[1]);
       const toCauldron = Math.atan2(cauldronW.x - tmp.x, cauldronW.z - tmp.z);
       const toCamera = Math.atan2(camW.x - tmp.x, camW.z - tmp.z);
@@ -646,7 +727,7 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
       pos.y = groundHeight(anchor.x, anchor.z) + camLocal.y;
       return { pos, target: toWorld(0.15 * sx, -1.6).add(new THREE.Vector3(0, 0.75, 0)) };
     },
-    update(t, dt, _f, camera) {
+    update(t, dt, f, camera) {
       if (mixer && !kit.reduce) {
         mixer.update(dt);
         // Toutes les ~7 s : « venez vous servir » (Taunt) ou main tendue vers le chaudron (Interact).
@@ -669,8 +750,10 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
       swirl.commit();
 
       // Le rideau se dissipe quand la caméra arrive (sans disparaître : la fumée reste lourde).
+      // En portrait la caméra est plus loin et la nappe resserrée : plus légère, sinon tout se noie.
       const dist = camera.position.distanceTo(anchor);
-      const target = kit.reduce ? 0.85 : 0.85 + 1.0 * smooth(4.5, 11, dist);
+      const veilBase = f.aspect < 0.8 ? 0.55 : 0.85;
+      const target = kit.reduce ? veilBase : veilBase + 1.0 * smooth(4.5, 11, dist);
       veilDensity += (target - veilDensity) * Math.min(1, dt * 0.9);
       veilState.forEach((v, i) => {
         v.rot += v.spin * dt;

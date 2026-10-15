@@ -1,10 +1,14 @@
-import { getStore } from "@/lib/db";
-import { error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
-import { raffleSchema } from "@/lib/schema";
+import { revalidatePath } from "next/cache";
+import { CONFLICT_MESSAGES, ConflictError, getStore } from "@/lib/db";
+import { conflictError, error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
+import { participantInput, raffleSchema } from "@/lib/schema";
 
-/** Validation finale de l'inscription au tirage au sort (Q7). :id = session_id */
+/**
+ * Validation finale de l'inscription au tirage au sort (Q6), après la modale de vérification.
+ * :id = session_id. Une participation par personne : pseudo, email et téléphone sont uniques.
+ */
 export async function POST(req: Request, ctx: RouteContext<"/api/responses/[id]/raffle">) {
-  const blocked = limited(req, "responses", 100);
+  const blocked = limited(req, "raffle", 30);
   if (blocked) return blocked;
 
   const { id } = await ctx.params;
@@ -18,11 +22,18 @@ export async function POST(req: Request, ctx: RouteContext<"/api/responses/[id]/
   if (!row || row.session_id !== id) return error("Session introuvable", 404);
   if (!row.completed_at) return error("Le vote doit être validé avant le tirage au sort", 409);
 
-  await store.updateRaffle(
-    id,
-    parsed.data.wants_raffle
-      ? parsed.data
-      : { wants_raffle: false, participant_name: null, phone_number: null, email: null },
-  );
-  return json({ ok: true });
+  if (!parsed.data.wants_raffle) {
+    // Une inscription faite ne se retire pas depuis le questionnaire (seul le backoffice supprime).
+    if (row.participant_id) return error(CONFLICT_MESSAGES.raffle, 409, { raffle: [CONFLICT_MESSAGES.raffle] });
+    await store.updateRaffle(id, { wants_raffle: false });
+    return json({ ok: true });
+  }
+  try {
+    const { alreadyRegistered } = await store.registerParticipant(id, participantInput(parsed.data));
+    revalidatePath("/participants");
+    return json({ ok: true, alreadyRegistered });
+  } catch (e) {
+    if (e instanceof ConflictError) return conflictError(e);
+    throw e;
+  }
 }

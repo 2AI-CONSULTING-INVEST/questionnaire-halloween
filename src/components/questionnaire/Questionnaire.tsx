@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { BarChart3, ChevronDown, ChevronUp, Clock, CloudOff, Loader2, CloudCheck } from "lucide-react";
+import { BarChart3, ChevronDown, ChevronUp, Clock, CloudOff, ExternalLink, Gift, Loader2, CloudCheck, RotateCcw } from "lucide-react";
 import { RadioGroup, Toast, ToggleGroup } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -10,21 +10,28 @@ import {
   COMMENT_MAX,
   emailSchema,
   groupDecorations,
-  nameSchema,
   normalizeFrPhone,
+  PSEUDO_MAX,
+  pseudoSchema,
   RAFFLE_FIELDS,
   type Decoration,
   type Impact,
   type VisitPeriod,
 } from "@/lib/schema";
 import { HOME, tabTitle } from "@/lib/site";
+import { clientNow } from "@/lib/clock";
+import { isPastDay, nextParisMidnight, parisDay } from "@/lib/day";
 import { useSceneState } from "../scene/scene-state";
 import { triggerSwarm } from "../scene/SpookyBackdrop";
+import { AlreadyVoted } from "./AlreadyVoted";
 import { Confetti } from "./Confetti";
 import { DecorationGallery, LETTERS } from "./DecorationGallery";
+import { RaffleConfirmDialog, type RaffleErrors, type RaffleValues } from "./RaffleConfirmDialog";
 import { RestaurantCombobox } from "./RestaurantCombobox";
+import { apiFetch } from "./demo";
 import { createSession, discard, flush, initSaver, onSaveStatus, save } from "./saver";
-import { SCREENS, STEP_COUNT, STEP_OF, useQuestionnaire, type Answers, type Screen } from "./store";
+import { SocialCards } from "./SocialCards";
+import { restartDemo, SCREENS, setQuestionnaireMode, STEP_COUNT, STEP_OF, useQuestionnaire, type Answers, type Screen } from "./store";
 import { ChoicePill, Emoji, FieldError, KeyBadge, OkButton, pillClass, QuestionHeader, type EmojiName } from "./ui";
 import { ShareButtons } from "./ShareButtons";
 import { withBase } from "@/lib/base-path";
@@ -50,11 +57,12 @@ const STEP_TITLE: Record<Screen, string> = {
   impact: stepTitle("impact", "L'effet de la déco sur votre visite"),
   comment: stepTitle("comment", "Votre commentaire"),
   raffle: stepTitle("raffle", "Tirage au sort Halloween"),
-  name: stepTitle("name", "Vos coordonnées pour le tirage"),
+  name: stepTitle("name", "Votre pseudonyme pour le tirage"),
   phone: stepTitle("phone", "Vos coordonnées pour le tirage"),
   email: stepTitle("email", "Vos coordonnées pour le tirage"),
   thanks: "Merci pour votre vote !",
 };
+const ALREADY_VOTED_TITLE = "Vous avez déjà voté aujourd'hui";
 
 const VOTE_FIELDS = ["selected_restaurant", "visit_period", "selected_decoration_id", "decoration_impact", "comment"];
 
@@ -65,17 +73,24 @@ const SCREEN_OF_FIELD: Partial<Record<string, Screen>> = {
   selected_decoration_id: "vote",
   decoration_impact: "impact",
   comment: "comment",
-  participant_name: "name",
+  pseudo: "name",
   phone_number: "phone",
   email: "email",
 };
 
+/** Corps d'une réponse d'erreur de l'API (422 validation, 409 conflit / vote du jour). */
+type ApiError = { error?: string; details?: Record<string, string[]> & { code?: string; nextResetAt?: string } };
+
 const inputClass =
   "w-full border-b-2 border-edge-strong bg-transparent pb-2 text-xl text-fg outline-none transition-colors placeholder:text-placeholder focus:border-brand sm:text-[1.75rem]";
 
-/** Formate la saisie : « 0713554467 » → « 07 13 55 44 67 », « +33713554467 » → « +33 7 13 55 44 67 ». */
+/**
+ * Formate la saisie : « 0713554467 » → « 07 13 55 44 67 », « +33713554467 » → « +33 7 13 55 44 67 »,
+ * « 0033713554467 » → « +33 7 13 55 44 67 » (préfixe international « 00 » converti en « + »).
+ */
 function formatPhoneInput(v: string) {
-  const t = v.trim();
+  let t = v.trim();
+  if (/^00\d/.test(t.replace(/\D/g, "")) && !t.startsWith("+")) t = "+" + t.replace(/\D/g, "").slice(2);
   if (t.startsWith("+")) {
     const d = t.replace(/\D/g, "").slice(0, 11);
     if (d.length <= 2) return `+${d}`;
@@ -96,13 +111,18 @@ type Props = {
   decorations: Decoration[];
   social: { url: string | null; label: string };
   videoUrl: string | null;
+  /** Espace démo : parcours complet, mais rien n'est enregistré (voir demo.ts). */
+  demo?: boolean;
 };
 
-export function Questionnaire({ restaurants, decorations, social, videoUrl }: Props) {
-  const { sessionId, index, direction, answers, voteCompleted, start, setAnswer, go, markVoteCompleted, markRaffleDone } =
+export function Questionnaire({ restaurants, decorations, social, videoUrl, demo = false }: Props) {
+  const { sessionId, index, direction, answers, voteCompleted, raffleAlreadyRegistered, start, setAnswer, go, markVoteCompleted, markRaffleDone } =
     useQuestionnaire();
   const groups = useMemo(() => groupDecorations(decorations), [decorations]);
   const [hydrated, setHydrated] = useState(false);
+  /** L'appareil a déjà voté aujourd'hui : écran dédié jusqu'à la réouverture (minuit à Paris). */
+  const [alreadyVoted, setAlreadyVoted] = useState<{ nextResetAt: string } | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   // L'erreur est rattachée à l'écran où elle a été levée : elle disparaît en changeant d'écran.
   const [errorState, setErrorState] = useState<{ index: number; message: string } | null>(null);
   const error = errorState?.index === index ? errorState.message : null;
@@ -122,18 +142,49 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
 
   // Restauration de la session (localStorage) après le premier rendu.
   useEffect(() => {
+    let cancelled = false;
+    // Avant la restauration : la démo lit et écrit sa propre session.
+    setQuestionnaireMode(demo);
     void Promise.resolve(useQuestionnaire.persist.rehydrate()).then(() => {
-      const s = useQuestionnaire.getState();
+      const now = clientNow();
+      let s = useQuestionnaire.getState();
+      // Vote d'un jour précédent (ou d'avant le vote quotidien) : nouvelle session propre.
+      if (s.voteCompleted && (!s.voteDay || isPastDay(s.voteDay, now))) {
+        s.resetForNewDay();
+        s = useQuestionnaire.getState();
+      }
       if (s.sessionId) initSaver(s.sessionId);
-      if (s.raffleDone) s.go(SCREENS.indexOf("thanks"));
+      // Démo terminée : on revient sur les remerciements (pas de blocage « déjà voté » en démo).
+      if (s.voteCompleted && s.raffleDone && demo) s.go(SCREENS.indexOf("thanks"));
+      else if (s.voteCompleted && s.raffleDone) setAlreadyVoted({ nextResetAt: nextParisMidnight(now).toISOString() });
       else if (s.voteCompleted && s.index < SCREENS.indexOf("raffle")) s.go(SCREENS.indexOf("raffle"));
       // Média supprimé entre-temps : on efface le choix.
       if (s.answers.selected_decoration_id && !decorations.some((d) => d.id === s.answers.selected_decoration_id)) {
         s.setAnswer("selected_decoration_id", null);
       }
       setHydrated(true);
+      // Le serveur connaît l'appareil (cookie) même si le stockage local a été vidé.
+      void apiFetch("/api/vote-status", { cache: "no-store" })
+        .then((r) => (r.ok ? (r.json() as Promise<{ votedToday: boolean; today: string; nextResetAt: string }>) : null))
+        .then((status) => {
+          if (cancelled || !status?.votedToday) return;
+          const st = useQuestionnaire.getState();
+          // Vote du jour en cours sur cet appareil (tirage pas encore rempli) : on laisse finir.
+          if (st.voteCompleted && st.voteDay === status.today && !st.raffleDone) return;
+          setAlreadyVoted({ nextResetAt: status.nextResetAt });
+        })
+        .catch(() => undefined);
     });
-  }, [decorations]);
+    return () => {
+      cancelled = true;
+    };
+  }, [decorations, demo]);
+
+  /** Minuit est passé : le vote rouvre sans recharger la page. */
+  const reopenVote = useCallback(() => {
+    useQuestionnaire.getState().resetForNewDay();
+    setAlreadyVoted(null);
+  }, []);
 
   useEffect(
     () =>
@@ -147,15 +198,23 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
   useEffect(() => () => clearTimeout(advanceTimer.current), [index]);
 
   // Titre de l'onglet : « CHAMAS | » suivi de l'étape en cours (jamais de donnée saisie).
+  // Réappliqué après un court délai : le <title> des métadonnées, streamé par Next, peut arriver après l'hydratation.
   useEffect(() => {
-    if (hydrated) document.title = tabTitle(STEP_TITLE[screen]);
-  }, [screen, hydrated]);
+    if (!hydrated) return;
+    const apply = () => {
+      const title = alreadyVoted ? ALREADY_VOTED_TITLE : STEP_TITLE[screen];
+      document.title = tabTitle(demo ? `Démo · ${title}` : title);
+    };
+    apply();
+    const id = setTimeout(apply, 1500);
+    return () => clearTimeout(id);
+  }, [screen, hydrated, alreadyVoted, demo]);
 
-  // Décor 3D : cimetière pendant les questions, clairière de la faucheuse au tirage au sort.
+  // Décor 3D : cimetière pendant les questions (et sur l'écran « déjà voté »), clairière de la faucheuse au tirage au sort.
   useEffect(() => {
     const atReaper = screen === "raffle" || screen === "name" || screen === "phone" || screen === "email" || screen === "thanks";
-    useSceneState.getState().setQuestionnaireScene(atReaper ? "reaper" : "graveyard");
-  }, [screen]);
+    useSceneState.getState().setQuestionnaireScene(atReaper && !alreadyVoted ? "reaper" : "graveyard");
+  }, [screen, alreadyVoted]);
 
   /** Mise à jour locale immédiate + enregistrement en base (debounce pour les champs texte). */
   const answer = useCallback(
@@ -163,6 +222,15 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
       setAnswer(key, value);
       setError(null);
       if (dbValue !== undefined) save({ [key]: dbValue }, debounceMs);
+    },
+    [setAnswer, setError],
+  );
+
+  /** Coordonnées du tirage : gardées sur l'appareil seulement, jamais envoyées avant la confirmation. */
+  const answerLocal = useCallback(
+    <K extends keyof Answers>(key: K, value: Answers[K]) => {
+      setAnswer(key, value);
+      setError(null);
     },
     [setAnswer, setError],
   );
@@ -182,7 +250,8 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
     const id = start();
     initSaver(id);
     if (isNew) {
-      void createSession(id);
+      // Appareil qui a déjà voté aujourd'hui (stockage local vidé, cookie conservé) : pas de session.
+      void createSession(id).then((r) => r && setAlreadyVoted({ nextResetAt: r.alreadyVoted }));
       triggerSwarm(18);
     }
   }, [start]);
@@ -190,7 +259,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
   // ----- Soumissions -------------------------------------------------------
 
   const showServerError = useCallback(
-    (body: { error?: string; details?: Record<string, string[]> }) => {
+    (body: ApiError) => {
       const field = Object.keys(body.details ?? {})[0];
       const target = field ? SCREEN_OF_FIELD[field] : undefined;
       if (field && target) {
@@ -209,7 +278,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
     setSubmitting(true);
     try {
       const a = useQuestionnaire.getState().answers;
-      const res = await fetch(withBase(`/api/responses/${sessionId}/complete`), {
+      const res = await apiFetch(`/api/responses/${sessionId}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -221,13 +290,19 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
         }),
       });
       if (res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { voteDay?: string };
         discard(VOTE_FIELDS);
-        markVoteCompleted();
+        markVoteCompleted(body.voteDay ?? parisDay(clientNow()));
         go(SCREENS.indexOf("raffle"));
         triggerSwarm();
         return;
       }
-      showServerError(await res.json().catch(() => ({})));
+      const body = (await res.json().catch(() => ({}))) as ApiError;
+      if (res.status === 409 && body.details?.code === "already_voted_today") {
+        setAlreadyVoted({ nextResetAt: body.details.nextResetAt ?? nextParisMidnight(clientNow()).toISOString() });
+        return;
+      }
+      showServerError(body);
     } catch {
       setError("Connexion perdue. Vérifiez votre réseau puis réessayez.");
     } finally {
@@ -235,35 +310,68 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
     }
   }, [sessionId, voteCompleted, next, markVoteCompleted, go, setError, showServerError]);
 
-  const submitRaffle = useCallback(
-    async (wants: boolean) => {
-      if (!sessionId) return;
-      setSubmitting(true);
+  /** Réponse « Non » au tirage : enregistrée directement. */
+  const declineRaffle = useCallback(async () => {
+    if (!sessionId) return;
+    setSubmitting(true);
+    try {
+      const res = await apiFetch(`/api/responses/${sessionId}/raffle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wants_raffle: false }),
+      });
+      if (res.ok) {
+        discard([...RAFFLE_FIELDS]);
+        markRaffleDone(false);
+        go(SCREENS.indexOf("thanks"));
+        return;
+      }
+      showServerError((await res.json().catch(() => ({}))) as ApiError);
+    } catch {
+      setError("Connexion perdue. Vérifiez votre réseau puis réessayez.");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [sessionId, markRaffleDone, go, setError, showServerError]);
+
+  /**
+   * Confirmation du tirage depuis la modale : les coordonnées vérifiées partent maintenant (jamais
+   * avant). Les refus (pseudo / email / téléphone déjà inscrits) reviennent à la modale, par champ.
+   */
+  const confirmRaffle = useCallback(
+    async (values: RaffleValues): Promise<RaffleErrors & { form?: string }> => {
+      if (!sessionId) return { form: "Session introuvable, rechargez la page." };
       try {
-        const a = useQuestionnaire.getState().answers;
-        const res = await fetch(withBase(`/api/responses/${sessionId}/raffle`), {
+        const res = await apiFetch(`/api/responses/${sessionId}/raffle`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            wants
-              ? { wants_raffle: true, participant_name: a.participant_name.trim(), phone_number: a.phone_number, email: a.email.trim() }
-              : { wants_raffle: false },
-          ),
+          body: JSON.stringify({ wants_raffle: true, ...values }),
         });
         if (res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { alreadyRegistered?: boolean };
+          const s = useQuestionnaire.getState();
+          s.setAnswer("pseudo", values.pseudo);
+          s.setAnswer("phone_number", values.phone_number);
+          s.setAnswer("email", values.email);
           discard([...RAFFLE_FIELDS]);
-          markRaffleDone();
+          markRaffleDone(!!body.alreadyRegistered);
+          setConfirmOpen(false);
           go(SCREENS.indexOf("thanks"));
-          return;
+          return {};
         }
-        showServerError(await res.json().catch(() => ({})));
+        const body = (await res.json().catch(() => ({}))) as ApiError;
+        const errors: RaffleErrors & { form?: string } = {};
+        for (const k of ["pseudo", "phone_number", "email"] as const) {
+          const m = body.details?.[k]?.[0];
+          if (m) errors[k] = m;
+        }
+        if (!Object.keys(errors).length) errors.form = body.error ?? "Une erreur est survenue, réessayez.";
+        return errors;
       } catch {
-        setError("Connexion perdue. Vérifiez votre réseau puis réessayez.");
-      } finally {
-        setSubmitting(false);
+        return { form: "Connexion perdue. Vérifiez votre réseau puis réessayez." };
       }
     },
-    [sessionId, markRaffleDone, go, setError, showServerError],
+    [sessionId, markRaffleDone, go],
   );
 
   // ----- Validation + action « OK » par écran ------------------------------
@@ -291,19 +399,20 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
       }
       case "raffle":
         if (a.wants_raffle === null) return fail("Veuillez répondre Oui ou Non");
-        return a.wants_raffle ? next() : void submitRaffle(false);
+        return a.wants_raffle ? next() : void declineRaffle();
       case "name": {
-        const r = nameSchema.safeParse(a.participant_name);
-        return r.success ? next() : fail(r.error.issues[0]?.message ?? "Nom invalide");
+        const r = pseudoSchema.safeParse(a.pseudo);
+        return r.success ? next() : fail(r.error.issues[0]?.message ?? "Pseudonyme invalide");
       }
       case "phone":
         return normalizeFrPhone(a.phone_number) ? next() : fail("Numéro de téléphone français invalide (ex. 07 13 55 44 67)");
       case "email": {
         const r = emailSchema.safeParse(a.email);
-        return r.success ? void submitRaffle(true) : fail("Adresse email invalide");
+        // « Envoyer » n'envoie pas tout de suite : la modale de vérification s'ouvre.
+        return r.success ? setConfirmOpen(true) : fail("Adresse email invalide");
       }
     }
-  }, [answers, screen, begin, next, groups.length, submitVote, submitRaffle, setError]);
+  }, [answers, screen, begin, next, groups.length, submitVote, declineRaffle, setError]);
 
   // ----- Clavier (comme Typeform) ------------------------------------------
 
@@ -548,26 +657,38 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
                 );
               })}
             </ToggleGroup.Root>
+            {/* Nouvel onglet : la saisie en cours reste à l'écran. */}
+            <a
+              href={withBase("/participants")}
+              target="_blank"
+              rel="noopener"
+              className="mt-5 inline-flex min-h-11 items-center gap-2 pl-8 text-base font-semibold text-fg underline decoration-brand decoration-2 underline-offset-4 hover:text-brand"
+            >
+              <Gift className="h-5 w-5 text-brand" aria-hidden /> Voir les lots à gagner
+              <ExternalLink className="h-4 w-4 text-fg-muted" aria-hidden />
+            </a>
           </>
         );
 
       case "name":
         return (
           <>
-            <QuestionHeader id={qid} number="b" title="Nom et prénom du participant" required description="Ou pseudonyme si vous préférez" />
+            <QuestionHeader
+              id={qid}
+              number="b"
+              title="Votre pseudonyme"
+              required
+              description="Il sera affiché publiquement dans la liste des participants. 3 à 24 caractères."
+            />
             <div className="pl-8">
               <input
                 aria-labelledby={qid}
                 autoFocus
-                autoComplete="name"
-                maxLength={50}
-                value={answers.participant_name}
-                placeholder="Tapez votre réponse ici..."
-                onChange={(e) => {
-                  const v = e.target.value;
-                  answer("participant_name", v, nameSchema.safeParse(v).success ? v.trim() : undefined, 1000);
-                }}
-                onBlur={() => void flush()}
+                autoComplete="nickname"
+                maxLength={PSEUDO_MAX}
+                value={answers.pseudo}
+                placeholder="Tapez votre pseudonyme ici..."
+                onChange={(e) => answerLocal("pseudo", e.target.value)}
                 className={inputClass}
               />
             </div>
@@ -594,11 +715,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
                 autoComplete="tel-national"
                 value={answers.phone_number}
                 placeholder="07 13 55 44 67"
-                onChange={(e) => {
-                  const v = formatPhoneInput(e.target.value);
-                  answer("phone_number", v, normalizeFrPhone(v) ?? undefined, 1000);
-                }}
-                onBlur={() => void flush()}
+                onChange={(e) => answerLocal("phone_number", formatPhoneInput(e.target.value))}
                 className={inputClass}
               />
             </div>
@@ -619,11 +736,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
                 maxLength={255}
                 value={answers.email}
                 placeholder="votreemail@gmail.com"
-                onChange={(e) => {
-                  const v = e.target.value;
-                  answer("email", v, emailSchema.safeParse(v).success ? v.trim().toLowerCase() : undefined, 1000);
-                }}
-                onBlur={() => void flush()}
+                onChange={(e) => answerLocal("email", e.target.value)}
                 className={inputClass}
               />
             </div>
@@ -639,6 +752,11 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
               Merci pour votre vote ! Votre avis compte pour Chamas Tacos !
               <Emoji name="ghost" size={64} className="ml-3 h-[1em] w-[1em]" />
             </h1>
+            {raffleAlreadyRegistered && (
+              <p className="mx-auto mt-6 max-w-xl rounded-xl border border-edge bg-surface/85 px-4 py-3 text-base font-semibold text-fg backdrop-blur" role="status">
+                ✅ Vous êtes déjà inscrit au tirage au sort, votre participation est bien enregistrée.
+              </p>
+            )}
             <p className="mt-6 text-lg text-fg-muted sm:text-xl">
               Vous pourrez voir le tirage au sort en direct sur{" "}
               {social.url ? (
@@ -650,13 +768,20 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
               )}
               .
             </p>
-            <div className="mt-10 flex flex-col items-center gap-6">
+            <div className="mt-10 flex flex-col items-center gap-5">
               <Link
                 href="/resultats"
                 className="inline-flex min-h-12 items-center gap-2 rounded-full bg-brand px-7 text-lg font-bold text-black shadow-[0_0_30px_rgba(250,204,21,0.3)] transition-[filter] hover:brightness-105"
               >
                 <BarChart3 className="h-5 w-5" aria-hidden /> Voir les résultats en direct
               </Link>
+              <Link
+                href="/participants"
+                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-edge-strong bg-surface/80 px-5 text-base font-semibold text-fg backdrop-blur transition-colors hover:bg-surface-2"
+              >
+                <Gift className="h-5 w-5 text-brand" aria-hidden /> Voir les participants et les lots
+              </Link>
+              <SocialCards className="mt-1" delay={0.3} />
               <ShareButtons />
             </div>
           </div>
@@ -665,6 +790,11 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
   }
 
   const isRaffle = screen === "raffle" || screen === "name" || screen === "phone" || screen === "email";
+  // Valeurs proposées dans la modale (objet stable : la modale ne se réinitialise qu'à l'ouverture).
+  const raffleInitial = useMemo<RaffleValues>(
+    () => ({ pseudo: answers.pseudo, phone_number: answers.phone_number, email: answers.email }),
+    [answers.pseudo, answers.phone_number, answers.email],
+  );
   const okProps = (() => {
     switch (screen) {
       case "comment":
@@ -680,8 +810,17 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
 
   const progress = screen === "welcome" ? 0 : Math.min(1, index / (SCREENS.length - 1));
 
+  if (alreadyVoted) return <AlreadyVoted nextResetAt={alreadyVoted.nextResetAt} onReset={reopenVote} />;
+
   return (
     <Toast.Provider swipeDirection="right" duration={6000}>
+      <RaffleConfirmDialog
+        open={confirmOpen}
+        initial={raffleInitial}
+        formatPhone={formatPhoneInput}
+        onOpenChange={setConfirmOpen}
+        onConfirm={confirmRaffle}
+      />
       <div className="relative flex min-h-dvh flex-col">
 
         {screen !== "welcome" && screen !== "thanks" && (
@@ -749,7 +888,8 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
             aria-label="Navigation entre les questions"
             className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-30 flex items-center gap-2 sm:bottom-6 sm:right-6"
           >
-            <SaveIndicator status={saveStatus} />
+            {/* En démo rien n'est enregistré : pas d'indicateur « Enregistré ». */}
+            {!demo && <SaveIndicator status={saveStatus} />}
             <div className="flex overflow-hidden rounded-lg shadow-lg shadow-black/30">
               <button
                 type="button"
@@ -772,6 +912,31 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
             </div>
           </nav>
         )}
+
+        {demo && (
+          // Bandeau permanent de l'espace démo : rien n'est enregistré, on peut tout recommencer.
+          <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 z-30 flex max-w-[calc(100vw-9rem)] items-center gap-2 rounded-full border border-brand/60 bg-surface/90 py-1.5 pl-3 pr-1.5 text-xs font-semibold text-fg shadow-lg shadow-black/30 backdrop-blur sm:bottom-6 sm:left-6 sm:text-sm">
+            <span className="truncate">
+              <span aria-hidden>🧪 </span>
+              <span className="sm:hidden">Démo · non enregistré</span>
+              <span className="hidden sm:inline">Mode démo · rien n&apos;est enregistré</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                restartDemo();
+                setAlreadyVoted(null);
+                setErrorState(null);
+                setConfirmOpen(false);
+              }}
+              aria-label="Recommencer la démo"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand px-2 py-1 font-bold text-black transition-[filter] hover:brightness-105 sm:px-3"
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+              <span className="hidden sm:inline">Recommencer</span>
+            </button>
+          </div>
+        )}
       </div>
 
       <Toast.Root
@@ -779,7 +944,10 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl }: Pr
         onOpenChange={setToastOpen}
         className="rounded-xl border border-edge bg-solid p-4 shadow-lg data-[state=open]:animate-pop"
       >
-        <Toast.Title className="font-semibold text-fg">Connexion instable</Toast.Title>
+        {/* Hors ligne : souci de réseau ; en ligne : c'est le serveur qui refuse l'enregistrement. */}
+        <Toast.Title className="font-semibold text-fg">
+          {typeof navigator !== "undefined" && !navigator.onLine ? "Connexion instable" : "Enregistrement momentanément impossible"}
+        </Toast.Title>
         <Toast.Description className="mt-1 text-sm text-fg-muted">
           Vos réponses sont conservées et seront renvoyées automatiquement.
         </Toast.Description>

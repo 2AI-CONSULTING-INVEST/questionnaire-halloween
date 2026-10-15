@@ -1,10 +1,16 @@
 import { revalidatePath } from "next/cache";
+import { serverNow } from "@/lib/clock";
+import { nextParisMidnight, parisDay } from "@/lib/day";
 import { getStore, requestMeta } from "@/lib/db";
 import { error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
 import { clientIp } from "@/lib/rate-limit";
 import { voteCompleteSchema } from "@/lib/schema";
+import { ensureVoter, setVoterCookie } from "@/lib/voter";
 
-/** Valide le vote (Q1 → Q6). Le tirage au sort (Q7) est complété ensuite. :id = session_id */
+/**
+ * Valide le vote (Q1 → Q5). Le tirage au sort (Q6) est complété ensuite. :id = session_id
+ * Un seul vote par appareil (cookie hw_voter) et par jour (Europe/Paris) : sinon 409 `already_voted_today`.
+ */
 export async function POST(req: Request, ctx: RouteContext<"/api/responses/[id]/complete">) {
   const blocked = limited(req, "responses", 100);
   if (blocked) return blocked;
@@ -26,7 +32,17 @@ export async function POST(req: Request, ctx: RouteContext<"/api/responses/[id]/
     return error("Restaurant inconnu", 422, { selected_restaurant: ["Restaurant inconnu"] });
   }
 
-  const result = await store.completeResponse(id, data, requestMeta(req, clientIp(req)));
+  const voter = ensureVoter(req);
+  const now = serverNow(req);
+  const voteDay = parisDay(now);
+  const alreadyVoted = () =>
+    error("Vous avez déjà voté aujourd'hui", 409, { code: "already_voted_today", nextResetAt: nextParisMidnight(now).toISOString() });
+  // Pré-contrôle (message clair) ; la garantie réelle est l'index unique appliqué dans completeResponse.
+  if (!voter.isNew && (await store.hasVotedToday(voter.id, voteDay))) return alreadyVoted();
+
+  const result = await store.completeResponse(id, data, requestMeta(req, clientIp(req)), { voterId: voter.id, voteDay });
+  if (result === "already_voted_today") return alreadyVoted();
   revalidatePath("/resultats");
-  return json({ ok: true, alreadyCompleted: result === "completed" });
+  const res = json({ ok: true, alreadyCompleted: result === "completed", voteDay });
+  return voter.isNew ? setVoterCookie(res, voter.id) : res;
 }

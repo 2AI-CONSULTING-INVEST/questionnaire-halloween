@@ -47,18 +47,20 @@
   --pub-surface-2: #f3ece1;
   --pub-solid: #ffffff;
   --pub-fg: #231d2b;
-  --pub-muted: #6b6274;
+  --pub-muted: #4f4659; /* plus sombre : lisible (AA) sur le jour couvert, hors du voile central */
   --pub-edge: #e4dccf;
   --pub-edge-strong: #b9ae9f;
   --pub-placeholder: #b9b0a6;
   --pub-accent-soft: #fef6c7;
   --pub-danger-bg: #fee2e2;
   --pub-danger-fg: #b91c1c;
-  --sky-top: #cfe0ee;
-  --sky-mid: #f2e7d6;
-  --sky-low: #f6dcc0;
-  --sky-glow: rgba(255, 170, 80, 0.25);
-  --scrim: rgba(247, 242, 234, 0.72);
+  /* Jour couvert, fin d'après-midi : ciel bas et gris-mauve, lueur rousse à l'horizon. Le voile
+     clair derrière le contenu garde le texte sombre lisible (AA) sur ce jour assombri. */
+  --sky-top: #5a6176;
+  --sky-mid: #8d8595;
+  --sky-low: #b88c6b;
+  --sky-glow: rgba(255, 150, 70, 0.32);
+  --scrim: rgba(244, 238, 229, 0.8);
 }
 
 @theme inline {
@@ -209,20 +211,44 @@ body {
   opacity: 1;
   transition: opacity 900ms ease;
 }
+/* Étoiles : scintillement par opacité et transform uniquement (pas de repaint), rythme propre à
+   chacune (--d, --dl) et creux plus ou moins profond (--lo). Figées, visibles, si « mouvement réduit ». */
 .sky-stars i {
   position: absolute;
   width: 2px;
   height: 2px;
   border-radius: 50%;
   background: #fff;
-  opacity: 0.7;
+  opacity: 0.95;
   animation: twinkle var(--d) ease-in-out infinite;
   animation-delay: var(--dl);
 }
+/* Étoiles brillantes : halo doux et éclat en croix discret (traits fins qui suivent le scintillement). */
+.sky-stars i.b {
+  box-shadow: 0 0 6px 2px rgba(255, 255, 255, 0.55), 0 0 16px 5px rgba(205, 220, 255, 0.22);
+  animation-name: twinkle-bright;
+}
+.sky-stars i.b::before,
+.sky-stars i.b::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.85), transparent);
+  transform: translate(-50%, -50%);
+}
+.sky-stars i.b::after { transform: translate(-50%, -50%) rotate(90deg); }
 [data-theme="light"] .sky-stars { opacity: 0; }
 @keyframes twinkle {
-  0%, 100% { opacity: 0.15; }
-  50% { opacity: 0.85; }
+  0%, 100% { opacity: 0.95; transform: scale(1); }
+  50% { opacity: var(--lo, 0.1); transform: scale(0.55); }
+}
+@keyframes twinkle-bright {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  35% { opacity: 0.3; transform: scale(0.7); }
+  65% { opacity: 0.9; transform: scale(1.2); }
 }
 
 .sky-canvas {
@@ -233,7 +259,8 @@ body {
   height: 100lvh;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 1200ms ease;
+  /* Fondu court : le décor arrive d'un bloc (modèles et shaders prêts avant l'affichage). */
+  transition: opacity 400ms ease-out;
 }
 .sky-canvas[data-ready] { opacity: 1; }
 /* Halo doux derrière le contenu : le texte reste lisible devant le décor. */

@@ -3,13 +3,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, Expand, X } from "lucide-react";
+import { ArrowLeft, Expand, Gift, X } from "lucide-react";
 import { Dialog } from "radix-ui";
 import { type CSSProperties, useEffect, useState } from "react";
 import { useSceneState } from "@/components/scene/scene-state";
 import { Emoji } from "@/components/questionnaire/ui";
 import type { PublicResults } from "@/lib/public-results";
-import { shortName } from "@/lib/schema";
+import { isLocalMedia, shortName } from "@/lib/schema";
 import { displayName, tabTitle } from "@/lib/site";
 import { withBase } from "@/lib/base-path";
 
@@ -95,6 +95,16 @@ export function LiveResults({ initial }: { initial: PublicResults }) {
       </p>
 
       <Ranking data={data} className={on3D ? "sr-only" : "mt-10"} />
+
+      {/* Lien discret vers le tirage au sort (lots, participants, gagnants). */}
+      <p className={on3D ? "fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-0 right-0 z-10 text-center" : "mt-8 text-center"}>
+        <Link
+          href="/participants"
+          className={`inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs transition-colors ${on3D ? "bg-black/40 text-white/80 backdrop-blur hover:text-white" : "text-fg-muted hover:text-fg"}`}
+        >
+          <Gift className="h-3.5 w-3.5" aria-hidden /> Tirage au sort : lots et participants
+        </Link>
+      </p>
 
       {/* Classement en grand, net, au centre de l'écran, sur fond flouté */}
       <Dialog.Root open={on3D && boardOpen} onOpenChange={setBoardOpen}>
@@ -284,7 +294,7 @@ function Ranking({ data, className = "", large = false }: { data: PublicResults;
               {rank}
             </span>
             <div className={`relative aspect-[3/4] shrink-0 overflow-hidden rounded-lg bg-surface-2 ${large ? "w-16 sm:w-20" : "w-12 sm:w-16"}`}>
-              <Image src={r.image_url} alt="" fill sizes={large ? "160px" : "64px"} className="object-cover" />
+              <Image src={r.image_url} alt="" fill sizes={large ? "160px" : "64px"} unoptimized={isLocalMedia(r.image_url)} className="object-cover" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">

@@ -30,6 +30,20 @@ export const RESULTS = {
   shareDescription: "Quel restaurant Chamas Tacos a la décoration Halloween la plus effrayante ? Le classement se met à jour en temps réel.",
 };
 
+export const PARTICIPANTS = {
+  title: "Tirage au sort Halloween : participants et lots",
+  description:
+    "Les lots à gagner au tirage au sort Halloween Chamas Tacos, la liste des participants inscrits et les gagnants dès qu'ils sont tirés au sort.",
+  shareTitle: "🎁 Tirage au sort Halloween Chamas Tacos : les lots et les participants",
+  shareDescription: "Découvrez les lots à gagner et la liste des participants au tirage au sort Halloween de Chamas Tacos.",
+};
+
+/** Pages Chamas Tacos Lille sur les réseaux sociaux (cartes « S'abonner »). */
+export const SOCIAL_LINKS = {
+  instagram: { handle: "@chamastacos_lille", url: "https://www.instagram.com/chamastacos_lille/" },
+  tiktok: { handle: "@chamastacos_lille", url: "https://www.tiktok.com/@chamastacos_lille" },
+} as const;
+
 /** Domaine de production. */
 export const PROD_ORIGIN = "https://www.chamas-nord.fr";
 
