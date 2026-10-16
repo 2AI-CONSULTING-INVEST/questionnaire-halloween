@@ -41,6 +41,10 @@ export function Button({
 export const linkButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition-colors duration-150 " + variants.secondary;
 
+/** Lien de téléchargement mis en avant (bouton jaune de la marque). */
+export const primaryLinkButtonClass =
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition-colors duration-150 " + variants.primary;
+
 export const inputClass =
   "min-h-9 rounded-lg border border-line bg-white px-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100";
 

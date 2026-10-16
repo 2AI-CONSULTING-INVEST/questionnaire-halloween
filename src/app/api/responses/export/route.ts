@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/guard";
 /**
  * Admin : export des données.
  *   ?scope=all|participants   (toutes les réponses / participants au tirage ; « raffle » = participants)
+ *   ?raffle=1                 (réponses : uniquement celles reliées à un inscrit au tirage)
  *   ?format=xlsx|csv
  */
 async function handle(req: Request) {
@@ -15,6 +16,7 @@ async function handle(req: Request) {
   const scopeParam = url.searchParams.get("scope");
   const scope = scopeParam === "participants" || scopeParam === "raffle" ? "participants" : "all";
   const format = url.searchParams.get("format") === "csv" ? "csv" : "xlsx";
+  const onlyRaffle = scope === "all" && url.searchParams.get("raffle") === "1";
 
   const store = getStore();
   const [responses, decorations, participants, prizes] = await Promise.all([
@@ -23,10 +25,13 @@ async function handle(req: Request) {
     store.listParticipants(),
     store.listPrizes(),
   ]);
-  const rows = scope === "participants" ? participantsRows(participants, responses, prizes) : allResponsesRows(responses, decorations, participants);
+  const rows =
+    scope === "participants"
+      ? participantsRows(participants, responses, prizes)
+      : allResponsesRows(onlyRaffle ? responses.filter((r) => r.participant_id) : responses, decorations, participants);
 
   const stamp = new Date().toISOString().slice(0, 10);
-  const base = scope === "participants" ? `participants-tirage-${stamp}` : `reponses-halloween-${stamp}`;
+  const base = scope === "participants" ? `participants-tirage-${stamp}` : onlyRaffle ? `reponses-inscrits-tirage-${stamp}` : `reponses-halloween-${stamp}`;
   const headers = {
     "Cache-Control": "no-store",
     "Content-Disposition": `attachment; filename="${base}.${format}"`,

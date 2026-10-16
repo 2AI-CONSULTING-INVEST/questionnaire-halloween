@@ -1,0 +1,34 @@
+/* Généré par scripts/3d/posters.mjs : posters de la scène d'arrivée (voir SpookyBackdrop). Ne pas modifier à la main. */
+.sky-poster {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100vw;
+  height: 100lvh;
+  pointer-events: none;
+  background: center / cover no-repeat;
+  transition: opacity 500ms ease;
+}
+.sky-poster[data-gone] { opacity: 0; }
+.sky-poster[data-scene="graveyard"] { background-image: url("/halloween/poster/graveyard-dark-land.webp"); background-image: image-set(url("/halloween/poster/graveyard-dark-land.avif") type("image/avif"), url("/halloween/poster/graveyard-dark-land.webp") type("image/webp")); }
+[data-theme="light"] .sky-poster[data-scene="graveyard"] { background-image: url("/halloween/poster/graveyard-light-land.webp"); background-image: image-set(url("/halloween/poster/graveyard-light-land.avif") type("image/avif"), url("/halloween/poster/graveyard-light-land.webp") type("image/webp")); }
+.sky-poster[data-scene="reaper"] { background-image: url("/halloween/poster/reaper-dark-land.webp"); background-image: image-set(url("/halloween/poster/reaper-dark-land.avif") type("image/avif"), url("/halloween/poster/reaper-dark-land.webp") type("image/webp")); }
+[data-theme="light"] .sky-poster[data-scene="reaper"] { background-image: url("/halloween/poster/reaper-light-land.webp"); background-image: image-set(url("/halloween/poster/reaper-light-land.avif") type("image/avif"), url("/halloween/poster/reaper-light-land.webp") type("image/webp")); }
+.sky-poster[data-scene="crypt"] { background-image: url("/halloween/poster/crypt-dark-land.webp"); background-image: image-set(url("/halloween/poster/crypt-dark-land.avif") type("image/avif"), url("/halloween/poster/crypt-dark-land.webp") type("image/webp")); }
+[data-theme="light"] .sky-poster[data-scene="crypt"] { background-image: url("/halloween/poster/crypt-light-land.webp"); background-image: image-set(url("/halloween/poster/crypt-light-land.avif") type("image/avif"), url("/halloween/poster/crypt-light-land.webp") type("image/webp")); }
+@media (min-aspect-ratio: 17/10) {
+  .sky-poster[data-scene="graveyard"] { background-image: url("/halloween/poster/graveyard-dark-wide.webp"); background-image: image-set(url("/halloween/poster/graveyard-dark-wide.avif") type("image/avif"), url("/halloween/poster/graveyard-dark-wide.webp") type("image/webp")); }
+  [data-theme="light"] .sky-poster[data-scene="graveyard"] { background-image: url("/halloween/poster/graveyard-light-wide.webp"); background-image: image-set(url("/halloween/poster/graveyard-light-wide.avif") type("image/avif"), url("/halloween/poster/graveyard-light-wide.webp") type("image/webp")); }
+  .sky-poster[data-scene="reaper"] { background-image: url("/halloween/poster/reaper-dark-wide.webp"); background-image: image-set(url("/halloween/poster/reaper-dark-wide.avif") type("image/avif"), url("/halloween/poster/reaper-dark-wide.webp") type("image/webp")); }
+  [data-theme="light"] .sky-poster[data-scene="reaper"] { background-image: url("/halloween/poster/reaper-light-wide.webp"); background-image: image-set(url("/halloween/poster/reaper-light-wide.avif") type("image/avif"), url("/halloween/poster/reaper-light-wide.webp") type("image/webp")); }
+  .sky-poster[data-scene="crypt"] { background-image: url("/halloween/poster/crypt-dark-wide.webp"); background-image: image-set(url("/halloween/poster/crypt-dark-wide.avif") type("image/avif"), url("/halloween/poster/crypt-dark-wide.webp") type("image/webp")); }
+  [data-theme="light"] .sky-poster[data-scene="crypt"] { background-image: url("/halloween/poster/crypt-light-wide.webp"); background-image: image-set(url("/halloween/poster/crypt-light-wide.avif") type("image/avif"), url("/halloween/poster/crypt-light-wide.webp") type("image/webp")); }
+}
+@media (max-aspect-ratio: 3/4) {
+  .sky-poster[data-scene="graveyard"] { background-image: url("/halloween/poster/graveyard-dark-port.webp"); background-image: image-set(url("/halloween/poster/graveyard-dark-port.avif") type("image/avif"), url("/halloween/poster/graveyard-dark-port.webp") type("image/webp")); }
+  [data-theme="light"] .sky-poster[data-scene="graveyard"] { background-image: url("/halloween/poster/graveyard-light-port.webp"); background-image: image-set(url("/halloween/poster/graveyard-light-port.avif") type("image/avif"), url("/halloween/poster/graveyard-light-port.webp") type("image/webp")); }
+  .sky-poster[data-scene="reaper"] { background-image: url("/halloween/poster/reaper-dark-port.webp"); background-image: image-set(url("/halloween/poster/reaper-dark-port.avif") type("image/avif"), url("/halloween/poster/reaper-dark-port.webp") type("image/webp")); }
+  [data-theme="light"] .sky-poster[data-scene="reaper"] { background-image: url("/halloween/poster/reaper-light-port.webp"); background-image: image-set(url("/halloween/poster/reaper-light-port.avif") type("image/avif"), url("/halloween/poster/reaper-light-port.webp") type("image/webp")); }
+  .sky-poster[data-scene="crypt"] { background-image: url("/halloween/poster/crypt-dark-port.webp"); background-image: image-set(url("/halloween/poster/crypt-dark-port.avif") type("image/avif"), url("/halloween/poster/crypt-dark-port.webp") type("image/webp")); }
+  [data-theme="light"] .sky-poster[data-scene="crypt"] { background-image: url("/halloween/poster/crypt-light-port.webp"); background-image: image-set(url("/halloween/poster/crypt-light-port.avif") type("image/avif"), url("/halloween/poster/crypt-light-port.webp") type("image/webp")); }
+}

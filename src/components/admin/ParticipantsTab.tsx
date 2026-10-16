@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowUpDown, Check, Download, Pencil, Search, Trash2, Trophy, X } from "lucide-react";
+import { ArrowUpDown, Check, Download, FileSpreadsheet, Pencil, Search, Trash2, Trophy, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { formatFrPhone, PSEUDO_MAX, pseudoKey, type Participant, type Prize, type ResponseRow } from "@/lib/schema";
-import { Button, Card, ConfirmDialog, DownloadLink, Empty, fmtDate, inputClass } from "./ui";
+import { Button, Card, ConfirmDialog, DownloadLink, Empty, fmtDate, inputClass, primaryLinkButtonClass as exportClass } from "./ui";
 import { withBase } from "@/lib/base-path";
 
 type SortKey = "pseudo" | "email" | "date";
@@ -81,8 +81,12 @@ export function ParticipantsTab({
               className={`${inputClass} w-60 pl-8`}
             />
           </div>
-          <DownloadLink href={withBase("/api/responses/export?scope=participants&format=csv")}>
-            <Download className="h-4 w-4" aria-hidden /> CSV
+          {/* Export bien visible : pseudo, email, téléphone, date d'inscription, nombre de votes, lot gagné. */}
+          <DownloadLink href={withBase("/api/responses/export?scope=participants&format=csv")} className={exportClass}>
+            <Download className="h-4 w-4" aria-hidden /> Exporter les participants au tirage (CSV)
+          </DownloadLink>
+          <DownloadLink href={withBase("/api/responses/export?scope=participants&format=xlsx")} className={exportClass}>
+            <FileSpreadsheet className="h-4 w-4" aria-hidden /> Excel
           </DownloadLink>
         </div>
       }

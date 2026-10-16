@@ -9,9 +9,12 @@
 <script type="module">
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 const HB = (n) => `/KayKit_HalloweenBits_1.0_FREE/Assets/gltf/${n}.gltf`;
 const SK = (n) => `/packs/skeletons/KayKit_Skeletons_1.1_FREE/${n}`;
+const SKA = (n) => `/packs/skeletons/KayKit_Skeletons_1.1_FREE/assets/gltf/${n}.gltf`;
+const FN = (n) => `/packs/Forest_Nature_Pack_1.0/KayKit_Forest_Nature_Pack_1.0_FREE/Assets/gltf/${n}.gltf`;
 const loader = new GLTFLoader();
 const cache = new Map();
 const load = (url) => {
@@ -19,76 +22,175 @@ const load = (url) => {
   return cache.get(url);
 };
 const lambert = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, ...extra });
+// Couleurs plates prises dans les atlas KayKit (jaune citrouille, bois, fer noirci, os).
+const COL = { yellow: "#f4b733", black: "#24202b", wood: "#7b4f33", woodDark: "#5a3824", bone: "#eadcc3" };
 
 // ---------------------------------------------------------------------------
-// Accessoires de l'inspecteur, construits en low-poly (couleurs plates, style KayKit).
+// Panneau « attention » : triangle jaune bordé de noir, point d'exclamation, sur un piquet de bois.
+// Géométrie simple à bords nets (léger biseau, comme les assets KayKit).
 // ---------------------------------------------------------------------------
 
-/** Loupe : anneau de métal sombre, verre bleuté légèrement transparent, manche en bois. */
-function makeLoupe(r = 0.26) {
-  const g = new THREE.Group();
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(r, r * 0.13, 8, 24), lambert("#2b2a33"));
-  g.add(ring);
-  const glass = new THREE.Mesh(new THREE.CircleGeometry(r * 0.9, 24), lambert("#bfe3ff", { transparent: true, opacity: 0.45, side: THREE.DoubleSide }));
-  g.add(glass);
-  const glint = new THREE.Mesh(new THREE.CircleGeometry(r * 0.22, 12), lambert("#ffffff", { transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
-  glint.position.set(-r * 0.35, r * 0.35, 0.01);
-  g.add(glint);
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.12, r * 0.12, r * 0.35, 8), lambert("#2b2a33"));
-  neck.position.y = -r - r * 0.17;
-  g.add(neck);
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.17, r * 0.2, r * 1.5, 8), lambert("#7a4a2a"));
-  handle.position.y = -r - r * 0.35 - r * 0.75;
-  g.add(handle);
-  return g;
-}
-
-/** Téléphone : plaque sombre arrondie, écran clair (lumineux) avec trois lignes de « texte ». */
-function makePhone(w = 0.3, h = 0.6) {
-  const g = new THREE.Group();
-  const shape = new THREE.Shape();
-  const rr = 0.05;
-  shape.moveTo(-w / 2 + rr, -h / 2);
-  shape.lineTo(w / 2 - rr, -h / 2);
-  shape.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + rr);
-  shape.lineTo(w / 2, h / 2 - rr);
-  shape.quadraticCurveTo(w / 2, h / 2, w / 2 - rr, h / 2);
-  shape.lineTo(-w / 2 + rr, h / 2);
-  shape.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - rr);
-  shape.lineTo(-w / 2, -h / 2 + rr);
-  shape.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + rr, -h / 2);
-  const body = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.04, bevelEnabled: false }), lambert("#1e1c26"));
-  body.position.z = -0.04;
-  g.add(body);
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.84, h * 0.86), new THREE.MeshLambertMaterial({ color: "#fff4d6", emissive: "#ffd27a", emissiveIntensity: 0.55 }));
-  screen.position.z = 0.003;
-  g.add(screen);
-  // Lignes du « numéro » et de l'« adresse ».
-  [[0.26, 0.6], [0.1, 0.45], [-0.06, 0.55], [-0.22, 0.4]].forEach(([y, len]) => {
-    const line = new THREE.Mesh(new THREE.PlaneGeometry(w * len, h * 0.045), lambert("#2b2a33"));
-    line.position.set(-w * 0.42 + (w * len) / 2, h * y, 0.006);
-    g.add(line);
+/** Triangle équilatéral de côté a (centre de gravité à l'origine), coins arrondis de rayon r. */
+function roundedTriangle(a, r) {
+  const h = (a * Math.sqrt(3)) / 2;
+  const pts = [new THREE.Vector2(0, (2 * h) / 3), new THREE.Vector2(-a / 2, -h / 3), new THREE.Vector2(a / 2, -h / 3)];
+  const s = new THREE.Shape();
+  pts.forEach((p, i) => {
+    const prev = pts[(i + 2) % 3], next = pts[(i + 1) % 3];
+    const a1 = p.clone().add(prev.clone().sub(p).setLength(r * 1.7));
+    const a2 = p.clone().add(next.clone().sub(p).setLength(r * 1.7));
+    if (i === 0) s.moveTo(a1.x, a1.y);
+    else s.lineTo(a1.x, a1.y);
+    s.quadraticCurveTo(p.x, p.y, a2.x, a2.y);
   });
+  s.closePath();
+  return s;
+}
+
+function makeWarningSign(a = 0.9) {
+  const g = new THREE.Group();
+  const ext = (shape, depth, bevel) => new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 1, curveSegments: 6 });
+  const border = new THREE.Mesh(ext(roundedTriangle(a, a * 0.07), a * 0.05, a * 0.012), lambert(COL.black));
+  g.add(border);
+  const face = new THREE.Mesh(ext(roundedTriangle(a * 0.8, a * 0.05), a * 0.02, a * 0.006), lambert(COL.yellow));
+  face.position.z = a * 0.05;
+  g.add(face);
+  // Point d'exclamation : barre effilée vers le bas, puis un point carré biseauté.
+  const bar = new THREE.Shape();
+  const bw = a * 0.075, bt = a * 0.05;
+  bar.moveTo(-bw, a * 0.24);
+  bar.lineTo(bw, a * 0.24);
+  bar.lineTo(bt * 0.75, -a * 0.04);
+  bar.lineTo(-bt * 0.75, -a * 0.04);
+  bar.closePath();
+  const ex = new THREE.Mesh(ext(bar, a * 0.02, a * 0.006), lambert(COL.black));
+  ex.position.z = a * 0.08;
+  g.add(ex);
+  const dot = new THREE.Mesh(new THREE.BoxGeometry(a * 0.11, a * 0.1, a * 0.03), lambert(COL.black));
+  dot.position.set(0, -a * 0.13, a * 0.09);
+  g.add(dot);
   return g;
 }
 
-/** Enveloppe : papier crème, rabat plus sombre, cachet de cire rouge. */
-function makeEnvelope(w = 0.52, h = 0.34) {
+/** Piquet de bois planté (section carrée, pointe émoussée en haut) : support du panneau. */
+function makeStake(h, w = 0.09) {
   const g = new THREE.Group();
-  const paper = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.03), lambert("#f3e7c9"));
-  g.add(paper);
-  const flap = new THREE.Shape();
-  flap.moveTo(-w / 2, h / 2);
-  flap.lineTo(w / 2, h / 2);
-  flap.lineTo(0, -h * 0.08);
-  flap.lineTo(-w / 2, h / 2);
-  const flapMesh = new THREE.Mesh(new THREE.ShapeGeometry(flap), lambert("#e2d2ad"));
-  flapMesh.position.z = 0.017;
-  g.add(flapMesh);
-  const seal = new THREE.Mesh(new THREE.CylinderGeometry(h * 0.14, h * 0.14, 0.02, 10), lambert("#c0392b"));
-  seal.rotation.x = Math.PI / 2;
-  seal.position.set(0, -h * 0.02, 0.028);
-  g.add(seal);
+  const post = new THREE.Mesh(new THREE.BoxGeometry(w, h, w * 0.8), lambert(COL.wood));
+  post.position.y = h / 2;
+  g.add(post);
+  return g;
+}
+
+// ---------------------------------------------------------------------------
+// Main squelette (même construction que la main du site, src/components/scene/props.ts :
+// paume, 4 métacarpes, 3 phalanges par doigt, pouce opposé), doigts vers -Y, paume vers +Z.
+// ---------------------------------------------------------------------------
+
+function phalanx(len, mat) {
+  const geo = mergeGeometries([
+    new THREE.CylinderGeometry(0.013, 0.016, len, 7).translate(0, -len / 2, 0),
+    new THREE.SphereGeometry(0.02, 8, 6),
+    new THREE.SphereGeometry(0.016, 8, 6).translate(0, -len, 0),
+  ].map((x) => x.toNonIndexed()));
+  return new THREE.Mesh(geo, mat);
+}
+
+/**
+ * curl : flexion des doigts (0 ouverte → 1 poing) ; spread : écartement ; thumbCurl : flexion du
+ * pouce. Chaque phalange tourne vers la paume (+Z), dans l'ordre base → bout.
+ */
+function makeBoneHand(mat, { curl = 0.4, spread = 0.12, thumbCurl = 0.5, forearm = 0.62 } = {}) {
+  const root = new THREE.Group();
+  const xs = [-0.05, -0.017, 0.017, 0.05];
+  const parts = [new THREE.BoxGeometry(0.14, 0.06, 0.05).translate(0, -0.03, 0)];
+  xs.forEach((x) => parts.push(new THREE.CylinderGeometry(0.013, 0.017, 0.13, 7).rotateZ(x * 0.8).translate(x * 1.1, -0.12, 0)));
+  if (forearm) {
+    // Radius (côté pouce) et ulna, puis les carpes au poignet.
+    for (const x of [-0.03, 0.032]) parts.push(new THREE.CylinderGeometry(0.022, 0.028, forearm, 7).translate(x, forearm / 2, -0.005));
+    [-0.042, -0.014, 0.014, 0.042].forEach((x) => parts.push(new THREE.BoxGeometry(0.026, 0.024, 0.04).translate(x, 0.014, 0)));
+  }
+  root.add(new THREE.Mesh(mergeGeometries(parts.map((x) => x.toNonIndexed())), mat));
+  const lengths = [0.07, 0.05, 0.036];
+  const scales = [1, 1.08, 1, 0.82];
+  xs.forEach((x, f) => {
+    let parent = root;
+    lengths.forEach((len, k) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(k === 0 ? x * 1.15 : 0, k === 0 ? -0.19 : -lengths[k - 1] * scales[f], 0);
+      pivot.rotation.x = -curl * [0.9, 1.1, 0.8][k];
+      if (k === 0) pivot.rotation.z = (f - 1.5) * spread;
+      pivot.add(phalanx(len * scales[f], mat));
+      parent.add(pivot);
+      parent = pivot;
+    });
+  });
+  // Pouce : part du coin de la paume, tourné vers la paume (opposé aux doigts), deux articulations.
+  let tp = root;
+  [0.06, 0.045, 0.035].forEach((len, k) => {
+    const pivot = new THREE.Group();
+    if (k === 0) {
+      pivot.position.set(0.075, -0.05, 0.02);
+      pivot.rotation.set(-0.35, -0.55, 0.7);
+    } else {
+      pivot.position.set(0, -[0.06, 0.045][k - 1], 0);
+      pivot.rotation.x = -thumbCurl * 0.7;
+    }
+    pivot.add(phalanx(len, mat));
+    tp.add(pivot);
+    tp = pivot;
+  });
+  return root;
+}
+
+// ---------------------------------------------------------------------------
+// Petite motte de terre (même recette que scripts/3d/modal-props : dôme facetté, plus clair en haut).
+// ---------------------------------------------------------------------------
+
+const MOUND = { w: 4.6, d: 2.2, h: 0.62 };
+const shape = (r) => (r >= 1 ? 0 : Math.pow(Math.cos((r * Math.PI) / 2), 0.85));
+const moundY = (x, z) => MOUND.h * shape(Math.hypot(x / (MOUND.w / 2), z / (MOUND.d / 2)));
+function moundMesh() {
+  const prof = [];
+  for (let i = 0; i <= 10; i++) prof.push(new THREE.Vector2(i / 10, shape(i / 10)));
+  const geo = new THREE.LatheGeometry(prof.reverse(), 36);
+  const p = geo.attributes.position;
+  const hash = (x, z, k) => {
+    const v = Math.sin(Math.round(x * 1000) * 12.9898 + Math.round(z * 1000) * 78.233 + k * 37.719) * 43758.5453;
+    return v - Math.floor(v) - 0.5;
+  };
+  for (let i = 0; i < p.count; i++) {
+    const ux = p.getX(i), uz = p.getZ(i);
+    const x = ux * (MOUND.w / 2), z = uz * (MOUND.d / 2);
+    const y = p.getY(i) * MOUND.h;
+    const edge = y > 0.01 ? 1 : 0;
+    p.setXYZ(i, x + hash(ux, uz, 1) * 0.1 * edge, y + hash(ux, uz, 2) * 0.06 * edge, z + hash(ux, uz, 3) * 0.1 * edge);
+  }
+  const g = geo.toNonIndexed();
+  g.computeVertexNormals();
+  const top = new THREE.Color("#6a4b37"), bottom = new THREE.Color("#241711"), c = new THREE.Color();
+  const col = new Float32Array(g.attributes.position.count * 3);
+  for (let i = 0; i < g.attributes.position.count; i++) {
+    c.copy(bottom).lerp(top, Math.min(1, Math.max(0, g.attributes.position.getY(i) / MOUND.h)));
+    col.set([c.r, c.g, c.b], i * 3);
+  }
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  return new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+}
+
+/** Mottes de terre retournée autour d'un point (la main vient de percer le sol). */
+function dirtClods(cx, cz, n, seed) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: "#5a3e2c", flatShading: true });
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + seed;
+    const r = 0.16 + ((i * 37) % 7) * 0.012;
+    const s = 0.05 + ((i * 13) % 5) * 0.012;
+    const m = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), mat);
+    const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r * 0.8;
+    m.position.set(x, moundY(x, z) + s * 0.3, z);
+    m.rotation.set(a, a * 1.7, a * 0.6);
+    g.add(m);
+  }
   return g;
 }
 
@@ -97,30 +199,30 @@ function makeEnvelope(w = 0.52, h = 0.34) {
 // ---------------------------------------------------------------------------
 
 const SETS = {
-  // Squelette KayKit (Minion) qui inspecte un téléphone à la loupe, une enveloppe dans l'autre main.
+  // Squelette KayKit (Minion) paniqué : il recule (pose « Hit_A » du rig commun), mains sur les joues,
+  // tête penchée ; derrière lui, un panneau « attention » planté de travers.
   inspector: {
-    w: 440, h: 600, dir: [0.32, 0.18, 1], fov: 22, pad: 1.04,
+    w: 560, h: 520, dir: [0.08, 0.14, 1], fov: 22, pad: 1.04,
     async build(group) {
       const [gltf, rig] = await Promise.all([load(SK("characters/gltf/Skeleton_Minion.glb")), load(SK("Animations/gltf/Rig_Medium/Rig_Medium_General.glb"))]);
       const model = gltf.scene;
       model.traverse((o) => {
         if (!o.isMesh) return;
         const src = o.material;
-        o.material = /Eyes/i.test(o.name)
-          ? new THREE.MeshBasicMaterial({ color: "#ffc93c" })
-          : new THREE.MeshLambertMaterial({ map: src.map });
+        o.material = /Eyes/i.test(o.name) ? new THREE.MeshBasicMaterial({ color: "#ffc93c" }) : new THREE.MeshLambertMaterial({ map: src.map });
         o.frustumCulled = false;
       });
       group.add(model);
-      // Base : pose « Idle_A » du rig commun (bras le long du corps), figée.
+      const P = window.POSE ?? {};
+      // Base : une image du recul « Hit_A » (articulations et proportions du rig KayKit).
       const mixer = new THREE.AnimationMixer(model);
-      const clip = rig.animations.find((a) => a.name === "Idle_A");
+      const clip = rig.animations.find((a) => a.name === (P.clip ?? "Hit_A"));
       if (clip) {
-        const a = mixer.clipAction(clip);
-        a.play();
-        mixer.update(0.35);
+        mixer.clipAction(clip).play();
+        mixer.update(P.t ?? 0.32);
       }
-      // GLTFLoader retire les points des noms de nœuds (« handslot.l » → « handslotl »).
+      model.updateMatrixWorld(true);
+      // GLTFLoader retire les points des noms de nœuds (« hand.l » → « handl »).
       const bone = (n) => model.getObjectByName(n) ?? model.getObjectByName(n.replace(/[.]/g, ""));
       // Oriente un os (axe local +Y, vers son enfant) vers un point du monde.
       const aim = (b, target) => {
@@ -133,93 +235,88 @@ const SETS = {
         b.quaternion.premultiply(pq.clone().invert().multiply(q).multiply(pq));
         b.updateWorldMatrix(true, true);
       };
-      // Bras à deux os : épaule → coude (vers un pôle) → main sur la cible.
+      // Bras à deux os : épaule → coude (vers un pôle) → poignet sur la cible.
       const arm = (side, target, pole) => {
         const up = bone("upperarm." + side), low = bone("lowerarm." + side);
         const S = up.getWorldPosition(new THREE.Vector3());
         const L1 = low.position.length();
-        const half = Math.min(L1 * 0.95, target.distanceTo(S) / 2);
+        const half = Math.min(L1 * 0.98, target.distanceTo(S) / 2);
         const mid = S.clone().lerp(target, 0.5).addScaledVector(pole, Math.sqrt(Math.max(0, L1 * L1 - half * half)));
         aim(up, mid);
         aim(low, target);
       };
-      const P = window.POSE ?? {};
-      // Loupe devant l'orbite gauche (à droite de l'image), téléphone dans l'autre main, devant la
-      // poitrine ; les accessoires sont posés dans le monde, les mains viennent les tenir.
-      const loupe = makeLoupe(0.3);
-      const loupeAt = new THREE.Vector3(...(P.loupeAt ?? [0.3, 1.52, 0.78]));
-      loupe.position.copy(loupeAt);
-      loupe.rotation.set(...(P.loupeRot ?? [0.1, 0.35, 0.15]));
-      group.add(loupe);
-      const handL = loupeAt.clone().add(new THREE.Vector3(...(P.handL ?? [0.05, -0.62, -0.05])));
-      arm("l", handL, new THREE.Vector3(...(P.poleL ?? [0.9, -0.3, -0.2])).normalize());
-      const phone = makePhone(0.34, 0.62);
-      const phoneAt = new THREE.Vector3(...(P.phoneAt ?? [-0.42, 1.2, 0.7]));
-      phone.position.copy(phoneAt);
-      phone.rotation.set(...(P.phoneRot ?? [-0.35, 0.25, 0.1]));
-      group.add(phone);
-      const env = makeEnvelope();
-      env.position.set(...(P.envAt ?? [-0.72, 0.98, 0.56]));
-      env.rotation.set(...(P.envRot ?? [-0.2, 0.55, -0.55]));
-      group.add(env);
-      const handR = phoneAt.clone().add(new THREE.Vector3(...(P.handR ?? [0.02, -0.3, -0.06])));
-      arm("r", handR, new THREE.Vector3(...(P.poleR ?? [-0.9, -0.4, -0.2])).normalize());
+      // Tête penchée (avant les bras : les cibles des mains suivent le crâne).
       const head = bone("head");
-      const hr = P.head ?? [0.28, 0.32, 0.12];
+      const hr = P.head ?? [0.12, -0.25, 0.22];
       head.rotation.set(head.rotation.x + hr[0], head.rotation.y + hr[1], head.rotation.z + hr[2]);
       model.updateMatrixWorld(true);
-      const eye = model.getObjectByName("Skeleton_Minion_Eyes");
-      const c = eye ? new THREE.Box3().setFromObject(eye).getCenter(new THREE.Vector3()) : new THREE.Vector3(0, 1.64, 0.26);
-      return { eyes: c, screen: phoneAt };
+      // Mains levées de part et d'autre du crâne (le « Aaah ! » de surprise) : ses bras courts
+      // (0,5 u) n'atteignent pas l'avant de son énorme crâne, les cibles restent à leur portée.
+      arm("l", new THREE.Vector3(...(P.handL ?? [0.58, 1.28, 0.15])), new THREE.Vector3(...(P.poleL ?? [1, -1, -0.3])).normalize());
+      arm("r", new THREE.Vector3(...(P.handR ?? [-0.58, 1.28, 0.15])), new THREE.Vector3(...(P.poleR ?? [-1, -1, -0.3])).normalize());
+      // Mains : rotation autour de l'avant-bras pour tourner la paume vers le visage.
+      for (const [side, tw] of [["l", P.twistL ?? 0], ["r", P.twistR ?? 0]]) {
+        const h = bone("hand." + side);
+        h.rotateY(tw);
+        if (P.bend) h.rotateX(P.bend);
+      }
+      model.updateMatrixWorld(true);
+      // Panneau « attention » derrière lui, planté de travers.
+      const sign = new THREE.Group();
+      const a = P.signSize ?? 0.95;
+      const stakeH = P.stakeH ?? 1.05;
+      sign.add(makeStake(stakeH + a * 0.2));
+      const plate = makeWarningSign(a);
+      plate.position.set(0, stakeH + a * 0.12, 0.05);
+      sign.add(plate);
+      sign.position.set(...(P.signAt ?? [-0.95, 0, -0.6]));
+      sign.rotation.set(...(P.signRot ?? [0, 0.35, 0.12]));
+      group.add(sign);
+      window.debug = { head: head.getWorldPosition(new THREE.Vector3()).toArray(), handL: bone("hand.l").getWorldPosition(new THREE.Vector3()).toArray(), shoulderL: bone("upperarm.l").getWorldPosition(new THREE.Vector3()).toArray(), armLen: [bone("lowerarm.l").position.length(), bone("wrist.l").position.length(), bone("hand.l").position.length()], headScale: head.getWorldScale(new THREE.Vector3()).toArray() };
+      return {};
     },
     lights: [[0.6, 1.5, 1.2, 1.6, "#ffb347"], [-0.8, 1.0, 0.9, 1.0, "#ffd9a0"]],
   },
-  // Grappe de citrouilles-lanternes et bougies (coin bas-gauche de la modale).
-  pumpkins: {
-    w: 520, h: 400, dir: [-0.25, 0.42, 1], fov: 22, pad: 1.03,
+  // Petite motte au pied de la modale : pierre tombale, main squelette qui perce la terre.
+  mound: {
+    w: 900, h: 420, dir: [0, 0.32, 1], fov: 22, pad: 1.03,
+    async build(group) {
+      group.add(moundMesh());
+      const P = window.POSE ?? {};
+      const mat = lambert(COL.bone);
+      const hand = makeBoneHand(mat, { curl: P.curl ?? 0.6, spread: P.spread ?? 0.22, thumbCurl: P.thumbCurl ?? 0.6, forearm: 0.3 });
+      // Doigts vers le ciel, paume vers la caméra ; le poignet dépasse à peine du sol, l'avant-bras
+      // (raccourci) s'y enfonce.
+      const holder = new THREE.Group();
+      hand.rotation.z = Math.PI;
+      holder.add(hand);
+      const [hx, hz] = P.handAt ?? [0.35, 0.25];
+      const s = P.handScale ?? 2.8;
+      holder.scale.setScalar(s);
+      holder.rotation.set(...(P.handRot ?? [0.1, -1.0, -0.15]));
+      holder.position.set(hx, moundY(hx, hz) + (P.lift ?? 0.05) * s, hz);
+      group.add(holder);
+      group.add(dirtClods(hx, hz, 7, 0.4));
+      return {};
+    },
     items: [
-      [HB("pumpkin_orange_jackolantern"), 0, 0, 0.35, 1.0],
-      [HB("pumpkin_yellow_small"), 0.85, 0.35, -0.4, 0.8],
-      [HB("candle_triple"), -0.85, 0.3, 0.2, 0.9],
-      [HB("skull"), 0.75, -0.55, -0.7, 0.55],
-      [HB("bone_A"), -0.3, 0.75, 0.9, 0.7],
+      [HB("gravestone"), -1.05, -0.25, 0.3, 0.95],
+      [FN("Grass_1_A_Color1"), -1.75, 0.35, 0.3, 0.75, "#4a5642"],
+      [FN("Grass_2_B_Color1"), 1.1, 0.45, 1.1, 0.6, "#4a5642"],
     ],
-    lights: [[0, 0.62, 0.15, 4, "#ff8a2a"], [-0.85, 1.1, 0.3, 2.5, "#ffb347"]],
-    // Découpes allumées de la citrouille (cellule « charcoal » de l'atlas), comme sur le site.
-    jack: { pos: [0, 0.62, 0.15] },
+    lights: [[-0.4, 1.2, 0.9, 2.2, "#ffb347"]],
+    onMound: true,
   },
-  // Lanterne suspendue à sa chaîne (coin haut-droit de la modale).
-  lantern: {
-    w: 220, h: 420, dir: [0.35, 0.05, 1], fov: 18, pad: 1.02,
-    items: [[HB("lantern_hanging"), 0, 0, 0.4, 1]],
-    lights: [[0, 0.55, 0.3, 3, "#ffb347"]],
-    glass: true,
+  // Fond du compte à rebours (chiffres en HTML par-dessus) : bouclier rond du pack Skeletons, de face,
+  // hérissé de flèches.
+  timer: {
+    file: "timer-shield",
+    w: 420, h: 420, dir: [0, 0, 1], fov: 18, pad: 1.0,
+    items: [[SKA("Skeleton_Shield_Small_B"), 0, 0, 0, 1]],
+    lights: [[0, 0.4, 1.2, 1.5, "#ffb347"]],
   },
 };
 window.SETS = SETS;
-
-/** Découpes / vitres émissives : même recette que le site (cellule de l'atlas → lueur orange). */
-function glowMaterial(map, cell, color) {
-  const m = new THREE.MeshLambertMaterial({ map });
-  m.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      "#include <emissivemap_fragment>",
-      `#include <emissivemap_fragment>
-      {
-        vec2 uv = vMapUv;
-        float cut = step(${cell[0]}, uv.x) * step(uv.x, ${cell[1]}) * step(${cell[2]}, uv.y) * step(uv.y, ${cell[3]});
-        float facing = clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0);
-        totalEmissiveRadiance += mix(vec3(${color[0]}), vec3(${color[1]}), facing * facing) * cut * 2.0;
-      }`,
-    ).replace("#include <colorspace_fragment>", `float mx = max(gl_FragColor.r, max(gl_FragColor.g, gl_FragColor.b)); if (mx > 1.0) gl_FragColor.rgb /= mx;
-      #include <colorspace_fragment>`);
-  };
-  return m;
-}
-const JACK_CELL = ["0.125", "0.25", "0.0", "0.25"];
-const JACK_COL = ["0.3, 0.03, 0.001", "1.0, 0.22, 0.006"];
-const GLASS_CELL = ["0.25", "0.375", "0.75", "1.0"];
-const GLASS_COL = ["0.6, 0.12, 0.005", "1.0, 0.42, 0.04"];
 
 window.renderSet = async (key) => {
   const set = SETS[key];
@@ -243,19 +340,15 @@ window.renderSet = async (key) => {
   scene.add(group);
   let extra = {};
   if (set.build) extra = (await set.build(group)) ?? {};
-  for (const [url, x, z, ry, s] of set.items ?? []) {
+  for (const [url, x, z, ry, s, tint] of window.POSE?.items ?? set.items ?? []) {
     const gltf = await load(url);
     const m = gltf.scene.clone(true);
-    const name = url.split("/").pop().replace(".gltf", "");
     m.traverse((o) => {
-      if (!o.isMesh) return;
-      const map = o.material.map;
-      if (set.jack && /jackolantern/.test(name)) o.material = glowMaterial(map, JACK_CELL, JACK_COL);
-      else if (set.glass && /lantern/.test(name)) o.material = glowMaterial(map, GLASS_CELL, GLASS_COL);
-      else o.material = new THREE.MeshLambertMaterial({ map });
+      if (o.isMesh) o.material = new THREE.MeshLambertMaterial({ map: o.material.map, color: tint ?? "#ffffff" });
     });
-    m.position.set(x, 0, z);
+    m.position.set(x, set.onMound ? moundY(x, z) - 0.04 : 0, z);
     m.rotation.y = ry;
+    if (window.POSE?.rx) m.rotation.x = window.POSE.rx;
     m.scale.setScalar(s);
     group.add(m);
   }
@@ -269,7 +362,7 @@ window.renderSet = async (key) => {
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const camera = new THREE.PerspectiveCamera(set.fov, set.w / set.h, 0.1, 200);
-  const dir = new THREE.Vector3(...set.dir).normalize();
+  const dir = new THREE.Vector3(...(window.POSE?.dir ?? set.dir)).normalize();
   const t = Math.tan(THREE.MathUtils.degToRad(set.fov / 2));
   const fit = Math.max(size.y / (2 * t), size.x / (2 * t * camera.aspect), size.z / (2 * t * camera.aspect));
   camera.position.copy(center).addScaledVector(dir, fit * (set.pad ?? 1.08) + Math.max(size.x, size.z) / 2);
@@ -282,7 +375,6 @@ window.renderSet = async (key) => {
   };
   const out = {};
   for (const [k, v] of Object.entries(extra)) if (v?.isVector3) out[k] = px(v);
-  if (set.jack) out.flame = px(new THREE.Vector3(...set.jack.pos));
   return out;
 };
 window.ready = true;

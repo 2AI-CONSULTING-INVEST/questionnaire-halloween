@@ -59,6 +59,7 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/prizes/[id]">)
   }
   if (patch.image_url !== undefined && prize.image_url && prize.image_url !== patch.image_url) await store.removeFiles([prize.image_url]);
   revalidatePath("/participants");
+  revalidatePath("/"); // lots proposés dans la confirmation du « Non » au tirage
   return json({ ok: true });
 }
 
@@ -74,5 +75,6 @@ export async function DELETE(_req: Request, ctx: RouteContext<"/api/prizes/[id]"
   await store.deletePrize(id);
   if (prize.image_url) await store.removeFiles([prize.image_url]);
   revalidatePath("/participants");
+  revalidatePath("/"); // lots proposés dans la confirmation du « Non » au tirage
   return json({ ok: true });
 }

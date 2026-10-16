@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { BarChart3, ChevronDown, ChevronUp, Clock, CloudOff, ExternalLink, Gift, Loader2, CloudCheck, RotateCcw } from "lucide-react";
+import { X, ChevronDown, ChevronUp, Clock, CloudOff, ExternalLink, Gift, Loader2, CloudCheck } from "lucide-react";
 import { RadioGroup, Toast, ToggleGroup } from "radix-ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   commentSchema,
   COMMENT_MAX,
@@ -21,19 +20,20 @@ import {
 import { HOME, tabTitle } from "@/lib/site";
 import { clientNow } from "@/lib/clock";
 import { isPastDay, nextParisMidnight, parisDay } from "@/lib/day";
+import { setNextVote } from "@/lib/next-vote";
 import { useSceneState } from "../scene/scene-state";
 import { triggerSwarm } from "../scene/SpookyBackdrop";
 import { AlreadyVoted } from "./AlreadyVoted";
 import { Confetti } from "./Confetti";
 import { DecorationGallery, LETTERS } from "./DecorationGallery";
 import { RaffleConfirmDialog, type RaffleErrors, type RaffleValues } from "./RaffleConfirmDialog";
+import { RaffleDeclineDialog, type PublicPrize } from "./RaffleDeclineDialog";
 import { RestaurantCombobox } from "./RestaurantCombobox";
-import { apiFetch } from "./demo";
+import { apiFetch, DEMO_RESTART_EVENT, enterDemoTab, isDemoTab, subscribeDemoTab } from "./demo";
 import { createSession, discard, flush, initSaver, onSaveStatus, save } from "./saver";
-import { SocialCards } from "./SocialCards";
 import { restartDemo, SCREENS, setQuestionnaireMode, STEP_COUNT, STEP_OF, useQuestionnaire, type Answers, type Screen } from "./store";
 import { ChoicePill, Emoji, FieldError, KeyBadge, OkButton, pillClass, QuestionHeader, type EmojiName } from "./ui";
-import { ShareButtons } from "./ShareButtons";
+import { ThanksActions } from "./ThanksActions";
 import { withBase } from "@/lib/base-path";
 
 const PERIOD_OPTIONS: { value: VisitPeriod; label: string; emoji: EmojiName }[] = [
@@ -82,7 +82,7 @@ const SCREEN_OF_FIELD: Partial<Record<string, Screen>> = {
 type ApiError = { error?: string; details?: Record<string, string[]> & { code?: string; nextResetAt?: string } };
 
 const inputClass =
-  "w-full border-b-2 border-edge-strong bg-transparent pb-2 text-xl text-fg outline-none transition-colors placeholder:text-placeholder focus:border-brand sm:text-[1.75rem]";
+  "w-full border-b-2 border-edge-strong bg-transparent pb-2 text-xl text-fg outline-none transition-colors placeholder:text-placeholder-scene focus:border-brand sm:text-[1.75rem]";
 
 /**
  * Formate la saisie : « 0713554467 » → « 07 13 55 44 67 », « +33713554467 » → « +33 7 13 55 44 67 »,
@@ -111,11 +111,15 @@ type Props = {
   decorations: Decoration[];
   social: { url: string | null; label: string };
   videoUrl: string | null;
-  /** Espace démo : parcours complet, mais rien n'est enregistré (voir demo.ts). */
+  /** Lots publics (nom, description, image) : rappelés si la personne répond « Non » au tirage. */
+  prizes?: PublicPrize[];
+  /** Page /demo : parcours complet, mais rien n'est enregistré (voir demo.ts). Pose le drapeau de l'onglet. */
   demo?: boolean;
 };
 
-export function Questionnaire({ restaurants, decorations, social, videoUrl, demo = false }: Props) {
+export function Questionnaire({ restaurants, decorations, social, videoUrl, prizes = [], demo: demoPage = false }: Props) {
+  // Démo « collante » : la page /demo, ou tout questionnaire d'un onglet entré en démo (demo.ts).
+  const demo = useSyncExternalStore(subscribeDemoTab, isDemoTab, () => false) || demoPage;
   const { sessionId, index, direction, answers, voteCompleted, raffleAlreadyRegistered, start, setAnswer, go, markVoteCompleted, markRaffleDone } =
     useQuestionnaire();
   const groups = useMemo(() => groupDecorations(decorations), [decorations]);
@@ -123,6 +127,8 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
   /** L'appareil a déjà voté aujourd'hui : écran dédié jusqu'à la réouverture (minuit à Paris). */
   const [alreadyVoted, setAlreadyVoted] = useState<{ nextResetAt: string } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** Confirmation du « Non » au tirage (rappel des lots). */
+  const [declineOpen, setDeclineOpen] = useState(false);
   // L'erreur est rattachée à l'écran où elle a été levée : elle disparaît en changeant d'écran.
   const [errorState, setErrorState] = useState<{ index: number; message: string } | null>(null);
   const error = errorState?.index === index ? errorState.message : null;
@@ -138,12 +144,17 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
 
   const screen: Screen = SCREENS[index];
   const step = STEP_OF[screen];
-  const minIndex = voteCompleted ? SCREENS.indexOf("raffle") : 1;
+  // Avant le vote validé, la flèche « précédent » ramène jusqu'à l'accueil (bouton « Reprendre le vote ») ;
+  // après, le tirage reste le premier écran accessible.
+  const minIndex = voteCompleted ? SCREENS.indexOf("raffle") : 0;
 
   // Restauration de la session (localStorage) après le premier rendu.
   useEffect(() => {
     let cancelled = false;
-    // Avant la restauration : la démo lit et écrit sa propre session.
+    // Avant la restauration et avant tout appel : la démo lit et écrit sa propre session. Le
+    // drapeau de l'onglet est lu ici de façon synchrone (pas l'état React, encore faux à l'hydratation).
+    if (demoPage) enterDemoTab();
+    const demo = demoPage || isDemoTab();
     setQuestionnaireMode(demo);
     void Promise.resolve(useQuestionnaire.persist.rehydrate()).then(() => {
       const now = clientNow();
@@ -178,13 +189,36 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
     return () => {
       cancelled = true;
     };
-  }, [decorations, demo]);
+  }, [decorations, demoPage]);
 
   /** Minuit est passé : le vote rouvre sans recharger la page. */
   const reopenVote = useCallback(() => {
     useQuestionnaire.getState().resetForNewDay();
     setAlreadyVoted(null);
-  }, []);
+    setNextVote(null, demo);
+  }, [demo]);
+
+  // « Recommencer » du bandeau démo (DemoBar) : retour à l'accueil, tout vidé.
+  useEffect(() => {
+    if (!demo) return;
+    const restart = () => {
+      restartDemo();
+      setNextVote(null, true);
+      setAlreadyVoted(null);
+      setErrorState(null);
+      setConfirmOpen(false);
+    };
+    window.addEventListener(DEMO_RESTART_EVENT, restart);
+    return () => window.removeEventListener(DEMO_RESTART_EVENT, restart);
+  }, [demo]);
+
+  // Vote du jour fait (validé, ou appareil reconnu « déjà voté ») : compte à rebours en haut à
+  // droite, sur toutes les pages publiques (CornerRail).
+  useEffect(() => {
+    if (!hydrated) return;
+    if (alreadyVoted) setNextVote(alreadyVoted.nextResetAt, demo);
+    else if (voteCompleted) setNextVote(nextParisMidnight(clientNow()).toISOString(), demo);
+  }, [hydrated, alreadyVoted, voteCompleted, demo]);
 
   useEffect(
     () =>
@@ -323,6 +357,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
       if (res.ok) {
         discard([...RAFFLE_FIELDS]);
         markRaffleDone(false);
+        setDeclineOpen(false);
         go(SCREENS.indexOf("thanks"));
         return;
       }
@@ -399,7 +434,8 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
       }
       case "raffle":
         if (a.wants_raffle === null) return fail("Veuillez répondre Oui ou Non");
-        return a.wants_raffle ? next() : void declineRaffle();
+        // « Non » : on confirme d'abord, en rappelant les lots (RaffleDeclineDialog).
+        return a.wants_raffle ? next() : setDeclineOpen(true);
       case "name": {
         const r = pseudoSchema.safeParse(a.pseudo);
         return r.success ? next() : fail(r.error.issues[0]?.message ?? "Pseudonyme invalide");
@@ -412,7 +448,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
         return r.success ? setConfirmOpen(true) : fail("Adresse email invalide");
       }
     }
-  }, [answers, screen, begin, next, groups.length, submitVote, declineRaffle, setError]);
+  }, [answers, screen, begin, next, groups.length, submitVote, setError]);
 
   // ----- Clavier (comme Typeform) ------------------------------------------
 
@@ -566,7 +602,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
       case "impact":
         return (
           <>
-            <QuestionHeader id={qid} number="4" title="La décoration Halloween a-t-elle influencé votre expérience ?" required />
+            <QuestionHeader id={qid} number="4" title="La décoration d'Halloween a-t-elle influencé votre expérience ?" required />
             <RadioGroup.Root
               aria-labelledby={qid}
               aria-required
@@ -747,17 +783,19 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
         return (
           <div className="mx-auto max-w-3xl text-center">
             <Confetti />
-            <h1 className="text-4xl leading-[1.15] tracking-tight text-fg [text-shadow:0_2px_24px_rgba(0,0,0,0.45)] sm:text-6xl day:[text-shadow:none]">
-              <Emoji name="party" size={64} className="mr-3 h-[1em] w-[1em]" />
-              Merci pour votre vote ! Votre avis compte pour Chamas Tacos !
-              <Emoji name="ghost" size={64} className="ml-3 h-[1em] w-[1em]" />
+            {/* Petits écrans : textes plus petits pour aérer (rien de tronqué à 360 px). */}
+            <div>
+            <h1 className="text-[1.7rem] leading-[1.18] tracking-tight text-fg [text-shadow:0_2px_24px_rgba(0,0,0,0.45)] min-[400px]:text-3xl sm:text-6xl day:[text-shadow:none]">
+              <Emoji name="party" size={64} className="mr-2 h-[1em] w-[1em] sm:mr-3" />
+              Merci pour votre vote&nbsp;! Votre avis compte pour Chamas Tacos&nbsp;!
+              <Emoji name="ghost" size={64} className="ml-2 h-[1em] w-[1em] sm:ml-3" />
             </h1>
             {raffleAlreadyRegistered && (
               <p className="mx-auto mt-6 max-w-xl rounded-xl border border-edge bg-surface/85 px-4 py-3 text-base font-semibold text-fg backdrop-blur" role="status">
                 ✅ Vous êtes déjà inscrit au tirage au sort, votre participation est bien enregistrée.
               </p>
             )}
-            <p className="mt-6 text-lg text-fg-muted sm:text-xl">
+            <p className="mt-4 text-base text-fg-muted sm:mt-6 sm:text-xl">
               Vous pourrez voir le tirage au sort en direct sur{" "}
               {social.url ? (
                 <a href={social.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-fg underline decoration-brand decoration-4 underline-offset-4">
@@ -768,28 +806,51 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
               )}
               .
             </p>
-            <div className="mt-10 flex flex-col items-center gap-5">
-              <Link
-                href="/resultats"
-                className="inline-flex min-h-12 items-center gap-2 rounded-full bg-brand px-7 text-lg font-bold text-black shadow-[0_0_30px_rgba(250,204,21,0.3)] transition-[filter] hover:brightness-105"
-              >
-                <BarChart3 className="h-5 w-5" aria-hidden /> Voir les résultats en direct
-              </Link>
-              <Link
-                href="/participants"
-                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-edge-strong bg-surface/80 px-5 text-base font-semibold text-fg backdrop-blur transition-colors hover:bg-surface-2"
-              >
-                <Gift className="h-5 w-5 text-brand" aria-hidden /> Voir les participants et les lots
-              </Link>
-              <SocialCards className="mt-1" delay={0.3} />
-              <ShareButtons />
             </div>
+            <ThanksActions className="mt-7 sm:mt-10" />
           </div>
         );
     }
   }
 
   const isRaffle = screen === "raffle" || screen === "name" || screen === "phone" || screen === "email";
+  // Bandeau « vote enregistré » des écrans du tirage : part tout seul après 15 s, ou à la croix ;
+  // une fois parti, il ne revient pas de la session de vote (sessionStorage).
+  const [bannerGone, setBannerGone] = useState<string | null>(null);
+  const bannerKey = `hw-raffle-banner-${sessionId ?? ""}`;
+  const bannerStored = () => {
+    try {
+      return sessionStorage.getItem(bannerKey) === "1";
+    } catch {
+      return false;
+    }
+  };
+  const showBanner = isRaffle && !alreadyVoted && bannerGone !== bannerKey && !bannerStored();
+  const closeBanner = useCallback(() => {
+    try {
+      sessionStorage.setItem(bannerKey, "1");
+    } catch {
+      /* il reviendra au rechargement */
+    }
+    setBannerGone(bannerKey);
+  }, [bannerKey]);
+  useEffect(() => {
+    if (!showBanner) return;
+    const id = setTimeout(closeBanner, 15000);
+    return () => clearTimeout(id);
+  }, [showBanner, closeBanner]);
+
+  // Barre d'étape et bandeau du tirage : les languettes du coin haut-droit descendent sous eux (globals.css).
+  const topbar = !alreadyVoted && screen !== "welcome" && screen !== "thanks";
+  useEffect(() => {
+    const root = document.documentElement;
+    root.toggleAttribute("data-hw-topbar", topbar);
+    root.toggleAttribute("data-hw-banner", topbar && showBanner);
+    return () => {
+      root.removeAttribute("data-hw-topbar");
+      root.removeAttribute("data-hw-banner");
+    };
+  }, [topbar, showBanner]);
   // Valeurs proposées dans la modale (objet stable : la modale ne se réinitialise qu'à l'ouverture).
   const raffleInitial = useMemo<RaffleValues>(
     () => ({ pseudo: answers.pseudo, phone_number: answers.phone_number, email: answers.email }),
@@ -814,6 +875,19 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
 
   return (
     <Toast.Provider swipeDirection="right" duration={6000}>
+      <RaffleDeclineDialog
+        open={declineOpen}
+        onOpenChange={setDeclineOpen}
+        prizes={prizes}
+        busy={submitting}
+        onConfirm={() => void declineRaffle()}
+        onParticipate={() => {
+          // « Finalement, je participe » : Oui, puis saisie pseudo → téléphone → email → vérification.
+          answer("wants_raffle", true);
+          setDeclineOpen(false);
+          next();
+        }}
+      />
       <RaffleConfirmDialog
         open={confirmOpen}
         initial={raffleInitial}
@@ -840,11 +914,18 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
                 Étape {step}/{STEP_COUNT}
               </span>
             </div>
-            {isRaffle && (
+            <AnimatePresence>
+            {showBanner && (
               // Le fond du bandeau remonte jusqu'en haut de l'écran, derrière la barre de progression
-              // et l'étape (sans les cacher) ; le texte reste à sa place.
-              // Largeur limitée à 700 px, centré (marges sur les côtés sur petit écran).
-              <div className="relative mx-3 mt-2 px-4 py-2 sm:mx-auto sm:max-w-[700px] sm:px-6">
+              // et l'étape (sans les cacher) ; le texte reste à sa place. Largeur limitée à 700 px,
+              // centré (marges sur les côtés sur petit écran). Il part en fondu (15 s ou croix) ;
+              // l'en-tête est fixe : le contenu ne bouge pas.
+              <motion.div
+                key="raffle-banner"
+                initial={false}
+                exit={{ opacity: 0, transition: { duration: 0.6 } }}
+                className="relative mx-3 mt-2 py-2 pb-3.5 pl-4 pr-11 sm:mx-auto sm:max-w-[700px] sm:pl-6"
+              >
                 <span
                   aria-hidden
                   className="absolute inset-x-0 -top-24 bottom-0 -z-10 rounded-b-2xl border-x border-b border-edge bg-surface/90 shadow-lg shadow-black/20 backdrop-blur"
@@ -855,12 +936,22 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
                     Merci beaucoup, votre vote a été enregistré ✅ Pour tenter de gagner l&apos;un de nos nombreux lots, continuez ci-dessous.
                   </span>
                 </p>
-              </div>
+                <button
+                  type="button"
+                  onClick={closeBanner}
+                  aria-label="Fermer le message"
+                  className="absolute right-0 top-0.5 flex h-11 w-11 items-center justify-center rounded-full text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/60"
+                >
+                  <X className="h-5 w-5" aria-hidden />
+                </button>
+              </motion.div>
             )}
+            </AnimatePresence>
           </header>
         )}
 
-        <main className={`relative z-10 flex flex-1 items-center px-4 py-24 sm:px-6 md:px-8 ${isRaffle ? "pt-36" : ""}`}>
+        {/* En démo, marge du bas agrandie : rien ne passe sous le bandeau fixe en fin de défilement. */}
+        <main className={`relative z-10 flex flex-1 items-center px-4 py-24 sm:px-6 md:px-8 ${isRaffle ? "pt-36" : screen === "thanks" ? "pt-32 sm:pt-24" : ""} ${demo ? "pb-36" : ""}`}>
           <div className={`mx-auto w-full ${screen === "vote" ? "max-w-[960px]" : screen === "welcome" || screen === "thanks" ? "max-w-3xl" : "max-w-[720px]"}`}>
             <AnimatePresence mode="wait" custom={direction} initial={false}>
               <motion.section
@@ -913,30 +1004,6 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, demo
           </nav>
         )}
 
-        {demo && (
-          // Bandeau permanent de l'espace démo : rien n'est enregistré, on peut tout recommencer.
-          <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 z-30 flex max-w-[calc(100vw-9rem)] items-center gap-2 rounded-full border border-brand/60 bg-surface/90 py-1.5 pl-3 pr-1.5 text-xs font-semibold text-fg shadow-lg shadow-black/30 backdrop-blur sm:bottom-6 sm:left-6 sm:text-sm">
-            <span className="truncate">
-              <span aria-hidden>🧪 </span>
-              <span className="sm:hidden">Démo · non enregistré</span>
-              <span className="hidden sm:inline">Mode démo · rien n&apos;est enregistré</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                restartDemo();
-                setAlreadyVoted(null);
-                setErrorState(null);
-                setConfirmOpen(false);
-              }}
-              aria-label="Recommencer la démo"
-              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand px-2 py-1 font-bold text-black transition-[filter] hover:brightness-105 sm:px-3"
-            >
-              <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-              <span className="hidden sm:inline">Recommencer</span>
-            </button>
-          </div>
-        )}
       </div>
 
       <Toast.Root

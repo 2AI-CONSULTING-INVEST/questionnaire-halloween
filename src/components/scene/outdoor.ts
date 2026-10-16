@@ -12,8 +12,8 @@
 import * as THREE from "three";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
-import { Billboards, groundHeight, rand, seeded, smooth } from "./core";
-import { applyCutGlow, JACK_CUT, LANTERN_GLASS } from "./glow";
+import { Billboards, flicker, groundHeight, rand, seeded, smooth } from "./core";
+import { applyCutGlow, CUT_SHINE_ORDER, JACK_CUT, LANTERN_GLASS } from "./glow";
 import { armReaper, createCauldron, createGhost, createGift, createRobeSkirt, createRobeTop, DCELL, merge, toFloat } from "./props";
 import type { Area, Flame, Frame, Kit, Pose } from "./types";
 
@@ -509,6 +509,14 @@ function topOf(obj: THREE.Object3D) {
   return hit ? hit.point.clone() : new THREE.Vector3(c.x, box.max.y, c.z);
 }
 
+/** Yeux de la faucheuse : cœur (linéaire, blanc bleuté) et halos [couleur, taille × hauteur, opacité, un par œil]. */
+const EYE_CORE: [number, number, number] = [0.78, 0.93, 1.0];
+const EYE_HALOS: [string, number, number, boolean][] = [
+  ["#e6faff", 0.1, 0.9, true],
+  ["#4fcbff", 0.26, 0.75, true],
+  ["#1a7dff", 0.8, 0.32, false],
+];
+
 export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
   const group = new THREE.Group();
   const flames: Flame[] = [];
@@ -536,17 +544,23 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
   let idle: THREE.AnimationAction | null = null;
   const gestures: THREE.AnimationAction[] = [];
   let modelHeight = 2.3;
+  let eyeHalos: THREE.Sprite[] = [];
+  let eyeMat: THREE.MeshBasicMaterial | null = null;
   if (reaperGltf) {
     const model = cloneSkinned(reaperGltf.scene);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: "#ffc93c" });
+    // Yeux : lueur spectrale froide — cœur blanc bleuté glacé (couleur linéaire), hors brume,
+    // dessinés APRÈS les nappes de fumée (transparents, renderOrder CUT_SHINE_ORDER, comme les
+    // découpes des citrouilles de glow.ts) pour ne pas être délavés ; vacillement en update.
+    const eyeBasic = (eyeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(...EYE_CORE), fog: false, transparent: true }));
     let map: THREE.Texture | null = null;
     model.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
       const src = m.material as THREE.MeshStandardMaterial;
       map ??= src.map;
-      m.material = /Eyes/i.test(m.name) ? eyeMat : new THREE.MeshLambertMaterial({ map: src.map });
+      m.material = /Eyes/i.test(m.name) ? eyeBasic : new THREE.MeshLambertMaterial({ map: src.map });
       m.frustumCulled = false;
+      if (m.material === eyeBasic) m.renderOrder = CUT_SHINE_ORDER;
       // La robe tombe jusqu'au sol et le buste est fermé (pas de tunique percée sur les côtes).
       if (/Leg|Body/i.test(m.name)) m.visible = false;
     });
@@ -589,11 +603,23 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
     const head = model.getObjectByName("head");
     const eyes = model.getObjectByName("Skeleton_Rogue_Eyes");
     if (head && eyes) {
-      const c = new THREE.Box3().setFromObject(eyes).getCenter(new THREE.Vector3());
-      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: kit.glowTex, color: "#ffb02e", transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
-      glow.position.copy(head.worldToLocal(c));
-      glow.scale.setScalar(modelHeight * 0.32);
-      head.add(glow);
+      const box = new THREE.Box3().setFromObject(eyes);
+      const c = box.getCenter(new THREE.Vector3());
+      // Centre de chaque pupille (pose de repos, face à +Z) : mesuré sur capture à 0,44 × la largeur du maillage.
+      const dx = (box.max.x - box.min.x) * 0.44;
+      // Halos additifs, sans test de profondeur (la lueur « émane » des orbites, par-dessus le crâne) :
+      // sur chaque œil un éclat blanc glacé et un halo cyan, puis un grand voile bleu commun.
+      eyeHalos = EYE_HALOS.flatMap(([color, size, , perEye]) =>
+        (perEye ? [-dx, dx] : [0]).map((x) => {
+          const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: kit.glowTex, color, transparent: true, opacity: 0, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false }));
+          sp.position.copy(head.worldToLocal(c.clone().add(new THREE.Vector3(x, 0, 0))));
+          sp.scale.setScalar(modelHeight * size);
+          sp.renderOrder = CUT_SHINE_ORDER;
+          sp.userData.opacity = EYE_HALOS.find((h) => h[0] === color)![2];
+          head.add(sp);
+          return sp;
+        }),
+      );
     }
     // Mains squelette (à la place des moufles) ; la gauche serre la faux, tenue droite.
     armReaper(model, kit.dungeonMat, kit.modelMat, modelHeight);
@@ -739,6 +765,13 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
         }
       }
       cauldron.update(t);
+      // Lueur des yeux : léger vacillement spectral, atténuée de jour mais toujours visible.
+      if (eyeMat && eyeHalos.length) {
+        const k = kit.reduce ? 0.9 : 0.8 + 0.2 * flicker(t * 0.6, 4.2);
+        const level = Math.max(0.45, kit.glowLevel.value);
+        eyeMat.color.setRGB(...EYE_CORE).multiplyScalar(0.75 + 0.25 * k);
+        eyeHalos.forEach((h) => (h.material.opacity = (h.userData.opacity as number) * k * level));
+      }
 
       const base = reaper.position;
       swirlState.forEach((s, i) => {

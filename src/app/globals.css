@@ -26,6 +26,7 @@
   --pub-edge: #332b40;
   --pub-edge-strong: #554a66;
   --pub-placeholder: #6c6379;
+  --pub-placeholder-scene: #6c6379;
   --pub-accent-soft: rgba(250, 204, 21, 0.13);
   --pub-danger-bg: rgba(239, 68, 68, 0.14);
   --pub-danger-fg: #fca5a5;
@@ -42,25 +43,30 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --pub-page: #f7f2ea;
-  --pub-surface: #fffdf8;
-  --pub-surface-2: #f3ece1;
-  --pub-solid: #ffffff;
-  --pub-fg: #231d2b;
-  --pub-muted: #4f4659; /* plus sombre : lisible (AA) sur le jour couvert, hors du voile central */
-  --pub-edge: #e4dccf;
-  --pub-edge-strong: #b9ae9f;
-  --pub-placeholder: #b9b0a6;
-  --pub-accent-soft: #fef6c7;
-  --pub-danger-bg: #fee2e2;
-  --pub-danger-fg: #b91c1c;
-  /* Jour couvert, fin d'après-midi : ciel bas et gris-mauve, lueur rousse à l'horizon. Le voile
-     clair derrière le contenu garde le texte sombre lisible (AA) sur ce jour assombri. */
-  --sky-top: #5a6176;
-  --sky-mid: #8d8595;
-  --sky-low: #b88c6b;
-  --sky-glow: rgba(255, 150, 70, 0.32);
-  --scrim: rgba(244, 238, 229, 0.8);
+  /* Surfaces « terre / boue » : argile et ocre clairs, brun-olive boueux au survol, bordures terre
+     de Sienne et terre d'ombre. Textes brun très sombre, lisibles directement sur le décor comme sur
+     ces surfaces (AA mesuré, voir le rapport de la mission 4). */
+  --pub-page: #7a5c42;
+  --pub-surface: #c29d74;
+  --pub-surface-2: #a98a5f;
+  --pub-solid: #c8a67f;
+  --pub-fg: #1d140e;
+  --pub-muted: #22170f;
+  --pub-edge: #8e6b4b;
+  --pub-edge-strong: #5e4330;
+  --pub-placeholder: #47362a;
+  --pub-placeholder-scene: #2b2019;
+  --pub-accent-soft: #b5884a;
+  --pub-danger-bg: #e0a98f;
+  --pub-danger-fg: #6b1212;
+  /* Après-midi d'automne, ambiance Halloween : ciel orangé et roux, assombri vers le haut ; la
+     brume grise du décor 3D (world.ts) reste devant. Le voile clair derrière le contenu garde le
+     texte sombre lisible (AA). */
+  --sky-top: #6e5a5e;
+  --sky-mid: #b8825a;
+  --sky-low: #d9965a;
+  --sky-glow: rgba(255, 140, 50, 0.38);
+  --scrim: rgba(240, 230, 215, 0.78);
 }
 
 @theme inline {
@@ -86,6 +92,7 @@
   --color-edge: var(--pub-edge);
   --color-edge-strong: var(--pub-edge-strong);
   --color-placeholder: var(--pub-placeholder);
+  --color-placeholder-scene: var(--pub-placeholder-scene);
   --color-accent-soft: var(--pub-accent-soft);
   --color-danger-bg: var(--pub-danger-bg);
   --color-danger-fg: var(--pub-danger-fg);
@@ -163,6 +170,26 @@
   20% { opacity: 0.7; transform: scale(0.96); }
   45% { opacity: 1; transform: scale(1.04); }
   70% { opacity: 0.78; transform: scale(0.98); }
+}
+
+/* Modale des lots : le petit squelette saute de joie (élan, suspension, réception écrasée) ; son ombre
+   rétrécit quand il monte. */
+@keyframes hop {
+  0%, 100% { transform: translateY(0) scale(1.04, 0.96); }
+  12% { transform: translateY(0) scale(1, 1); }
+  40% { transform: translateY(-22%) scale(0.98, 1.03); }
+  55% { transform: translateY(-24%) scale(1, 1); }
+  85% { transform: translateY(0) scale(1, 1); }
+  92% { transform: translateY(0) scale(1.05, 0.95); }
+}
+@keyframes hop-shadow {
+  0%, 12%, 85%, 100% { transform: scaleX(1); opacity: 0.55; }
+  40%, 55% { transform: scaleX(0.6); opacity: 0.25; }
+}
+
+/* Chauve-souris de la modale des lots : planche de 8 images (battement d'ailes), décalée case par case. */
+@keyframes bat-flap {
+  to { transform: translateX(-100%); }
 }
 
 @keyframes pop {
@@ -312,6 +339,20 @@ body {
   --viz-hover: rgba(255, 255, 255, 0.05);
   --viz-s1: #3987e5;
   --viz-s2: #d95926;
+}
+
+/* Languettes du coin haut-droit (CornerRail) : tout en haut ; sous la barre d'étape du questionnaire
+   ou le statut de la crypte quand ils sont affichés (data-hw-topbar) ; sous le bandeau du tirage
+   (data-hw-banner : il occupe le haut de l'écran jusqu'à 1100 px). */
+.hw-rail { top: calc(1rem + env(safe-area-inset-top)); transition: top 400ms ease, opacity 400ms ease; }
+html[data-hw-topbar] .hw-rail { top: calc(3.5rem + env(safe-area-inset-top)); }
+@media (max-width: 1099px) {
+  html[data-hw-banner] .hw-rail { top: calc(9.5rem + env(safe-area-inset-top)); }
+}
+/* Téléphone : sous le bandeau, les languettes couvriraient la question ; elles s'effacent le temps
+   du bandeau (15 s au plus, ou jusqu'à la croix). */
+@media (max-width: 639px) {
+  html[data-hw-banner] .hw-rail { opacity: 0; pointer-events: none; visibility: hidden; }
 }
 
 /* Défilement horizontal des carrousels sans barre visible. */

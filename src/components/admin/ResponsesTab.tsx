@@ -1,6 +1,6 @@
 "use client";
 
-import { FileSpreadsheet, Trash2 } from "lucide-react";
+import { Download, FileSpreadsheet, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { LABELS, type Decoration, type ResponseRow } from "@/lib/schema";
 import { Button, Card, ConfirmDialog, DownloadLink, Empty, fmtDate } from "./ui";
@@ -20,9 +20,12 @@ export function ResponsesTab({
   onChanged: () => void;
 }) {
   const [onlyCompleted, setOnlyCompleted] = useState(true);
+  /** Uniquement les réponses reliées à un inscrit au tirage (liste et exports). */
+  const [onlyRaffle, setOnlyRaffle] = useState(false);
   const [limit, setLimit] = useState(PAGE);
   const decoName = useMemo(() => new Map(decorations.map((d) => [d.id, d.restaurant_name])), [decorations]);
-  const rows = onlyCompleted ? responses.filter((r) => r.completed_at) : responses;
+  const rows = responses.filter((r) => (!onlyCompleted || r.completed_at) && (!onlyRaffle || r.participant_id));
+  const exportHref = (format: "csv" | "xlsx") => withBase(`/api/responses/export?scope=all&format=${format}${onlyRaffle ? "&raffle=1" : ""}`);
 
   async function remove(id: string) {
     await fetch(withBase(`/api/responses/${id}`), { method: "DELETE" });
@@ -38,7 +41,14 @@ export function ResponsesTab({
             <input type="checkbox" checked={onlyCompleted} onChange={(e) => setOnlyCompleted(e.target.checked)} className="h-4 w-4 accent-yellow-400" />
             Votes validés uniquement
           </label>
-          <DownloadLink href={withBase("/api/responses/export?scope=all&format=xlsx")}>
+          <label className="inline-flex items-center gap-2 text-sm font-semibold text-ink dark:text-zinc-100">
+            <input type="checkbox" checked={onlyRaffle} onChange={(e) => setOnlyRaffle(e.target.checked)} className="h-4 w-4 accent-yellow-400" data-testid="only-raffle" />
+            Uniquement les inscrits au tirage
+          </label>
+          <DownloadLink href={exportHref("csv")}>
+            <Download className="h-4 w-4" aria-hidden /> CSV
+          </DownloadLink>
+          <DownloadLink href={exportHref("xlsx")}>
             <FileSpreadsheet className="h-4 w-4" aria-hidden /> Excel
           </DownloadLink>
         </div>

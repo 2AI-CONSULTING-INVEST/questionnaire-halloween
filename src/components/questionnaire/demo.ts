@@ -10,13 +10,62 @@ import { raffleSchema, voteCompleteSchema } from "@/lib/schema";
  * Les appels de l'API sont simulés ici, avec les mêmes validations zod que les routes : le
  * parcours (erreurs comprises) est identique, sans vote ni inscription au tirage en base.
  * Les réponses de la démo sont gardées dans une clé localStorage à part (voir store.ts).
+ *
+ * Démo « collante » : la page /demo (réservée au backoffice) pose un drapeau dans sessionStorage,
+ * propre à l'onglet et effacé à sa fermeture. Tant qu'il est là, tout questionnaire de l'onglet
+ * (accueil, retour arrière, rechargement…) reste en démo, jusqu'au bouton « Sortir de la démo ».
+ * Le drapeau est lu dès l'évaluation de ce module : aucune requête d'écriture ne peut partir avant.
+ * Un visiteur qui le poserait à la main ne ferait que s'empêcher de voter.
  */
-let demo = false;
+const DEMO_FLAG = "hw-demo";
+const DEMO_EVENT = "hw:demo";
+
+function readFlag() {
+  try {
+    return sessionStorage.getItem(DEMO_FLAG) === "1";
+  } catch {
+    return false;
+  }
+}
+
+let demo = typeof window !== "undefined" && readFlag();
 
 export const isDemoMode = () => demo;
 export function setDemoMode(on: boolean) {
   demo = on;
 }
+
+/** Onglet en démo (drapeau posé par /demo). */
+export const isDemoTab = () => typeof window !== "undefined" && readFlag();
+export function subscribeDemoTab(fn: () => void) {
+  window.addEventListener(DEMO_EVENT, fn);
+  return () => window.removeEventListener(DEMO_EVENT, fn);
+}
+
+/** Entrée dans la démo (page /demo uniquement). */
+export function enterDemoTab() {
+  try {
+    sessionStorage.setItem(DEMO_FLAG, "1");
+  } catch {
+    /* sans sessionStorage, la démo ne vaut que pour la page /demo */
+  }
+  window.dispatchEvent(new Event(DEMO_EVENT));
+}
+
+/** Sortie de la démo : drapeau et session de démo effacés, retour au vrai vote (rechargement complet). */
+export function exitDemoTab() {
+  try {
+    sessionStorage.removeItem(DEMO_FLAG);
+    for (const k of Object.keys(localStorage)) if (k.endsWith("-demo")) localStorage.removeItem(k);
+  } catch {
+    /* rien à effacer */
+  }
+  demo = false;
+  window.location.assign(withBase("/"));
+}
+
+/** « Recommencer » du bandeau démo : le questionnaire monté repart de l'accueil. */
+export const DEMO_RESTART_EVENT = "hw:demo-restart";
 
 const reply = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });

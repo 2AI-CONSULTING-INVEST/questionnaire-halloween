@@ -131,7 +131,19 @@ export type BoneHand = {
    * wave / phase : ondulation des doigts l'un après l'autre (frotter, gratter).
    */
   pose(curl: number, spread?: number, thumb?: number, wave?: number, phase?: number): void;
+  /**
+   * Poing refermé sur un manche de rayon `radius` (repère de la main). Le manche traverse la paume
+   * en diagonale (prise de force) : direction (cos slant, -sin slant, 0), plus près du poignet côté
+   * auriculaire. Chaque phalange se plie jusqu'à toucher le manche (contact sans interpénétration,
+   * calculé), les doigts légèrement décalés et plus ou moins serrés ; le pouce s'enroule dans
+   * l'autre sens. Renvoie un point de l'axe du manche (repère de la main), au milieu du poing.
+   */
+  grip(radius: number, slant?: number): THREE.Vector3;
 };
+
+/** Prise de la faux : hauteur de l'axe du manche (repère de la main, jointures à -0,19) et du pouce. */
+const GRIP_Y = -0.18;
+const THUMB_Y = -0.08;
 
 export function createBoneHand(mat: THREE.Material, forearm = false): BoneHand {
   const root = new THREE.Group();
@@ -144,7 +156,8 @@ export function createBoneHand(mat: THREE.Material, forearm = false): BoneHand {
   }
   root.add(new THREE.Mesh(merge(parts), mat));
   const lengths = [0.07, 0.05, 0.036];
-  const scales = [1, 1.08, 1, 0.82];
+  // Auriculaire, annulaire, majeur, index : l'index est du côté du pouce (+x), comme sur une main gauche.
+  const scales = [0.82, 1, 1.08, 1];
   const fingers = xs.map((x, f) => {
     const chain: THREE.Group[] = [];
     let parent: THREE.Object3D = root;
@@ -181,6 +194,99 @@ export function createBoneHand(mat: THREE.Material, forearm = false): BoneHand {
         }),
       );
       thumb.forEach((p, k) => k > 0 && (p.rotation.x = -thumbCurl * 0.7));
+    },
+    grip(radius, slant = 0) {
+      const dir = new THREE.Vector3(Math.cos(slant), -Math.sin(slant), 0);
+      // Le manche repose sur les jointures de la base (sphères de 0,02) et le creux de la paume.
+      const center = new THREE.Vector3(0.016, GRIP_Y, radius + 0.0205);
+      const inv = new THREE.Matrix4();
+      const p = new THREE.Vector3();
+      const q = new THREE.Vector3();
+      root.updateMatrixWorld(true);
+      inv.copy(root.matrixWorld).invert();
+      /** Écart entre la surface d'une phalange (os effilé, sphère au bout) et celle du manche. */
+      const clearance = (pivot: THREE.Object3D, len: number, endR: number) => {
+        pivot.updateWorldMatrix(true, false); // parents compris : leurs rotations viennent peut-être de changer
+        const m = inv.clone().multiply(pivot.matrixWorld);
+        let min = Infinity;
+        for (let i = 1; i <= 12; i++) {
+          const t = i / 12;
+          p.set(0, -len * t, 0).applyMatrix4(m).sub(center);
+          q.copy(p).addScaledVector(dir, -p.dot(dir));
+          // Os : 0,013 au départ, 0,016 au bout (cylindre à 7 pans : faces planes à 0,9 × le rayon).
+          const boneR = t === 1 ? endR : (0.013 + 0.003 * t) * 0.95;
+          min = Math.min(min, q.length() - radius - boneR);
+        }
+        return min;
+      };
+      /**
+       * Plie une phalange (rotation x = sign × θ, θ de -0,4 à 1,75 rad) jusqu'au contact (écart `gap`) ;
+       * sans contact possible, garde la flexion la plus proche du manche.
+       */
+      const bend = (pivot: THREE.Object3D, len: number, endR: number, sign: number, gap: number) => {
+        let prev = -0.4;
+        let best = prev;
+        let bestD = Infinity;
+        for (let th = -0.4; th <= 1.75; th += 0.02) {
+          pivot.rotation.x = sign * th;
+          const d = clearance(pivot, len, endR);
+          if (d < bestD) [bestD, best] = [d, th];
+          if (d <= gap) {
+            let lo = prev, hi = th;
+            for (let k = 0; k < 18; k++) {
+              const mid = (lo + hi) / 2;
+              pivot.rotation.x = sign * mid;
+              if (clearance(pivot, len, endR) > gap) lo = mid;
+              else hi = mid;
+            }
+            pivot.rotation.x = sign * lo;
+            return;
+          }
+          prev = th;
+        }
+        pivot.rotation.x = sign * best;
+      };
+      // Doigts : plans presque perpendiculaires au manche (inclinés de 80 % de la diagonale), léger
+      // éventail ; serrage un peu différent d'un doigt à l'autre (écart de 0 à 0,6 mm à l'échelle 1).
+      const fan = [0.05, 0.02, 0, -0.03];
+      const snug = [0.0006, 0.0003, 0.0001, 0.0002];
+      fingers.forEach((chain, f) => {
+        chain.forEach((piv, k) => {
+          piv.rotation.set(0, 0, k === 0 ? -slant * 0.8 + fan[f] : 0);
+        });
+        chain.forEach((piv, k) => bend(piv, lengths[k] * scales[f], k < 2 ? 0.02 : 0.016, -1, snug[f]));
+      });
+      // Pouce : part du coin de la paume, côté index, vers l'avant du manche, puis s'enroule
+      // dans l'autre sens que les doigts (opposé), pulpe contre le manche.
+      // Position et orientation du premier os choisies (recherche exhaustive) pour que les deux
+      // phalanges suivantes se posent sur le manche sans le traverser, avec la flexion la plus douce.
+      let best = { y: THUMB_Y, x: 0, z: 0, sign: 1 };
+      let bestScore = Infinity;
+      const solveThumb = (c: typeof best) => {
+        thumb[0].position.set(0.09, c.y, 0.03);
+        thumb[0].rotation.set(c.x, 0, c.z);
+        thumb[1].rotation.set(0, 0, 0);
+        thumb[2].rotation.set(0, 0, 0);
+        bend(thumb[1], 0.045, 0.02, c.sign, 0.0003);
+        bend(thumb[2], 0.035, 0.016, c.sign, 0.0003);
+      };
+      for (const ty of [THUMB_Y, THUMB_Y - 0.02, THUMB_Y - 0.04])
+        for (let tz = -slant - 0.4; tz <= -slant + 0.41; tz += 0.1)
+          for (let tx = -1.6; tx <= 0.8; tx += 0.06)
+            for (const sign of [1, -1]) {
+              const c = { y: ty, x: tx, z: tz, sign };
+              solveThumb(c);
+              const c0 = clearance(thumb[0], 0.06, 0.02);
+              const c1 = clearance(thumb[1], 0.045, 0.02);
+              const c2 = clearance(thumb[2], 0.035, 0.016);
+              const pen = Math.max(0, -c0) + Math.max(0, -c1) + Math.max(0, -c2);
+              // Pouce enroulé : les deux phalanges touchent le manche et se plient chacune un peu.
+              const curl = Math.max(0, 0.3 - Math.abs(thumb[1].rotation.x)) + Math.max(0, 0.3 - Math.abs(thumb[2].rotation.x));
+              const score = pen * 1000 + Math.abs(c1 - 0.0003) * 50 + Math.abs(c2 - 0.0003) * 100 + curl * 0.2;
+              if (score < bestScore) [bestScore, best] = [score, c];
+            }
+      solveThumb(best);
+      return center.clone();
     },
   };
 }
@@ -370,8 +476,6 @@ export function createScythe(mat: THREE.Material, length: number, grip?: { y: nu
  */
 export function armReaper(model: THREE.Object3D, scytheMat: THREE.Material, boneMat: THREE.Material, height: number) {
   const K = 1.3; // taille des mains squelette (la main de createBoneHand fait 0,26 de long)
-  // Creux du poing fermé (pose(1)) dans le repère de createBoneHand : sous les jointures, côté paume.
-  const FIST = new THREE.Vector3(0, -0.215, 0.05);
   model.updateMatrixWorld(true);
   const local = (name: string) => {
     const o = model.getObjectByName(name);
@@ -395,22 +499,29 @@ export function armReaper(model: THREE.Object3D, scytheMat: THREE.Material, bone
   const wristJoint = local("wristl");
   const elbow = local("lowerarml");
   if (slot && wrist && wristJoint && elbow) {
-    // La main prolonge l'avant-bras à l'horizontale ; le manche, vertical, passe dans le poing.
-    const out = wristJoint.clone().sub(elbow).setY(0).normalize();
+    // Le manche, vertical, passe dans le poing. L'avant-bras descend vers la main : la main le suit
+    // en partie (le poignet reste presque dans son axe) et le manche traverse la paume en diagonale,
+    // comme dans une vraie prise de force (au plus 0,4 rad ; le reste en légère inclinaison du poignet).
+    const fore = wristJoint.clone().sub(elbow);
+    const out = fore.clone().setY(0).normalize();
+    const slant = Math.min(0.4, Math.max(0, Math.atan2(-fore.y, Math.hypot(fore.x, fore.z))));
     const y = out.clone().negate(); // repère de la main : +y vers le poignet
     // Pouce vers le bas : de face, on voit le dos de la main et les jointures autour du manche.
-    const q = basis(up.clone().negate(), y);
-    const grip = wrist.clone().add(FIST.clone().multiplyScalar(K).applyQuaternion(q));
+    const q = basis(up.clone().negate(), y).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), slant));
     const length = height * 1.3;
+    const gripH = 0.2 * K;
+    const scythe = createScythe(scytheMat, length, { y: -height * 0.2, h: gripH });
+    // Poing refermé sur la gaine de cuir (rayon du manche × 1,12, cf. createScythe) ; point de l'axe
+    // au milieu de la largeur des doigts et du pouce (x de -0,08 à 0,11 dans le repère de la main).
+    const hand = createBoneHand(boneMat);
+    const fist = hand.grip((length * 0.017 * 1.12) / K, slant);
+    const grip = wrist.clone().add(fist.multiplyScalar(K).applyQuaternion(q));
     const center = grip.clone().addScaledVector(up, height * 0.2); // milieu du manche
-    const scythe = createScythe(scytheMat, length, { y: -height * 0.2, h: 0.13 * K });
     // Axes de la faux = axes du modèle (pose de repos) ; elle est accrochée à l'os de la main.
     const toSlot = slot.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(model.getWorldQuaternion(new THREE.Quaternion()));
     scythe.quaternion.copy(toSlot);
     scythe.position.copy(slot.worldToLocal(model.localToWorld(center.clone())));
     slot.add(scythe);
-    const hand = createBoneHand(boneMat);
-    hand.pose(1, 0.02, 0.9);
     hand.root.position.copy(wrist).sub(center);
     hand.root.quaternion.copy(q);
     hand.root.scale.setScalar(K);

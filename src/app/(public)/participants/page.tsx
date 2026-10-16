@@ -9,6 +9,7 @@ import { withBase } from "@/lib/base-path";
 import { isLocalMedia } from "@/lib/schema";
 import { OG_BASE, PARTICIPANTS } from "@/lib/site";
 import { ParticipantsList } from "./ParticipantsList";
+import { PrizesGallery } from "./PrizesGallery";
 
 // Liste régénérée au plus toutes les 60 s, et immédiatement après une inscription ou une
 // modification dans le backoffice (revalidatePath). L'image d'aperçu est celle de l'accueil.
@@ -40,17 +41,18 @@ export default async function ParticipantsPage() {
     <main className="relative z-10 mx-auto max-w-3xl px-4 pb-24 pt-[max(1rem,env(safe-area-inset-top))] sm:px-8">
       <Link
         href="/"
-        className="mt-2 inline-flex min-h-10 items-center gap-1 rounded-full bg-black/40 px-3 text-sm text-white/85 backdrop-blur transition-colors hover:text-white day:bg-white/60 day:text-fg"
+        className="mt-2 inline-flex min-h-10 items-center gap-1 rounded-full bg-black/40 px-3 text-sm text-white/85 backdrop-blur transition-colors hover:text-white day:bg-surface/75 day:text-fg"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden /> Retour au vote
       </Link>
 
-      <header className="mt-6 text-center sm:mt-8">
-        <h1 className="text-3xl leading-tight tracking-tight text-fg [text-shadow:0_2px_24px_rgba(0,0,0,0.45)] sm:text-5xl day:[text-shadow:none]">
+      {/* En jour, halo clair très diffus autour des lettres : le haut de la clairière est un violet sombre. */}
+      <header className="mt-6 text-center sm:mt-8 day:[text-shadow:0_0_16px_rgba(255,240,220,0.85),0_0_4px_rgba(255,240,220,0.75)]">
+        <h1 className="text-3xl leading-tight tracking-tight text-fg [text-shadow:0_2px_24px_rgba(0,0,0,0.45)] sm:text-5xl day:[text-shadow:inherit]">
           <Emoji name="trophy" size={56} priority className="mr-2 h-[1em] w-[1em]" />
           Tirage au sort Halloween
         </h1>
-        <p className="mx-auto mt-4 max-w-xl text-base text-fg-muted sm:text-lg">
+        <p className="mx-auto mt-4 max-w-xl text-base text-fg-muted sm:text-lg day:text-fg day:[text-shadow:0_0_18px_rgba(255,240,220,0.95),0_0_6px_rgba(255,240,220,0.85)]">
           <strong className="text-fg">{count.toLocaleString("fr-FR")}</strong> participant{count > 1 ? "s" : ""} inscrit{count > 1 ? "s" : ""} · le tirage
           sera effectué en direct sur nos réseaux sociaux.
         </p>
@@ -58,7 +60,7 @@ export default async function ParticipantsPage() {
 
       {winners.length > 0 && (
         <section aria-labelledby="winners" className="mt-10">
-          <h2 id="winners" className="flex items-center justify-center gap-2 text-xl font-extrabold uppercase tracking-wider text-brand sm:text-2xl">
+          <h2 id="winners" className="flex items-center justify-center gap-2 text-xl font-semibold uppercase tracking-wider text-brand day:text-[#4a2600] sm:text-2xl">
             <Trophy className="h-6 w-6" aria-hidden /> Les gagnants
           </h2>
           <ul className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -69,7 +71,7 @@ export default async function ParticipantsPage() {
               >
                 <PrizeThumb url={prize.image_url} name={prize.name} className="h-20 w-20 shrink-0 rounded-xl" sizes="80px" />
                 <div className="min-w-0">
-                  <p className="line-clamp-2 text-sm font-bold uppercase leading-snug text-[#f5c542]">{prize.name}</p>
+                  <p className="line-clamp-2 text-sm font-bold uppercase leading-snug text-[#f5c542] day:text-[#4a2600]">{prize.name}</p>
                   <p className="mt-1 text-base text-fg-muted">
                     <span aria-hidden>🎉</span> Gagné par <span className="font-extrabold text-fg">{pseudo}</span>
                   </p>
@@ -81,31 +83,18 @@ export default async function ParticipantsPage() {
       )}
 
       <section aria-labelledby="prizes" className="mt-10">
-        <h2 id="prizes" className="text-xl font-extrabold text-fg sm:text-2xl">
+        <h2 id="prizes" className="text-xl font-medium text-fg sm:text-2xl">
           Les lots à gagner
         </h2>
         {prizes.length === 0 ? (
           <p className={`${card} mt-4 px-5 py-8 text-center text-base text-fg-muted`}>Les lots seront dévoilés très bientôt 🎁</p>
         ) : (
-          <ul className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {prizes.map((p) => (
-              <li key={p.id} className={`${card} overflow-hidden`}>
-                <PrizeThumb url={p.image_url} name={p.name} className="aspect-[4/3] w-full" sizes="(max-width: 640px) calc(100vw - 2rem), (max-width: 1024px) 50vw, 33vw" />
-                <div className="p-4">
-                  <h3 className="text-base font-bold text-fg">{p.name}</h3>
-                  {p.description && <p className="mt-1 text-sm leading-snug text-fg-muted">{p.description}</p>}
-                  {p.winner_participant_id && pseudoOf.has(p.winner_participant_id) && (
-                    <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-[#f5c542]">Gagné par {pseudoOf.get(p.winner_participant_id)}</p>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <PrizesGallery prizes={prizes.map((p) => ({ id: p.id, name: p.name, description: p.description, image_url: p.image_url, winner: p.winner_participant_id ? (pseudoOf.get(p.winner_participant_id) ?? null) : null }))} />
         )}
       </section>
 
       <section aria-labelledby="participants" className="mt-10">
-        <h2 id="participants" className="text-xl font-extrabold text-fg sm:text-2xl">
+        <h2 id="participants" className="text-xl font-medium text-fg sm:text-2xl">
           Les participants ({count.toLocaleString("fr-FR")})
         </h2>
         <p className="mt-1 text-sm text-fg-muted">Du plus récent au plus ancien. Seul le pseudonyme est affiché.</p>

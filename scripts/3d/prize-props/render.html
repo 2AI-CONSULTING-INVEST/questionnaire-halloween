@@ -1,0 +1,251 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>html,body{margin:0;background:transparent}canvas{display:block}</style>
+<script type="importmap">{ "imports": { "three": "/node_modules/three/build/three.module.js", "three/addons/": "/node_modules/three/examples/jsm/" } }</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+// Objets du site, tels quels (transpilés par render.mjs) : cadeaux de la clairière, lueur des citrouilles.
+import { createGift, DCELL } from "/src/components/scene/props.ts";
+import { applyCutGlow, updateCutGlow, JACK_CUT } from "/src/components/scene/glow.ts";
+
+const HB = (n) => `/KayKit_HalloweenBits_1.0_FREE/Assets/gltf/${n}.gltf`;
+const SK = (n) => `/packs/skeletons/KayKit_Skeletons_1.1_FREE/${n}`;
+const loader = new GLTFLoader();
+loader.setMeshoptDecoder(MeshoptDecoder);
+const cache = new Map();
+const load = (url) => {
+  if (!cache.has(url)) cache.set(url, loader.loadAsync(url));
+  return cache.get(url);
+};
+const P = () => window.POSE ?? {};
+
+// Atlas Dungeon (cadeaux), convention glTF comme dans world.ts.
+const dungeonTex = await new THREE.TextureLoader().loadAsync("/public/3d/dungeon_texture.png");
+dungeonTex.flipY = false;
+dungeonTex.colorSpace = THREE.SRGBColorSpace;
+const dungeonMat = new THREE.MeshLambertMaterial({ map: dungeonTex });
+
+/** Halo radial (même rôle que la texture de lueur du monde 3D). */
+function glowTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d");
+  const r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  r.addColorStop(0, "rgba(255,255,255,1)");
+  r.addColorStop(0.35, "rgba(255,255,255,0.45)");
+  r.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = r;
+  g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+const glowTex = glowTexture();
+
+/** Modèle Halloween Bits ; citrouille-lanterne : découpes allumées (glow.ts, à pleine lueur de nuit). */
+async function hb(name, { x = 0, y = 0, z = 0, ry = 0, s = 1, lit = false } = {}) {
+  const gltf = await load(HB(name));
+  const m = gltf.scene.clone(true);
+  let map = null;
+  m.traverse((o) => {
+    if (!o.isMesh) return;
+    map = o.material.map;
+    o.material = new THREE.MeshLambertMaterial({ map });
+  });
+  if (lit) updateCutGlow(applyCutGlow({ modelMat: { map }, glowTex }, m, JACK_CUT, true), 1, 1);
+  m.position.set(x, y, z);
+  m.rotation.y = ry;
+  m.scale.setScalar(s);
+  return m;
+}
+
+/** Badge rond Chamas Tacos (logos.glb), base posée à y = 0, centré en x / z ; éclats isolés retirés. */
+async function badgeModel() {
+  const gltf = await load("/public/3d/logos.glb");
+  const m = gltf.scene.getObjectByName("chamastacos_badge_halloween").clone(true);
+  m.position.set(0, 0, 0);
+  m.rotation.set(0, 0, 0);
+  m.scale.setScalar(1);
+  m.traverse((o) => {
+    if (!o.isMesh) return;
+    o.material = new THREE.MeshLambertMaterial({ map: o.material.map, color: o.material.color });
+    // Éclats isolés hors du disque (en bas, de part et d'autre) : triangles retirés.
+    const geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox, cx = (bb.min.x + bb.max.x) / 2, cy = bb.min.y + (bb.max.x - bb.min.x) / 2, r = (bb.max.x - bb.min.x) / 2;
+    const pos = geo.attributes.position, keep = [];
+    for (let i = 0; i < pos.count; i += 3) {
+      const x = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3, y = (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3;
+      if (Math.hypot(x - cx, y - cy) < r * 1.02) keep.push(i, i + 1, i + 2);
+    }
+    geo.setIndex(keep);
+    o.geometry = geo;
+  });
+  const box = new THREE.Box3().setFromObject(m);
+  const c = box.getCenter(new THREE.Vector3());
+  m.position.set(-c.x, -box.min.y, -c.z);
+  const holder = new THREE.Group();
+  holder.add(m);
+  return holder;
+}
+
+// ---------------------------------------------------------------------------
+// Jeux de rendu. w × h : taille du cadre (rendu ×2) ; dir : direction de la caméra.
+// ---------------------------------------------------------------------------
+const SETS = {
+  // Pile de cadeaux de la clairière (orange / ruban brun, orange / noir, violet / noir, noir / orange),
+  // sur trois étages, et deux petits devant.
+  gifts: {
+    w: 700, h: 620, dir: [-0.25, 0.32, 1], fov: 22,
+    async build(g) {
+      const C = DCELL;
+      const specs = P().gifts ?? [
+        // x, z, w, h, d, boîte, ruban, ry, y (posé sur)
+        [-0.55, 0.05, 0.85, 0.7, 0.8, C.violet, C.black, 0.25, 0],
+        [0.42, -0.05, 0.95, 0.85, 0.85, C.orange, C.black, -0.2, 0],
+        [-0.05, -0.85, 0.9, 0.75, 0.8, C.ember, C.wood, 0.5, 0],
+        [-0.42, 0.0, 0.6, 0.55, 0.6, C.black, C.orange, -0.35, 0.7],
+        [0.4, -0.1, 0.65, 0.5, 0.6, C.violet, C.black, 0.4, 0.85],
+        [0.02, -0.1, 0.5, 0.48, 0.5, C.orange, C.violet, 0.1, 1.38],
+        [1.15, 0.55, 0.45, 0.4, 0.45, C.black, C.orange, 0.6, 0],
+        [-1.35, 0.55, 0.42, 0.36, 0.42, C.ember, C.wood, -0.4, 0],
+      ];
+      for (const [x, z, w, h, d, box, band, ry, y] of specs) {
+        const m = createGift(dungeonMat, w, h, d, box, band);
+        m.position.set(x, y, z);
+        m.rotation.y = ry;
+        g.add(m);
+      }
+      g.add(await hb("pumpkin_orange_small", { x: 0.75, z: 0.8, ry: 0.4, s: 0.85 }));
+      // Badge rond Chamas Tacos debout, adossé à la pile (légèrement penché en arrière, tourné vers nous).
+      const Q = P();
+      const badge = await badgeModel();
+      badge.scale.setScalar(Q.badgeScale ?? 0.66);
+      badge.rotation.set(...(Q.badgeRot ?? [-0.2, 0.2, 0.03]));
+      badge.position.set(...(Q.badgeAt ?? [-0.3, 0, 1.0]));
+      g.add(badge);
+    },
+    lights: [[0.2, 0.8, 1.6, 2.2, "#ffb347"], [-1.2, 1.4, 0.6, 1.2, "#ffd9a0"]],
+  },
+  // Grosses citrouilles-lanternes allumées (et deux petites), lueur orange vive.
+  pumpkins: {
+    w: 760, h: 520, dir: [0.12, 0.22, 1], fov: 22,
+    async build(g) {
+      g.add(await hb("pumpkin_orange_jackolantern", { x: -0.15, z: 0, ry: 0.25, s: 1.25, lit: true }));
+      g.add(await hb("pumpkin_yellow_jackolantern", { x: 1.15, z: 0.35, ry: -0.35, s: 0.9, lit: true }));
+      g.add(await hb("pumpkin_orange_small", { x: -1.25, z: 0.45, ry: 0.8, s: 0.95 }));
+      g.add(await hb("pumpkin_yellow_small", { x: 0.55, z: 0.95, ry: 0.2, s: 0.7 }));
+      g.add(await hb("candle_thin", { x: 1.75, z: 0.2, s: 0.7 }));
+    },
+    lights: [[-0.15, 0.5, 1.2, 2.5, "#ff8a2a"], [1.15, 0.4, 1.2, 1.6, "#ff9a3c"]],
+  },
+  // Petit squelette KayKit (Minion) en plein saut de joie : image du saut « Jump_Full_Short » du rig commun
+  // (corps penché en arrière, pieds décollés), bras levés en V (IK à deux os), tête relevée ; tourné de trois quarts vers la
+  // droite (la pile de cadeaux).
+  jumper: {
+    w: 520, h: 640, dir: [0, 0.08, 1], fov: 22,
+    async build(g) {
+      const Q = P();
+      const [gltf, rig] = await Promise.all([load(SK("characters/gltf/Skeleton_Minion.glb")), load(SK("Animations/gltf/Rig_Medium/Rig_Medium_MovementBasic.glb"))]);
+      const model = gltf.scene;
+      model.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = /Eyes/i.test(o.name) ? new THREE.MeshBasicMaterial({ color: "#ffc93c" }) : new THREE.MeshLambertMaterial({ map: o.material.map });
+        o.frustumCulled = false;
+      });
+      const holder = new THREE.Group();
+      holder.add(model);
+      g.add(holder);
+      const mixer = new THREE.AnimationMixer(model);
+      const clip = rig.animations.find((a) => a.name === (Q.clip ?? "Jump_Full_Short"));
+      mixer.clipAction(clip).play();
+      mixer.update(Q.t ?? 0.45);
+      model.updateMatrixWorld(true);
+      const bone = (n) => model.getObjectByName(n) ?? model.getObjectByName(n.replace(/[.]/g, ""));
+      const aim = (b, target) => {
+        b.updateWorldMatrix(true, false);
+        const pos = b.getWorldPosition(new THREE.Vector3());
+        const yW = new THREE.Vector3(0, 1, 0).applyQuaternion(b.getWorldQuaternion(new THREE.Quaternion())).normalize();
+        const d = target.clone().sub(pos).normalize();
+        const q = new THREE.Quaternion().setFromUnitVectors(yW, d);
+        const pq = b.parent.getWorldQuaternion(new THREE.Quaternion());
+        b.quaternion.premultiply(pq.clone().invert().multiply(q).multiply(pq));
+        b.updateWorldMatrix(true, true);
+      };
+      const arm = (side, target, pole) => {
+        const up = bone("upperarm." + side), low = bone("lowerarm." + side);
+        const S = up.getWorldPosition(new THREE.Vector3());
+        const L1 = low.position.length();
+        const half = Math.min(L1 * 0.98, target.distanceTo(S) / 2);
+        const mid = S.clone().lerp(target, 0.5).addScaledVector(pole, Math.sqrt(Math.max(0, L1 * L1 - half * half)));
+        aim(up, mid);
+        aim(low, target);
+      };
+      const head = bone("head");
+      const hr = Q.head ?? [-0.3, 0.15, 0.08];
+      head.rotation.set(head.rotation.x + hr[0], head.rotation.y + hr[1], head.rotation.z + hr[2]);
+      model.updateMatrixWorld(true);
+      const sh = bone("upperarm.l").getWorldPosition(new THREE.Vector3());
+      window.debug = { shoulderL: sh.toArray(), head: head.getWorldPosition(new THREE.Vector3()).toArray(), arm: [bone("lowerarm.l").position.length(), bone("wrist.l")?.position.length()] };
+      arm("l", new THREE.Vector3(...(Q.handL ?? [0.62, 1.64, 0.1])), new THREE.Vector3(...(Q.poleL ?? [1, -0.2, -0.6])).normalize());
+      arm("r", new THREE.Vector3(...(Q.handR ?? [-0.62, 1.64, 0.1])), new THREE.Vector3(...(Q.poleR ?? [-1, -0.2, -0.6])).normalize());
+      for (const side of ["l", "r"]) {
+        const h = bone("hand." + side);
+        if (Q.twist) h.rotateY(side === "l" ? Q.twist : -Q.twist);
+      }
+      model.updateMatrixWorld(true);
+      holder.rotation.y = Q.ry ?? 0.45;
+    },
+    lights: [[0.9, 1.4, 1.2, 1.4, "#ffb347"], [-0.8, 1.0, 0.9, 0.8, "#ffd9a0"]],
+  },
+};
+window.SETS = SETS;
+
+window.renderSet = async (key) => {
+  const set = SETS[key];
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(2);
+  renderer.setSize(set.w, set.h);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.setClearColor(0x000000, 0);
+  document.body.innerHTML = "";
+  document.body.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  // Éclairage neutre-chaud (comme raffle-props) : lisible sur la modale de nuit comme de jour.
+  scene.add(new THREE.HemisphereLight("#cfc6e8", "#3a2a24", set.hemi ?? 1.3));
+  const key1 = new THREE.DirectionalLight("#fff1dc", 1.1);
+  key1.position.set(-3, 6, 5);
+  scene.add(key1);
+  const rim = new THREE.DirectionalLight("#ff9a3c", 0.6);
+  rim.position.set(4, 2, -3);
+  scene.add(rim);
+  const group = new THREE.Group();
+  scene.add(group);
+  await set.build(group);
+  for (const [x, y, z, i, c] of set.lights) {
+    const l = new THREE.PointLight(c, i, 5, 1.6);
+    l.position.set(x, y, z);
+    scene.add(l);
+  }
+  group.updateMatrixWorld(true);
+  const camera = new THREE.PerspectiveCamera(set.fov, set.w / set.h, 0.05, 200);
+  const box = new THREE.Box3().setFromObject(group);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const dir = new THREE.Vector3(...(P().dir ?? set.dir)).normalize();
+  const t = Math.tan(THREE.MathUtils.degToRad(set.fov / 2));
+  const fit = Math.max(size.y / (2 * t), size.x / (2 * t * camera.aspect));
+  camera.position.copy(center).addScaledVector(dir, fit * 1.12 + Math.max(size.x, size.z) / 2);
+  camera.lookAt(center);
+  camera.updateMatrixWorld();
+  renderer.render(scene, camera);
+  return true;
+};
+window.ready = true;
+</script>
+</body>
+</html>

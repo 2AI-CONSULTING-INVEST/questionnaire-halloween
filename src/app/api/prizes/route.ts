@@ -58,5 +58,6 @@ export async function POST(req: Request) {
     display_order: Math.max(-1, ...prizes.map((p) => p.display_order)) + 1,
   });
   revalidatePath("/participants");
+  revalidatePath("/"); // lots proposés dans la confirmation du « Non » au tirage
   return json(prize, 201);
 }

@@ -21,9 +21,11 @@ import { createCrypt, type CryptArea, type ResultsData } from "./crypt";
 import { createGraveyard, createGround, createReaperClearing, outdoorPose, type GraveyardArea } from "./outdoor";
 import type { Area, Flame, Frame, Kit, Pose, SceneName } from "./types";
 import { ASSETS } from "./assets";
+import { batGeometry, createBatMaterial } from "./bats";
 
 export type { ResultsData } from "./crypt";
 export type { SceneName } from "./types";
+import type { SoundEvent } from "../sound/engine";
 
 export type WorldOptions = {
   theme: Theme;
@@ -38,6 +40,8 @@ export type WorldOptions = {
   onPlaqueClick?: () => void;
   /** Tape sur la lune (objet 3D du ciel), avec le point touché à l'écran. */
   onMoonTap?: (point: { x: number; y: number }) => void;
+  /** Évènements sonores : nuées de chauves-souris, travellings (pas). */
+  onSound?: (e: SoundEvent) => void;
 };
 
 export type World = {
@@ -70,11 +74,11 @@ const OUTDOOR: Record<Theme, Palette> = {
     fog: "#160f22", near: 12, far: 44, hemiSky: "#6d65a3", hemiGround: "#150d1a", hemi: 0.6, sun: "#9fb0f2", sunI: 0.78,
     ground: "#241c2d", lights: 0.92, glow: 0.88, mist: "#8a7eae", mistA: 0.32, smoke: "#988fac", smokeA: 0.3, eyes: 1, bat: "#43375a", batGlow: "#1f1630",
   },
-  // « Plein jour » : jour couvert de fin d'après-midi, brume grise, soleil bas et roux — l'ambiance
+  // « Plein jour » : jour couvert de fin d'après-midi, brume violette d'Halloween, soleil bas et roux — l'ambiance
   // reste sombre et inquiétante, mais on voit le ciel et le soleil, et les lanternes brillent encore.
   light: {
-    fog: "#857b90", near: 9, far: 36, hemiSky: "#b3abc4", hemiGround: "#3f332f", hemi: 0.95, sun: "#ffbf80", sunI: 0.95,
-    ground: "#6a5c4d", lights: 0.5, glow: 0.45, mist: "#aca2b6", mistA: 0.3, smoke: "#c4bac8", smokeA: 0.22, eyes: 0.25, bat: "#2e2733", batGlow: "#000000",
+    fog: "#6c5a86", near: 9, far: 36, hemiSky: "#b3abc4", hemiGround: "#3f332f", hemi: 0.95, sun: "#ffbf80", sunI: 0.95,
+    ground: "#6a5c4d", lights: 0.5, glow: 0.45, mist: "#8f7fae", mistA: 0.32, smoke: "#a596bf", smokeA: 0.24, eyes: 0.25, bat: "#2e2733", batGlow: "#000000",
   },
 };
 
@@ -88,32 +92,6 @@ const INDOOR: Record<Theme, Palette> = {
     ground: "#241c2d", lights: 0.85, glow: 0.72, mist: "#ffffff", mistA: 0, smoke: "#e8e0d0", smokeA: 0.2, eyes: 0.5, bat: "#3a3040", batGlow: "#000000",
   },
 };
-
-// ---------------------------------------------------------------------------
-// Chauves-souris : silhouette low-poly, battement d'ailes dans le vertex shader.
-// ---------------------------------------------------------------------------
-
-function batGeometry() {
-  const v: number[] = [];
-  const tri = (a: number[], b: number[], c: number[]) => v.push(...a, ...b, ...c);
-  const R = [0.03, 0, -0.02];
-  const wing = [
-    [0.03, 0, 0.06], [0.3, 0.01, 0.13], [0.64, 0, 0.02], [0.48, 0, -0.07], [0.5, 0, -0.2],
-    [0.33, 0, -0.1], [0.3, 0, -0.24], [0.15, 0, -0.12], [0.03, 0, -0.1],
-  ];
-  for (const side of [1, -1]) {
-    const w = wing.map(([x, y, z]) => [x * side, y, z]);
-    const r = [R[0] * side, R[1], R[2]];
-    for (let i = 0; i < w.length - 1; i++) tri(r, w[i], w[i + 1]);
-    tri([0.012 * side, 0.03, 0.13], [0.035 * side, 0.09, 0.11], [0.04 * side, 0.02, 0.1]);
-  }
-  const [nose, r1, tail, l1, belly] = [[0, 0.04, 0.15], [0.04, 0, 0.02], [0, 0.03, -0.14], [-0.04, 0, 0.02], [0, -0.035, 0.02]];
-  tri(nose, r1, tail); tri(nose, tail, l1); tri(belly, r1, nose); tri(belly, nose, l1); tri(belly, tail, r1); tri(belly, l1, tail);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(v, 3));
-  geo.computeVertexNormals();
-  return geo;
-}
 
 type Bat = { active: boolean; t0: number; dur: number; p: THREE.Vector3[]; wobble: number; scale: number };
 
@@ -340,20 +318,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   const BATS = AMBIENT_BATS + SWARM_BATS;
   const batGeo = batGeometry();
   batGeo.setAttribute("aPhase", new THREE.InstancedBufferAttribute(new Float32Array(BATS).map(() => rand(0, 6.28)), 1));
-  const batMat = new THREE.MeshLambertMaterial({ color: palette.bat, emissive: palette.batGlow, side: THREE.DoubleSide });
-  batMat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = time;
-    shader.vertexShader =
-      "attribute float aPhase;\nuniform float uTime;\n" +
-      shader.vertexShader.replace(
-        "#include <begin_vertex>",
-        `#include <begin_vertex>
-        float flap = sin(uTime * 21.0 + aPhase);
-        float ax = abs(transformed.x);
-        transformed.y += flap * ax * 0.85;
-        transformed.x *= 1.0 - 0.22 * max(flap, 0.0) * step(0.05, ax);`,
-      );
-  };
+  const batMat = createBatMaterial(time, palette.bat, palette.batGlow);
   const bats = new THREE.InstancedMesh(batGeo, batMat, BATS);
   bats.frustumCulled = false;
   bats.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -521,6 +486,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
         fade: (u) => 1 - smooth(0, 0.22, u),
         end: () => cr.reveal(() => opts.onReveal?.()),
       });
+      walk(true);
       return;
     }
 
@@ -530,6 +496,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
         active = dest;
       }));
       shots.push(hold(() => dest.pose(frame), 0.7, (u) => 1 - u));
+      walk(false);
       return;
     }
 
@@ -537,10 +504,17 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     active = dest;
     if (next === "reaper") shots.push(toClearing(from));
     else shots.push(toClearing(from, true));
+    walk(false);
+  }
+
+  /** Pas pendant le travelling qui vient d'être programmé (durée totale des plans). */
+  function walk(indoor: boolean) {
+    opts.onSound?.({ type: "travel", dur: shots.reduce((a, s) => a + s.dur, 0), indoor });
   }
 
   /** Les chauves-souris jaillissent de la porte et passent à côté de la caméra qui entre. */
   function doorSwarm(door: THREE.Vector3, normal: THREE.Vector3) {
+    opts.onSound?.({ type: "doorSwarm" });
     let n = 0;
     for (const b of swarmBats) {
       if (b.active || n >= SWARM_BATS) continue;
@@ -564,6 +538,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     const home = active.batHome;
     const origin = new THREE.Vector3(home.x + rand(-2, 2), home.y * 0.6, home.z + 3);
     const side = Math.random() < 0.5 ? -1 : 1;
+    opts.onSound?.({ type: "swarm", side, dur: 4 });
     const hw = (z: number) => frame.halfTan * frame.aspect * (cam.pos.z - z);
     let launched = 0;
     for (const b of swarmBats) {
@@ -668,7 +643,8 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       crypt.group.visible = indoor;
       if (pendingResults) crypt.setResults(pendingResults);
       crypt.layout(frame);
-      if (wanted === "crypt") planTo("crypt");
+      // Au démarrage sur /resultats, on ouvre directement dans la crypte (voir ready) ; ensuite, travelling.
+      if (wanted === "crypt" && booted) planTo("crypt");
     }).catch((e) => console.warn("Crypte indisponible :", e));
     return dungeonReady;
   }
@@ -682,9 +658,13 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       graveyard.addLogo();
       layout();
       // Rechargement en plein tirage au sort : on attend la clairière pour ouvrir directement dessus.
+      // Arrivée sur /resultats : on attend la crypte et on ouvre directement dedans, devant le classement
+      // encore poussiéreux (même pose que le poster de la page, voir scripts/3d/posters.mjs).
       if (wanted === "reaper") await ensureClearing();
-      const start = wanted === "reaper" && reaper ? reaper : graveyard;
+      if (wanted === "crypt") await ensureDungeon();
+      const start = wanted === "reaper" && reaper ? reaper : wanted === "crypt" && crypt ? crypt : graveyard;
       active = start;
+      if (start === crypt) setIndoor(true);
       const p = start.pose(frame);
       cam.pos.copy(p.pos);
       cam.target.copy(p.target);
@@ -697,7 +677,13 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
         /* compilation anticipée indisponible : les shaders se compileront à la première image */
       }
       booted = true;
-      if (wanted === "crypt") {
+      // Le temps de la scène part de zéro à l'affichage : premier rendu identique au poster (t = 0).
+      clock = 0;
+      if (wanted === "crypt" && active === crypt) {
+        crypt.resetDust();
+        crypt.reveal(() => opts.onReveal?.());
+        void ensureClearing();
+      } else if (wanted === "crypt") {
         planTo("crypt");
         // La crypte reste prioritaire : la clairière attend qu'elle soit chargée.
         void (dungeonReady ?? Promise.resolve()).then(() => ensureClearing());

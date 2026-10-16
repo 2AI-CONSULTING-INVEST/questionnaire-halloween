@@ -15,12 +15,15 @@ import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
 const gltf = await loader.loadAsync("/public/3d/logos.glb");
-const badge = gltf.scene.getObjectByName("chamastacos_badge_halloween");
 
-window.render = (size) => {
+window.render = (size) => window.renderObject("chamastacos_badge_halloween", size, size);
+
+/** Rendu d'un objet du pack (badge, logo long « wordmark »), cadré dans w × h, fond transparent. */
+window.renderObject = (name, w, h) => {
+  const badge = gltf.scene.getObjectByName(name);
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(1);
-  renderer.setSize(size, size);
+  renderer.setSize(w, h);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.setClearColor(0x000000, 0);
   document.body.innerHTML = "";
@@ -46,9 +49,9 @@ window.render = (size) => {
   const c = box.getCenter(new THREE.Vector3());
   const s = box.getSize(new THREE.Vector3());
   const fov = 18;
-  const camera = new THREE.PerspectiveCamera(fov, 1, 0.1, 500);
+  const camera = new THREE.PerspectiveCamera(fov, w / h, 0.1, 500);
   const t = Math.tan(THREE.MathUtils.degToRad(fov / 2));
-  const d = (Math.max(s.x, s.y) / 2 / t) * 1.04 + s.z / 2;
+  const d = (Math.max(s.x / (w / h), s.y) / 2 / t) * 1.04 + s.z / 2;
   camera.position.set(c.x, c.y + s.y * 0.02, c.z + d);
   camera.lookAt(c);
   renderer.render(scene, camera);

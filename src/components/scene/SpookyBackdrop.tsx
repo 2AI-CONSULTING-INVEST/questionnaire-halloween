@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { setSoundPlace, setSoundTheme, soundEvent } from "@/components/sound/engine";
 import { getTheme, setTheme, subscribeTheme } from "@/lib/theme";
 import { useSceneState } from "./scene-state";
 import type { SceneName, World } from "./world";
@@ -76,6 +77,11 @@ export function SpookyBackdrop() {
   // Résultats : la crypte ; participants et lots : la clairière de la faucheuse (les cadeaux) ; sinon la scène du questionnaire.
   const scene: SceneName = pathname.startsWith("/resultats") ? "crypt" : pathname.startsWith("/participants") ? "reaper" : questionnaireScene;
   const sceneRef = useRef(scene);
+  // Poster : image du rendu exact de la scène d'arrivée (scripts/3d/posters.mjs, posters.css), affichée
+  // dès le premier rendu sous le canvas, retirée en fondu une fois le décor 3D affiché. Gardée si WebGL
+  // est indisponible (mieux que le ciel vide).
+  const [posterScene] = useState(scene);
+  const [posterGone, setPosterGone] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -93,8 +99,15 @@ export function SpookyBackdrop() {
           theme: getTheme(),
           reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
           quality: low ? "low" : "high",
-          onIndoor: setIndoor,
-          onReveal: () => useSceneState.getState().setRevealed(true),
+          onIndoor: (v) => {
+            setIndoor(v);
+            setSoundPlace(v ? "crypt" : "outdoor");
+          },
+          onSound: soundEvent,
+          onReveal: () => {
+            useSceneState.getState().setRevealed(true);
+            soundEvent({ type: "reveal" });
+          },
           onPlaqueClick: () => {
             const s = useSceneState.getState();
             if (Date.now() - s.boardClosedAt > 400) s.setBoardOpen(true);
@@ -121,13 +134,20 @@ export function SpookyBackdrop() {
         if (cancelled) return;
         canvas.dataset.ready = "";
         store.setStatus("ready");
+        // Le canvas apparaît en 400 ms par-dessus le poster (même image) ; puis le poster s'efface.
+        setTimeout(() => !cancelled && setPosterGone(true), 700);
       } catch {
         store.setStatus("unsupported"); // pas de WebGL exploitable : le ciel CSS suffit
       }
     };
     void start();
 
-    const unsubTheme = subscribeTheme(() => worldRef.current?.setTheme(getTheme()));
+    // Ambiance sonore : thème jour / nuit (le lieu suit onIndoor).
+    setSoundTheme(getTheme());
+    const unsubTheme = subscribeTheme(() => {
+      worldRef.current?.setTheme(getTheme());
+      setSoundTheme(getTheme());
+    });
     const unsubResults = useSceneState.subscribe((s, prev) => {
       if (s.results && s.results !== prev.results) worldRef.current?.setResults(s.results);
     });
@@ -177,6 +197,7 @@ export function SpookyBackdrop() {
           ))}
         </div>
       </div>
+      <div className="sky-poster" data-scene={posterScene} data-gone={posterGone || undefined} aria-hidden />
       <canvas ref={canvasRef} className="sky-canvas" aria-hidden />
       <div className="sky-scrim" aria-hidden />
     </div>

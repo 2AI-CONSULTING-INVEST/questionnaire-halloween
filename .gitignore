@@ -50,3 +50,6 @@ next-env.d.ts
 /screenshots
 # Pack source des modèles 3D (seul public/3d/halloween.glb est utilisé)
 /KayKit_HalloweenBits_1.0_FREE/
+
+# graphify : cache local du graphe de code (régénéré automatiquement)
+/graphify-out/cache/

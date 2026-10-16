@@ -75,7 +75,8 @@ export function RestaurantCombobox({
             onFocus={() => setOpen(true)}
             onClick={() => setOpen(true)}
             onKeyDown={onKeyDown}
-            className="w-full bg-transparent pr-16 text-xl text-fg outline-none placeholder:text-placeholder sm:text-[1.75rem]"
+            // Place des icônes à droite : chevron seul, ou croix + chevron quand un restaurant est choisi.
+            className={`w-full bg-transparent ${value && !open ? "pr-16" : "pr-9"} text-xl text-fg outline-none placeholder:text-placeholder-scene sm:text-[1.75rem]`}
           />
           {value && !open && (
             <button

@@ -1,8 +1,12 @@
-// Décor de la modale « Vérifiez vos coordonnées » : squelette inspecteur (loupe, téléphone,
-// enveloppe), grappe de citrouilles allumées, lanterne suspendue — rendus KayKit en PNG transparents
-// recadrés, définition ×2 (public/decor/raffle-*.png).
+// Décor de la modale « Vérifiez vos coordonnées » : squelette paniqué devant un panneau « attention »,
+// petite motte (pierre tombale, main squelette qui sort de la terre) — rendus KayKit en PNG
+// transparents recadrés, définition ×2 (public/decor/raffle-*.png). Le poteau et sa lanterne sont
+// ceux de la modale du classement (modal-post.png, modal-lamp.png).
+// Variables : ONLY=inspector,mound (jeux à rendre) ; POSE=<JSON> (réglages de pose, voir render.html) ;
+// KEEP_RAW=1 garde le rendu brut non recadré (contrôle des mains à fort grossissement).
 // Usage : node scripts/3d/raffle-props/render.mjs <racine du projet> <dossier des packs> <sortie>
 //   packs : <dossier>/skeletons/KayKit_Skeletons_1.1_FREE (pack KayKit Skeletons 1.1 dézippé) ;
+//   <dossier>/Forest_Nature_Pack_1.0/KayKit_Forest_Nature_Pack_1.0_FREE (herbes, rochers) ;
 //   Halloween Bits est lu dans <racine>/KayKit_HalloweenBits_1.0_FREE. Nécessite puppeteer-core, pngjs, Chrome.
 import http from "node:http";
 import fs from "node:fs";
@@ -41,19 +45,22 @@ page.on("pageerror", (e) => console.log("pageerror", e.message));
 page.on("console", (m) => m.type() === "error" && console.log("console", m.text()));
 await page.goto("http://localhost:5181/", { waitUntil: "networkidle0" });
 await page.waitForFunction(() => window.ready);
+if (process.env.POSE) await page.evaluate((p) => (window.POSE = JSON.parse(p)), process.env.POSE);
 const keys = process.env.ONLY ? process.env.ONLY.split(",") : await page.evaluate(() => Object.keys(window.SETS));
 const meta = {};
 for (const key of keys) {
   const info = await page.evaluate((k) => window.renderSet(k), key);
-  const raw = path.join(outDir, `raffle-${key}-raw.png`);
+  const name = await page.evaluate((k) => window.SETS[k].file ?? `raffle-${k}`, key);
+  const raw = path.join(outDir, `${name}-raw.png`);
   await (await page.$("canvas")).screenshot({ path: raw, omitBackground: true });
   const p = PNG.sync.read(fs.readFileSync(raw));
   let x0 = p.width, y0 = p.height, x1 = 0, y1 = 0;
   for (let y = 0; y < p.height; y++) for (let x = 0; x < p.width; x++) if (p.data[(y * p.width + x) * 4 + 3] > 8) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   const o = new PNG({ width: x1 - x0 + 1, height: y1 - y0 + 1 });
   PNG.bitblt(p, o, x0, y0, o.width, o.height, 0, 0);
-  fs.writeFileSync(path.join(outDir, `raffle-${key}.png`), PNG.sync.write(o));
-  fs.unlinkSync(raw);
+  fs.writeFileSync(path.join(outDir, `${name}.png`), PNG.sync.write(o));
+  if (!process.env.KEEP_RAW) fs.unlinkSync(raw);
+  if (process.env.DEBUG) console.log(key, await page.evaluate(() => JSON.stringify(window.debug ?? null)));
   const rel = (pt) => [+(((pt[0] * 2 - x0) / o.width) * 100).toFixed(2), +(((pt[1] * 2 - y0) / o.height) * 100).toFixed(2)];
   meta[key] = { width: o.width, height: o.height, ...Object.fromEntries(Object.entries(info).map(([k, v]) => [k, rel(v)])) };
 }
