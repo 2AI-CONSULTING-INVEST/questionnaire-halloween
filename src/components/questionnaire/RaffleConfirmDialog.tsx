@@ -6,9 +6,9 @@ import { Dialog } from "radix-ui";
 import { useId, useState } from "react";
 import { Lantern } from "@/components/ui/Lantern";
 import { withBase } from "@/lib/base-path";
-import { emailSchema, normalizeFrPhone, PSEUDO_MAX, pseudoSchema } from "@/lib/schema";
+import { emailSchema, NAME_MAX, normalizeFrPhone, PSEUDO_MAX, pseudoSchema } from "@/lib/schema";
 
-export type RaffleValues = { pseudo: string; phone_number: string; email: string };
+export type RaffleValues = { pseudo: string; first_name: string; last_name: string; phone_number: string; email: string };
 export type RaffleField = keyof RaffleValues;
 export type RaffleErrors = Partial<Record<RaffleField, string>>;
 
@@ -22,8 +22,10 @@ export function validateRaffle(v: RaffleValues): RaffleErrors {
   return errors;
 }
 
-const FIELDS: { key: RaffleField; label: string; type: string; autoComplete: string; inputMode?: "tel" | "email"; maxLength: number; placeholder: string }[] = [
+const FIELDS: { key: RaffleField; label: string; type: string; autoComplete: string; inputMode?: "tel" | "email"; maxLength: number; placeholder: string; half?: true }[] = [
   { key: "pseudo", label: "Pseudonyme (affiché publiquement)", type: "text", autoComplete: "nickname", maxLength: PSEUDO_MAX, placeholder: "Votre pseudonyme" },
+  { key: "first_name", label: "Prénom (facultatif)", type: "text", autoComplete: "given-name", maxLength: NAME_MAX, placeholder: "Prénom", half: true },
+  { key: "last_name", label: "Nom (facultatif)", type: "text", autoComplete: "family-name", maxLength: NAME_MAX, placeholder: "Nom", half: true },
   { key: "phone_number", label: "Numéro de téléphone", type: "tel", autoComplete: "tel-national", inputMode: "tel", maxLength: 20, placeholder: "07 13 55 44 67" },
   { key: "email", label: "Adresse email", type: "email", autoComplete: "email", inputMode: "email", maxLength: 255, placeholder: "votreemail@gmail.com" },
 ];
@@ -168,7 +170,13 @@ function RaffleForm({ initial, formatPhone, onConfirm, onBusy }: FormProps) {
     if (!valid) return;
     setBusy(true);
     try {
-      const errors = await onConfirm({ pseudo: values.pseudo.trim(), phone_number: values.phone_number, email: values.email.trim() });
+      const errors = await onConfirm({
+        pseudo: values.pseudo.trim(),
+        first_name: values.first_name.trim(),
+        last_name: values.last_name.trim(),
+        phone_number: values.phone_number,
+        email: values.email.trim(),
+      });
       if (Object.keys(errors).length) setServerErrors(errors);
     } finally {
       setBusy(false);
@@ -200,11 +208,11 @@ function RaffleForm({ initial, formatPhone, onConfirm, onBusy }: FormProps) {
           </div>
         </Dialog.Description>
 
-        <div className="mt-4 flex flex-col gap-3.5">
+        <div className="mt-4 grid grid-cols-2 gap-3.5">
           {FIELDS.map((f) => {
             const err = errorOf(f.key);
             return (
-              <div key={f.key} className="flex flex-col gap-1">
+              <div key={f.key} className={`flex flex-col gap-1 ${f.half ? "" : "col-span-2"}`}>
                 <label htmlFor={`${id}-${f.key}`} className="text-xs font-semibold uppercase tracking-wide text-fg-muted">
                   {f.label}
                 </label>
@@ -233,7 +241,7 @@ function RaffleForm({ initial, formatPhone, onConfirm, onBusy }: FormProps) {
             );
           })}
           {serverErrors.form && (
-            <p role="alert" className="rounded-md bg-danger-bg px-3 py-1.5 text-sm font-medium text-danger-fg">
+            <p role="alert" className="col-span-2 rounded-md bg-danger-bg px-3 py-1.5 text-sm font-medium text-danger-fg">
               {serverErrors.form}
             </p>
           )}

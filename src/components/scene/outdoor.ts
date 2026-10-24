@@ -12,9 +12,11 @@
 import * as THREE from "three";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
-import { Billboards, flicker, groundHeight, rand, seeded, smooth } from "./core";
+import { createDrops, createPools, type PoolSpec } from "./blood";
+import { Billboards, canvasTexture, flicker, groundHeight, rand, seeded, smooth } from "./core";
 import { applyCutGlow, CUT_SHINE_ORDER, JACK_CUT, LANTERN_GLASS } from "./glow";
 import { armReaper, createCauldron, createGhost, createGift, createRobeSkirt, createRobeTop, DCELL, merge, toFloat } from "./props";
+import { createScytheSwing, type ScytheSwing } from "./swing";
 import type { Area, Flame, Frame, Kit, Pose } from "./types";
 
 export const CAMERA_Z = 12;
@@ -465,12 +467,196 @@ const GIFTS: GiftSpec[] = [
   { x: 2.6, z: 1.6, w: 0.45, h: 0.4, d: 0.45, box: DCELL.violet, band: DCELL.black, ry: -0.2 },
 ];
 
+// ---------------------------------------------------------------------------
+// Sol de la clairière : terre battue sinueuse (sillons qui serpentent, mottes, grain) avec des
+// plaques d'herbe par endroits, fondu dans le sol commun sur les bords (scène 2 seulement).
+// ---------------------------------------------------------------------------
+
+/** Sillons : chemins qui serpentent d'un bord à l'autre (deux sinus superposés), tracés sur les deux toiles. */
+function furrowPaths(s: number, r: () => number) {
+  const paths: [number, number][][] = [];
+  for (let i = 0; i < 15; i++) {
+    const y0 = ((i + 0.5) / 15) * s + (r() - 0.5) * s * 0.05;
+    const a1 = s * (0.03 + r() * 0.05);
+    const a2 = s * (0.01 + r() * 0.03);
+    const f1 = (0.8 + r() * 0.8) * ((2 * Math.PI) / s);
+    const f2 = (2.5 + r() * 2.5) * ((2 * Math.PI) / s);
+    const p1 = r() * 6.3;
+    const p2 = r() * 6.3;
+    const pts: [number, number][] = [];
+    for (let x = -s * 0.1; x <= s * 1.1; x += s / 48) pts.push([x, y0 + a1 * Math.sin(x * f1 + p1) + a2 * Math.sin(x * f2 + p2)]);
+    paths.push(pts);
+  }
+  return paths;
+}
+
+function strokePaths(ctx: CanvasRenderingContext2D, paths: [number, number][][], style: string, width: number, dy = 0) {
+  ctx.strokeStyle = style;
+  ctx.lineWidth = width;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const pts of paths) {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y + dy) : ctx.moveTo(x, y + dy)));
+    ctx.stroke();
+  }
+}
+
+type Patch = { x: number; y: number; rx: number; ry: number; rot: number; blades: [number, number, number, number][] };
+const GRASS = ["#6e9438", "#4a7628", "#8fb046", "#3e6622", "#a0b850", "#5a8a2c"];
+
+function createClearingGround() {
+  const S = 1024;
+  const r = seeded(43);
+  const paths = furrowPaths(S, r);
+  const patches: Patch[] = Array.from({ length: 26 }, () => {
+    const a = r() * 6.3;
+    const d = Math.sqrt(r()) * S * 0.42;
+    const rx = S * (0.07 + r() * 0.12);
+    const ry = rx * (0.4 + r() * 0.5);
+    const rot = r() * 3.2;
+    const n = Math.round((rx * ry) / 55);
+    const blades: [number, number, number, number][] = [];
+    for (let i = 0; i < n; i++) {
+      const t = r() * 6.3;
+      const u = Math.sqrt(r());
+      const lx = Math.cos(t) * rx * u;
+      const ly = Math.sin(t) * ry * u;
+      blades.push([lx * Math.cos(rot) - ly * Math.sin(rot), lx * Math.sin(rot) + ly * Math.cos(rot), 7 + r() * 9, (r() - 0.5) * 1.1]);
+    }
+    return { x: S / 2 + Math.cos(a) * d, y: S / 2 + Math.sin(a) * d, rx, ry, rot, blades };
+  });
+  const blades = (ctx: CanvasRenderingContext2D, color: (i: number) => string, width: number) => {
+    ctx.lineCap = "round";
+    ctx.lineWidth = width;
+    for (const p of patches)
+      p.blades.forEach(([bx, by, len, ang], i) => {
+        ctx.strokeStyle = color(i);
+        ctx.beginPath();
+        ctx.moveTo(p.x + bx, p.y + by);
+        ctx.lineTo(p.x + bx + Math.sin(ang) * len, p.y + by - Math.cos(ang) * len);
+        ctx.stroke();
+      });
+  };
+
+  const map = canvasTexture(S, S, (ctx) => {
+    ctx.fillStyle = "#a28062";
+    ctx.fillRect(0, 0, S, S);
+    // Mottes : taches de terre plus ou moins humides.
+    const browns = ["#4e3a26", "#8a6a4a", "#5e4430", "#a07a52", "#43301f", "#b08a60"];
+    for (let i = 0; i < 90; i++) {
+      const x = r() * S;
+      const y = r() * S;
+      const rad = S * (0.04 + r() * 0.12);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+      const c = browns[Math.floor(r() * browns.length)];
+      g.addColorStop(0, c + "a0");
+      g.addColorStop(1, c + "00");
+      ctx.fillStyle = g;
+      ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    }
+    // Sillons : creux sombre, crête éclairée juste au-dessus.
+    strokePaths(ctx, paths, "rgba(18,10,5,0.55)", 48);
+    strokePaths(ctx, paths, "rgba(8,4,2,0.9)", 20);
+    strokePaths(ctx, paths, "rgba(225,190,145,0.6)", 11, -19);
+    strokePaths(ctx, paths, "rgba(245,215,170,0.45)", 4, -21);
+    // Herbe : sous-couche verte puis brins.
+    for (const p of patches) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, p.rx);
+      g.addColorStop(0, "rgba(96,140,50,0.95)");
+      g.addColorStop(1, "rgba(96,140,50,0)");
+      ctx.fillStyle = g;
+      ctx.scale(1, p.ry / p.rx);
+      ctx.fillRect(-p.rx, -p.rx, p.rx * 2, p.rx * 2);
+      ctx.restore();
+    }
+    blades(ctx, (i) => GRASS[i % GRASS.length], 2.2);
+    // Grain du sol.
+    for (let i = 0; i < 9000; i++) {
+      ctx.fillStyle = r() < 0.5 ? "rgba(0,0,0,0.18)" : "rgba(220,190,150,0.14)";
+      ctx.fillRect(r() * S, r() * S, 1 + r() * 2, 1 + r() * 2);
+    }
+    // Bords fondus dans le sol commun.
+    const fade = ctx.createRadialGradient(S / 2, S / 2, S * 0.3, S / 2, S / 2, S * 0.5);
+    fade.addColorStop(0, "rgba(0,0,0,1)");
+    fade.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.globalCompositeOperation = "destination-in";
+    ctx.fillStyle = fade;
+    ctx.fillRect(0, 0, S, S);
+  });
+  // Relief : sillons en creux, crêtes et brins en bosse.
+  const bump = canvasTexture(
+    S,
+    S,
+    (ctx) => {
+      ctx.fillStyle = "#808080";
+      ctx.fillRect(0, 0, S, S);
+      for (let i = 0; i < 90; i++) {
+        const x = r() * S;
+        const y = r() * S;
+        const rad = S * (0.03 + r() * 0.08);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+        const v = 96 + Math.floor(r() * 64);
+        g.addColorStop(0, `rgba(${v},${v},${v},0.6)`);
+        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+      }
+      strokePaths(ctx, paths, "rgba(40,40,40,0.5)", 44);
+      strokePaths(ctx, paths, "rgba(20,20,20,0.6)", 22);
+      strokePaths(ctx, paths, "rgba(230,230,230,0.5)", 12, -16);
+      blades(ctx, () => "rgba(210,210,210,0.7)", 2.2);
+    },
+    false,
+  );
+  map.anisotropy = 4;
+  const mat = new THREE.MeshLambertMaterial({ map, bumpMap: bump, bumpScale: 0.8, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+  mesh.frustumCulled = false;
+  // Transparent (bords fondus) : trié à la même distance que les nappes de brume (toutes à l'origine
+  // du monde), il doit passer avant elles, sinon il les recouvre.
+  mesh.renderOrder = -1;
+  const v = new THREE.Vector3();
+  return {
+    mesh,
+    mat,
+    /** Disque de `size` unités locales centré sur (cx, cz), épousant le relief (repère monde). */
+    layout(cx: number, cz: number, size: number, toWorld: (x: number, z: number, out?: THREE.Vector3) => THREE.Vector3) {
+      const g = new THREE.PlaneGeometry(size, size, 40, 40).rotateX(-Math.PI / 2);
+      const pos = g.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        toWorld(cx + pos.getX(i), cz + pos.getZ(i), v);
+        pos.setXYZ(i, v.x, v.y + 0.04, v.z);
+      }
+      g.computeVertexNormals();
+      mesh.geometry.dispose();
+      mesh.geometry = g;
+    },
+  };
+}
+
 /** Faucheuse et chaudron (repère local de la clairière) ; cadeaux décalés d'autant vers la droite. */
 const REAPER_AT = [1.05, -0.25] as const;
 const CAULDRON_AT = [1.0, 1.35] as const;
 const GIFTS_SHIFT = 0.45;
 
-const CLEARING_EYES: [number, number][] = [[-2.4, -3.2], [3.6, -4.2], [-3.2, -0.8], [0.6, -5.2], [2.7, -5.6]];
+/** Yeux rouges de la pénombre (x, z, hauteur) : au ras des buissons et des rochers, dans les arbres morts, au fond. */
+const CLEARING_EYES: [number, number, number][] = [
+  [-2.4, -3.2, 0.5], [3.6, -4.2, 0.5], [-3.2, -0.8, 0.5], [0.6, -5.2, 0.5], [2.7, -5.6, 0.5],
+  [-3.0, -2.2, 1.4], [4.0, -6.0, 1.3], [-2.6, 0.4, 0.3], [3.5, -2.6, 0.4], [-0.2, -6.5, 0.6],
+  [1.8, -6.8, 0.9], [4.6, -4.8, 0.5], [-3.8, -1.6, 0.7], [2.2, -4.6, 0.3], [-1.3, -4.4, 0.4],
+];
+
+/** Flaques de sang (repère local de la clairière) : sous la faux et le chaudron, deux près des tombes, deux devant la caméra. */
+const BLOOD_POOLS: PoolSpec[] = [
+  { x: 0.55, z: 1.9, r: 0.5, rot: 0.4 }, { x: 1.55, z: 2.15, r: 0.34, rot: 2.1 }, { x: 0.6, z: 0.2, r: 0.44, rot: 1.3 },
+  { x: -0.55, z: -2.35, r: 0.38, rot: 2.8 }, { x: 1.05, z: -4.1, r: 0.44, rot: 1.9 }, { x: -0.45, z: 2.55, r: 0.52, rot: 0.9 },
+  { x: 2.95, z: 1.0, r: 0.32, rot: 2.2 }, { x: 0.0, z: -0.9, r: 0.32, rot: 2.9 },
+];
+const BLOOD_EYES = ["#ff1f1f", "#ff3a24", "#e3000f", "#ff2a4a"];
 
 // ---------------------------------------------------------------------------
 // Très grosse citrouille-lanterne, posée sur le rocher de gauche, éclairée de l'intérieur.
@@ -509,12 +695,15 @@ function topOf(obj: THREE.Object3D) {
   return hit ? hit.point.clone() : new THREE.Vector3(c.x, box.max.y, c.z);
 }
 
-/** Yeux de la faucheuse : cœur (linéaire, blanc bleuté) et halos [couleur, taille × hauteur, opacité, un par œil]. */
-const EYE_CORE: [number, number, number] = [0.78, 0.93, 1.0];
+/** Yeux de la faucheuse : cœur (linéaire, rouge braise) et halos [couleur, taille × hauteur, opacité, un par œil]. */
+// Rouge braise saturé (lisible même quand le crâne est éclairé en orange par la bougie) ; halos
+// petits et discrets : la lumière garde la forme exacte des yeux du modèle (un gros halo la noie en
+// une tache ronde) ; voile commun à peine visible (trop grand, il se posait sur l'os comme un reflet).
+const EYE_CORE: [number, number, number] = [1.6, 0.03, 0.01];
 const EYE_HALOS: [string, number, number, boolean][] = [
-  ["#e6faff", 0.1, 0.9, true],
-  ["#4fcbff", 0.26, 0.75, true],
-  ["#1a7dff", 0.8, 0.32, false],
+  ["#ffd0c4", 0.07, 0.35, true],
+  ["#ff3a1e", 0.18, 0.6, true],
+  ["#a0000f", 0.42, 0.14, false],
 ];
 
 export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
@@ -542,16 +731,19 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
   group.add(reaperShadow);
   let mixer: THREE.AnimationMixer | null = null;
   let idle: THREE.AnimationAction | null = null;
+  let swing: ScytheSwing | null = null;
   const gestures: THREE.AnimationAction[] = [];
   let modelHeight = 2.3;
   let eyeHalos: THREE.Sprite[] = [];
   let eyeMat: THREE.MeshBasicMaterial | null = null;
   if (reaperGltf) {
     const model = cloneSkinned(reaperGltf.scene);
-    // Yeux : lueur spectrale froide — cœur blanc bleuté glacé (couleur linéaire), hors brume,
+    // Yeux : braises rouges — cœur rouge vif (couleur linéaire), hors brume,
     // dessinés APRÈS les nappes de fumée (transparents, renderOrder CUT_SHINE_ORDER, comme les
     // découpes des citrouilles de glow.ts) pour ne pas être délavés ; vacillement en update.
-    const eyeBasic = (eyeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(...EYE_CORE), fog: false, transparent: true }));
+    // La lueur est le maillage des yeux du modèle lui-même (sa forme exacte). Sans test de profondeur :
+    // le rebord de l'orbite ou la capuche ne peuvent pas l'éteindre selon l'angle.
+    const eyeBasic = (eyeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(...EYE_CORE), fog: false, transparent: true, toneMapped: false, depthTest: false }));
     let map: THREE.Texture | null = null;
     model.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -570,7 +762,7 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
     const clip = (n: string) => reaperGltf.animations.find((a) => a.name === n);
     const idleClip = clip("Idle");
     if (idleClip) (idle = mixer.clipAction(idleClip)).play();
-    for (const n of ["Taunt", "Interact"]) {
+    for (const n of ["Interact"]) {
       const c = clip(n);
       if (!c) continue;
       const a = mixer.clipAction(c);
@@ -607,29 +799,66 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
       const c = box.getCenter(new THREE.Vector3());
       // Centre de chaque pupille (pose de repos, face à +Z) : mesuré sur capture à 0,44 × la largeur du maillage.
       const dx = (box.max.x - box.min.x) * 0.44;
+      // Lumière en amande couchée à la place des yeux du modèle : une par orbite, face à l'avant,
+      // accrochée à l'os de la tête. Regard mauvais : bord supérieur presque droit (comme coupé par un
+      // sourcil froncé), bas creusé, amande inclinée vers le nez.
+      const hw = (box.max.x - box.min.x) * 0.21;
+      const hh = (box.max.y - box.min.y) * 0.42;
+      const facing = head.getWorldQuaternion(new THREE.Quaternion()).invert();
+      for (const x of [-dx, dx]) {
+        const almond = new THREE.Shape();
+        almond.moveTo(-hw, 0);
+        almond.quadraticCurveTo(0, hh * 0.9, hw, 0);
+        almond.quadraticCurveTo(0, -hh * 2.6, -hw, 0);
+        // Le bout extérieur remonte (x > 0 : œil droit du modèle, pointe extérieure en +x).
+        const m = new THREE.Mesh(new THREE.ShapeGeometry(almond, 12).rotateZ(Math.sign(x) * 0.24), eyeBasic);
+        m.position.copy(head.worldToLocal(c.clone().add(new THREE.Vector3(x, 0, 0.03))));
+        m.quaternion.copy(facing);
+        m.renderOrder = CUT_SHINE_ORDER;
+        m.frustumCulled = false;
+        head.add(m);
+      }
+      eyes.visible = false;
       // Halos additifs, sans test de profondeur (la lueur « émane » des orbites, par-dessus le crâne) :
-      // sur chaque œil un éclat blanc glacé et un halo cyan, puis un grand voile bleu commun.
+      // sur chaque œil un éclat chaud et un halo rouge, puis un grand voile sang commun.
       eyeHalos = EYE_HALOS.flatMap(([color, size, , perEye]) =>
         (perEye ? [-dx, dx] : [0]).map((x) => {
           const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: kit.glowTex, color, transparent: true, opacity: 0, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false }));
           sp.position.copy(head.worldToLocal(c.clone().add(new THREE.Vector3(x, 0, 0))));
           sp.scale.setScalar(modelHeight * size);
-          sp.renderOrder = CUT_SHINE_ORDER;
+          sp.renderOrder = CUT_SHINE_ORDER + 1; // après les yeux
           sp.userData.opacity = EYE_HALOS.find((h) => h[0] === color)![2];
           head.add(sp);
           return sp;
         }),
       );
     }
-    // Mains squelette (à la place des moufles) ; la gauche serre la faux, tenue droite.
-    armReaper(model, kit.dungeonMat, kit.modelMat, modelHeight);
+    // Mains squelette (à la place des moufles) ; la gauche serre la faux, tenue droite, lame ensanglantée.
+    const scythe = armReaper(model, kit.dungeonMat, kit.modelMat, modelHeight, kit.time);
+    // Coup de faux vers l'écran (calculé, par-dessus l'idle) : la faux suit la main.
+    if (scythe) swing = createScytheSwing(model, scythe);
   }
-  let nextGesture = 2;
+  // Gestes rares : coup de faux ou main vers le chaudron, à intervalle aléatoire de 30 s à 2 min.
+  const gestureDelay = () => rand(30, 120);
+  // Fixé au premier rendu : l'horloge du monde ne part pas de zéro quand la clairière est construite plus tard.
+  let nextGesture = -1;
   let gestureIndex = 0;
 
-  // --- Chaudron (juste devant la caméra) ---
-  const cauldron = createCauldron(kit.dungeonMat, kit.modelMat);
+  // --- Chaudron (juste devant la caméra), le sang déborde sur les bonbons ---
+  const cauldron = createCauldron(kit.dungeonMat, kit.modelMat, kit.bloodMat, { low: kit.low, animate: !kit.reduce });
   group.add(cauldron.group);
+
+  // --- Sol de terre sinueuse et plaques d'herbe, sous toute la clairière ---
+  const clearingGround = createClearingGround();
+  group.add(clearingGround.mesh);
+
+  // --- Sang : flaques au sol, gouttes qui tombent du rebord du chaudron ---
+  const pools = createPools(kit.bloodMat);
+  group.add(pools.mesh);
+  const drops = createDrops(kit.bloodMat, kit.low ? 3 : 5);
+  group.add(drops.mesh);
+  const rimLocal = [0.2, 3.4].map((a, i) => new THREE.Vector3(Math.cos(a) * 0.69, 1.09 - [0.3, 0.36][i] - 0.04, Math.sin(a) * 0.69));
+  const dropSources = rimLocal.map(() => new THREE.Vector3());
   const cauldronShadow = new THREE.Mesh(shadowGeo, shadowMat);
   group.add(cauldronShadow);
   // Lueur chaude (bougies voisines) qui éclaire les bonbons et le visage de la faucheuse.
@@ -659,7 +888,11 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
   const veil = new Billboards(VEIL, kit.smokeTex);
   group.add(veil.mesh);
   kit.mists.push(veil);
-  const veilState = Array.from({ length: VEIL }, () => ({ x: rand(-3.5, 4.5), z: rand(-1.5, 6.5), y: rand(0.3, 2.2), size: rand(3.4, 6), rot: rand(0, 6.28), spin: rand(-0.012, 0.012), drift: rand(0, 6.28), a: rand(0.6, 1) }));
+  // Épaisse au ras du sol, plus légère en hauteur (opacité qui décroît avec y).
+  const veilState = Array.from({ length: VEIL }, () => {
+    const y = rand(0.15, 2.2);
+    return { x: rand(-3.5, 4.5), z: rand(-1.5, 6.5), y, size: rand(3.4, 6), rot: rand(0, 6.28), spin: rand(-0.012, 0.012), drift: rand(0, 6.28), a: rand(0.6, 1) * (1.15 - 0.6 * (y - 0.15) / 2.05) };
+  });
   let veilDensity = 1.85;
 
   // --- Repère local de la clairière ---
@@ -683,7 +916,10 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
     group,
     flames,
     eyeSpots,
+    eyeStyle: { colors: BLOOD_EYES, pairs: kit.low ? 5 : 8, mean: 1, scale: 1.2, haste: 1.8 },
     batHome,
+    groundTint: clearingGround.mat.color,
+    flinch: swing?.flinch,
     layout(f) {
       const portrait = f.aspect < 0.8;
       const az = -15;
@@ -734,6 +970,9 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
       cauldronShadow.scale.setScalar(1.5 * s);
       potion.pos.copy(cauldron.glow).applyMatrix4(cauldron.group.matrixWorld);
       potion.scale = s;
+      pools.layout(BLOOD_POOLS, toWorld, s);
+      clearingGround.layout(0.6, -2.2, 22, toWorld);
+      rimLocal.forEach((p, i) => dropSources[i].copy(p).applyMatrix4(cauldron.group.matrixWorld));
 
       gifts.forEach(({ g, mesh, shadow }) => {
         toWorld(g.x + GIFTS_SHIFT, g.z, tmp);
@@ -743,8 +982,8 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
         shadow.position.set(tmp.x, tmp.y + 0.03, tmp.z);
         shadow.scale.setScalar(Math.max(g.w, g.d) * 1.6 * s);
       });
-      CLEARING_EYES.forEach(([x, z], i) => {
-        (eyeSpots[i] ??= new THREE.Vector3()).copy(toWorld(x, z)).add(new THREE.Vector3(0, 0.5, 0));
+      CLEARING_EYES.forEach(([x, z, y], i) => {
+        (eyeSpots[i] ??= new THREE.Vector3()).copy(toWorld(x, z)).add(new THREE.Vector3(0, y * s, 0));
       });
       batHome.set(anchor.x, 8, anchor.z - 6);
     },
@@ -756,20 +995,30 @@ export function createReaperClearing(kit: Kit, reaperGltf: GLTF | null): Area {
     update(t, dt, f, camera) {
       if (mixer && !kit.reduce) {
         mixer.update(dt);
-        // Toutes les ~7 s : « venez vous servir » (Taunt) ou main tendue vers le chaudron (Interact).
-        if (t > nextGesture && gestures.length) {
-          const g = gestures[gestureIndex++ % gestures.length];
-          idle?.fadeOut(0.3);
-          g.reset().fadeIn(0.3).play();
-          nextGesture = t + 7;
+        swing?.update(dt, camera);
+        // En alternance : coup de faux vers le visiteur, puis main tendue vers le chaudron (Interact).
+        if (nextGesture < 0) nextGesture = t + gestureDelay();
+        if (t > nextGesture) {
+          const n = gestureIndex++;
+          nextGesture = t + gestureDelay();
+          if (swing && n % 2 === 0) swing.start();
+          else if (gestures.length) {
+            const g = gestures[n % gestures.length];
+            idle?.fadeOut(0.3);
+            g.reset().fadeIn(0.3).play();
+          }
         }
       }
-      cauldron.update(t);
-      // Lueur des yeux : léger vacillement spectral, atténuée de jour mais toujours visible.
+      cauldron.update(t, dt, camera.position);
+      // Gouttes de sang : depuis les coulures de la lame (qui suit la main) et le rebord du chaudron.
+      if (!kit.reduce) {
+        drops.update(dt, dropSources, f.aspect < 0.8 ? 0.85 : 1);
+      }
+      // Lueur des yeux : braise qui palpite, atténuée de jour mais toujours visible.
       if (eyeMat && eyeHalos.length) {
-        const k = kit.reduce ? 0.9 : 0.8 + 0.2 * flicker(t * 0.6, 4.2);
+        const k = kit.reduce ? 0.9 : 0.85 + 0.15 * flicker(t * 1.1, 5.3);
         const level = Math.max(0.45, kit.glowLevel.value);
-        eyeMat.color.setRGB(...EYE_CORE).multiplyScalar(0.75 + 0.25 * k);
+        eyeMat.color.setRGB(...EYE_CORE).multiplyScalar(0.85 + 0.15 * k);
         eyeHalos.forEach((h) => (h.material.opacity = (h.userData.opacity as number) * k * level));
       }
 

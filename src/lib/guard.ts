@@ -1,11 +1,51 @@
 import "server-only";
-import { currentRole, type Role } from "./auth";
+import { currentSession, type Role } from "./auth";
+import { getStore } from "./db";
 import { error } from "./http";
 
-/** Renvoie une réponse d'erreur si l'utilisateur n'a pas le rôle requis, sinon null. */
-export async function requireRole(min: Role) {
-  const role = await currentRole();
-  if (!role) return error("Non authentifié", 401);
-  if (min === "admin" && role !== "admin") return error("Accès en lecture seule", 403);
+const VERBS: Record<string, string> = { POST: "Ajout", PATCH: "Modification", PUT: "Modification", DELETE: "Suppression", GET: "Consultation" };
+const NOUNS: [RegExp, string][] = [
+  [/\/api\/admin\/settings/, "réglages de sécurité"],
+  [/\/api\/decorations\/upload/, "envoi d'un média"],
+  [/\/api\/decorations/, "média de décoration"],
+  [/\/api\/prizes/, "lot"],
+  [/\/api\/participants/, "participant"],
+  [/\/api\/restaurants/, "restaurant"],
+  [/\/api\/responses\/export/, "export"],
+  [/\/api\/responses/, "réponse"],
+];
+const DETAILS_MAX = 2000;
+
+/** Journalise la requête dans la session (écritures et exports ; jamais les simples lectures). */
+async function logRequest(sid: string, req: Request) {
+  const url = new URL(req.url);
+  const path = url.pathname.replace(/^\/halloween(?=\/)/, "");
+  if (req.method === "GET" && !/\/export$/.test(path)) return;
+  const noun = NOUNS.find(([re]) => re.test(path))?.[1] ?? path;
+  const verb = /\/restore$/.test(path) ? "Restauration" : (VERBS[req.method] ?? req.method);
+  const action = /\/export$/.test(path) ? `Export : ${url.searchParams.get("scope") === "participants" ? "participants" : "réponses"}` : `${verb} : ${noun}`;
+  let details: unknown = null;
+  if (req.method === "GET") details = Object.fromEntries(url.searchParams);
+  else if (req.headers.get("content-type")?.includes("application/json")) {
+    const body = await req.clone().json().catch(() => null);
+    const text = body === null ? null : JSON.stringify(body);
+    details = text === null ? null : text.length > DETAILS_MAX ? text.slice(0, DETAILS_MAX) + "…" : body;
+  }
+  try {
+    await getStore().logAdminAction({ session_id: sid, method: req.method, path: path + (req.method === "GET" ? "" : ""), action, details });
+  } catch (e) {
+    console.error("Journal du backoffice indisponible :", e); // ne bloque jamais l'action elle-même
+  }
+}
+
+/**
+ * Renvoie une réponse d'erreur si l'utilisateur n'a pas le rôle requis, sinon null. Avec `req`,
+ * l'action (méthode, route, corps JSON) est consignée dans le journal de la session.
+ */
+export async function requireRole(min: Role, req?: Request) {
+  const session = await currentSession();
+  if (!session) return error("Non authentifié", 401);
+  if (min === "admin" && session.role !== "admin") return error("Accès en lecture seule", 403);
+  if (req) await logRequest(session.sid, req);
   return null;
 }

@@ -2,18 +2,17 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { Impact, VisitPeriod } from "@/lib/schema";
 import { isDemoMode, setDemoMode } from "./demo";
 
 export type Answers = {
   selected_restaurant: string | null;
-  visit_period: VisitPeriod | null;
   selected_decoration_id: string | null;
-  decoration_impact: Impact | null;
   comment: string;
   wants_raffle: boolean | null;
   /** Coordonnées du tirage : gardées sur l'appareil seulement, envoyées à la confirmation. */
   pseudo: string;
+  first_name: string;
+  last_name: string;
   phone_number: string; // tel que saisi ; normalisé à l'envoi
   email: string;
 };
@@ -22,9 +21,7 @@ export type Answers = {
 export const SCREENS = [
   "welcome",
   "restaurant",
-  "period",
   "vote",
-  "impact",
   "comment",
   "raffle",
   "name",
@@ -34,31 +31,29 @@ export const SCREENS = [
 ] as const;
 export type Screen = (typeof SCREENS)[number];
 
-export const STEP_COUNT = 6;
+export const STEP_COUNT = 5;
 
-/** Correspondance écran → « Étape X/6 ». */
+/** Correspondance écran → « Étape X/5 ». */
 export const STEP_OF: Record<Screen, number> = {
   welcome: 0,
   restaurant: 1,
-  period: 1,
   vote: 2,
-  impact: 3,
-  comment: 4,
-  raffle: 5,
-  name: 5,
-  phone: 5,
-  email: 5,
-  thanks: 6,
+  comment: 3,
+  raffle: 4,
+  name: 4,
+  phone: 4,
+  email: 4,
+  thanks: 5,
 };
 
 const emptyAnswers: Answers = {
   selected_restaurant: null,
-  visit_period: null,
   selected_decoration_id: null,
-  decoration_impact: null,
   comment: "",
   wants_raffle: null,
   pseudo: "",
+  first_name: "",
+  last_name: "",
   phone_number: "",
   email: "",
 };
@@ -126,7 +121,7 @@ export const useQuestionnaire = create<State>()(
           sessionId: null,
           index: 0,
           direction: 1,
-          answers: { ...emptyAnswers, pseudo: s.answers.pseudo, phone_number: s.answers.phone_number, email: s.answers.email },
+          answers: { ...emptyAnswers, pseudo: s.answers.pseudo, first_name: s.answers.first_name, last_name: s.answers.last_name, phone_number: s.answers.phone_number, email: s.answers.email },
           voteCompleted: false,
           voteDay: null,
           raffleDone: false,
@@ -148,18 +143,22 @@ export const useQuestionnaire = create<State>()(
       }),
       // Version 1 : vote quotidien (voteDay) et pseudonyme à la place du nom. Les états enregistrés
       // avant (version 0) n'ont pas de jour de vote : ils sont traités comme un jour précédent.
-      version: 1,
+      // Version 2 : écrans « période » et « impact » retirés, l'index enregistré est recalé.
+      // Version 3 : prénom et nom (facultatifs) ajoutés aux réponses.
+      version: 3,
       migrate: (persisted, version) => {
-        const s = (persisted ?? {}) as Partial<State> & { answers?: Partial<Answers> & { participant_name?: string } };
+        let s = (persisted ?? {}) as Partial<State> & { answers?: Partial<Answers> & { participant_name?: string } };
         if (version < 1) {
           const { participant_name, ...rest } = s.answers ?? {};
-          return {
+          s = {
             ...s,
             answers: { ...emptyAnswers, ...rest, pseudo: (participant_name ?? "").slice(0, 24) },
             voteDay: null,
             raffleAlreadyRegistered: false,
           };
         }
+        if (version < 2) s = { ...s, index: [0, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8][s.index ?? 0] ?? 0 };
+        if (version < 3) s = { ...s, answers: { ...emptyAnswers, ...s.answers } };
         return s;
       },
       skipHydration: true,

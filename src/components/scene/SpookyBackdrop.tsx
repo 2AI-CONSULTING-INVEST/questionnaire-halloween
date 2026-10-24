@@ -199,6 +199,8 @@ export function SpookyBackdrop() {
       </div>
       <div className="sky-poster" data-scene={posterScene} data-gone={posterGone || undefined} aria-hidden />
       <canvas ref={canvasRef} className="sky-canvas" aria-hidden />
+      {/* Vignette sombre de la clairière ; le sang qui coule est rendu dans le canvas 3D (bloodScreen.ts). */}
+      <div className="sky-blood" aria-hidden />
       <div className="sky-scrim" aria-hidden />
     </div>
   );

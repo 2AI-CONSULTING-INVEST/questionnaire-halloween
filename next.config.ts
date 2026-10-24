@@ -8,6 +8,9 @@ const supabaseHost = process.env.NEXT_PUBLIC_SUPABASE_URL
 const nextConfig: NextConfig = {
   // L'app vit sous www.chamas-nord.fr/halloween ; le reste du domaine y est renvoyé (voir redirects).
   basePath: BASE_PATH,
+  experimental: {
+    agentUpgrade: "security",
+  },
   async redirects() {
     return [
       // Pour l'instant, tout le domaine mène au vote : la racine, et tout chemin hors de /halloween

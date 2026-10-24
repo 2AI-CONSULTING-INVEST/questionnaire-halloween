@@ -3,6 +3,7 @@ import { PreloadScene } from "@/components/scene/PreloadScene";
 import { SpookyBackdrop } from "@/components/scene/SpookyBackdrop";
 import { CornerRail } from "@/components/ui/CornerRail";
 import { DemoBar } from "@/components/ui/DemoBar";
+import { VisitBeacon } from "@/components/VisitBeacon";
 
 /**
  * Pages publiques (questionnaire, résultats, participants) : le décor 3D est monté ici, une seule
@@ -17,6 +18,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
       {children}
       <CornerRail />
       <DemoBar />
+      <VisitBeacon />
     </>
   );
 }

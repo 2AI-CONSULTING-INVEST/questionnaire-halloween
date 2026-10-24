@@ -1,7 +1,10 @@
 "use client";
 
+import { ShieldAlert } from "lucide-react";
 import { AlertDialog } from "radix-ui";
 import type { ReactNode } from "react";
+import { flagLabel, type RiskSettings } from "@/lib/risk";
+import type { ResponseRow } from "@/lib/schema";
 
 export function Card({ title, actions, children, className = "" }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -100,5 +103,64 @@ export function DownloadLink({ href, className = linkButtonClass, children }: { 
     <a href={href} download className={className}>
       {children}
     </a>
+  );
+}
+
+/** Pastille (comme celles du Journal). */
+export const badgeClass = {
+  neutral: "bg-gray-100 text-muted dark:bg-zinc-800 dark:text-zinc-300",
+  ok: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
+  warn: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+  danger: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+} as const;
+
+export function Badge({ tone, title, children }: { tone: keyof typeof badgeClass; title?: string; children: ReactNode }) {
+  return (
+    <span title={title} className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+/** Score de risque : rouge à partir du seuil de blocage, orange à partir du seuil de signalement ; signaux au survol. */
+export function RiskBadge({ score, flags, settings }: { score: number; flags: string[] | null; settings: RiskSettings }) {
+  const tone = score >= settings.block_threshold ? "danger" : score >= settings.flag_threshold ? "warn" : "neutral";
+  const title = (flags ?? []).map(flagLabel).join("\n") || "Aucun signal";
+  return (
+    <Badge tone={tone} title={title}>
+      {tone !== "neutral" && <ShieldAlert className="h-3 w-3" aria-hidden />}
+      <span className="sr-only">Score de risque </span>
+      {score}
+    </Badge>
+  );
+}
+
+/** Appareil d'une réponse, lisible : « iOS · Safari 17 · 390×844@3 · mobile ». */
+export function deviceLabel(info: ResponseRow["device_info"]) {
+  if (!info) return "—";
+  return [info.platform, info.browser, info.screen?.replace("x", "×"), info.mobile === undefined ? null : info.mobile ? "mobile" : "ordinateur"].filter(Boolean).join(" · ") || "—";
+}
+
+/** Statut d'une réponse : validée, bloquée par le score, exclue du classement, ou inachevée. */
+export function StatusBadge({ row }: { row: Pick<ResponseRow, "completed_at" | "blocked_at" | "excluded_at"> }) {
+  if (row.excluded_at) return <Badge tone="warn">Exclu</Badge>;
+  if (row.blocked_at) return <Badge tone="danger">Bloqué</Badge>;
+  if (row.completed_at) return <Badge tone="ok">Validé</Badge>;
+  return <Badge tone="neutral">Inachevé</Badge>;
+}
+
+/** Bas de liste paginée : « 100 sur 1 234 » et « Charger 100 de plus » (masqué quand tout est chargé). */
+export function PageFooter({ shown, total, more, loading, onMore }: { shown: number; total: number; more: boolean; loading: boolean; onMore: () => void }) {
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-center gap-3 text-sm text-muted dark:text-zinc-400" aria-live="polite">
+      <span>
+        {shown.toLocaleString("fr-FR")} sur {total.toLocaleString("fr-FR")}
+      </span>
+      {more && (
+        <Button onClick={onMore} disabled={loading}>
+          {loading ? "Chargement…" : "Charger 100 de plus"}
+        </Button>
+      )}
+    </div>
   );
 }

@@ -1,7 +1,8 @@
 import "server-only";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { formatFrPhone, LABELS, type Decoration, type Participant, type Prize, type ResponseRow } from "./schema";
+import { flagLabel } from "./risk";
+import { formatFrPhone, type Decoration, type Participant, type Prize, type ResponseRow } from "./schema";
 
 type Row = Record<string, string | number>;
 
@@ -18,24 +19,21 @@ export function allResponsesRows(rows: ResponseRow[], decorations: Decoration[],
   const pseudo = new Map(participants.map((p) => [p.id, p.pseudo]));
   return rows.map((r) => ({
     "ID": r.id,
-    "Statut": r.completed_at ? "Vote validé" : "Incomplet",
+    "Statut": r.completed_at ? "Vote validé" : r.blocked_at ? "Bloqué" : "Incomplet",
     "Q1 - Chamas Tacos préféré": safe(r.selected_restaurant),
-    "Q2 - Période de visite": r.visit_period ? LABELS.visit_period[r.visit_period] : "",
-    "Q3 - Meilleure décoration": safe(r.selected_decoration_id ? decoName.get(r.selected_decoration_id) ?? "(supprimée)" : ""),
-    "Q4 - Influence de la décoration": r.decoration_impact ? LABELS.decoration_impact[r.decoration_impact] : "",
-    "Q5 - Commentaire": safe(r.comment),
-    "Q6 - Tirage au sort": r.wants_raffle == null ? "" : r.wants_raffle ? "Oui" : "Non",
+    "Q2 - Meilleure décoration": safe(r.selected_decoration_id ? decoName.get(r.selected_decoration_id) ?? "(supprimée)" : ""),
+    "Q3 - Commentaire": safe(r.comment),
+    "Q4 - Tirage au sort": r.wants_raffle == null ? "" : r.wants_raffle ? "Oui" : "Non",
     "Participant (pseudo)": safe(r.participant_id ? pseudo.get(r.participant_id) ?? "(supprimé)" : ""),
     "Jour du vote": r.vote_day ?? "",
-    // Anciennes colonnes (réponses d'avant la table participants).
-    "Nom (ancien)": safe(r.participant_name),
-    "Téléphone (ancien)": formatFrPhone(r.phone_number),
-    "Email (ancien)": safe(r.email),
-    "Gagnant (ancien)": r.is_winner ? "Oui" : "",
     "Créé le": date(r.created_at),
     "Validé le": date(r.completed_at),
     "Adresse IP": r.ip_address ?? "",
     "Navigateur": safe(r.user_agent),
+    "Score de risque": r.risk_score ?? 0,
+    "Signaux": safe((r.risk_flags ?? []).map(flagLabel).join(" ; ")),
+    "Bloqué": r.blocked_at ? "Oui" : "",
+    "Exclu": r.excluded_at ? "Oui" : "",
   }));
 }
 
@@ -46,11 +44,14 @@ export function participantsRows(participants: Participant[], responses: Respons
   const won = new Map(prizes.filter((p) => p.winner_participant_id).map((p) => [p.winner_participant_id!, p.name]));
   return participants.map((p) => ({
     "Pseudo": safe(p.pseudo),
+    "Prénom": safe(p.first_name ?? ""),
+    "Nom": safe(p.last_name ?? ""),
     "Email": safe(p.email),
     "Téléphone": formatFrPhone(p.phone_number),
     "Date inscription": date(p.created_at),
     "Votes": votes.get(p.id) ?? 0,
     "Lot gagné": safe(won.get(p.id)),
+    "Supprimé le": date(p.deleted_at ?? null),
   }));
 }
 

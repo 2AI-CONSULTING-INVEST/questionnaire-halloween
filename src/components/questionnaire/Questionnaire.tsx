@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { X, ChevronDown, ChevronUp, Clock, CloudOff, ExternalLink, Gift, Loader2, CloudCheck } from "lucide-react";
-import { RadioGroup, Toast, ToggleGroup } from "radix-ui";
+import { Toast, ToggleGroup } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   commentSchema,
@@ -10,16 +10,16 @@ import {
   emailSchema,
   groupDecorations,
   normalizeFrPhone,
+  NAME_MAX,
   PSEUDO_MAX,
   pseudoSchema,
   RAFFLE_FIELDS,
   type Decoration,
-  type Impact,
-  type VisitPeriod,
 } from "@/lib/schema";
 import { HOME, tabTitle } from "@/lib/site";
 import { clientNow } from "@/lib/clock";
 import { isPastDay, nextParisMidnight, parisDay } from "@/lib/day";
+import { deviceSignals } from "@/lib/fingerprint";
 import { setNextVote } from "@/lib/next-vote";
 import { useSceneState } from "../scene/scene-state";
 import { triggerSwarm } from "../scene/SpookyBackdrop";
@@ -32,29 +32,16 @@ import { RestaurantCombobox } from "./RestaurantCombobox";
 import { apiFetch, DEMO_RESTART_EVENT, enterDemoTab, isDemoTab, subscribeDemoTab } from "./demo";
 import { createSession, discard, flush, initSaver, onSaveStatus, save } from "./saver";
 import { restartDemo, SCREENS, setQuestionnaireMode, STEP_COUNT, STEP_OF, useQuestionnaire, type Answers, type Screen } from "./store";
-import { ChoicePill, Emoji, FieldError, KeyBadge, OkButton, pillClass, QuestionHeader, type EmojiName } from "./ui";
+import { Emoji, FieldError, KeyBadge, OkButton, pillClass, QuestionHeader } from "./ui";
 import { ThanksActions } from "./ThanksActions";
 import { withBase } from "@/lib/base-path";
-
-const PERIOD_OPTIONS: { value: VisitPeriod; label: string; emoji: EmojiName }[] = [
-  { value: "lundi-jeudi", label: "Lundi - Jeudi", emoji: "calendar" },
-  { value: "vendredi-samedi", label: "Vendredi - Samedi", emoji: "moon" },
-  { value: "dimanche", label: "Dimanche", emoji: "sun" },
-];
-const IMPACT_OPTIONS: { value: Impact; label: string; emoji: EmojiName }[] = [
-  { value: "beaucoup", label: "Beaucoup - Cela m'a vraiment marqué !", emoji: "fire" },
-  { value: "un_peu", label: "Un peu - C'était sympa", emoji: "thumbsup" },
-  { value: "pas_du_tout", label: "Pas du tout - Neutre pour moi", emoji: "neutral" },
-];
 
 /** Titre d'onglet de chaque écran (après « CHAMAS | »). */
 const stepTitle = (s: Screen, label: string) => `Étape ${STEP_OF[s]}/${STEP_COUNT} · ${label}`;
 const STEP_TITLE: Record<Screen, string> = {
   welcome: HOME.title,
   restaurant: stepTitle("restaurant", "Votre Chamas Tacos préféré"),
-  period: stepTitle("period", "Votre période de visite"),
   vote: stepTitle("vote", "Votez pour la meilleure déco Halloween"),
-  impact: stepTitle("impact", "L'effet de la déco sur votre visite"),
   comment: stepTitle("comment", "Votre commentaire"),
   raffle: stepTitle("raffle", "Tirage au sort Halloween"),
   name: stepTitle("name", "Votre pseudonyme pour le tirage"),
@@ -64,14 +51,12 @@ const STEP_TITLE: Record<Screen, string> = {
 };
 const ALREADY_VOTED_TITLE = "Vous avez déjà voté aujourd'hui";
 
-const VOTE_FIELDS = ["selected_restaurant", "visit_period", "selected_decoration_id", "decoration_impact", "comment"];
+const VOTE_FIELDS = ["selected_restaurant", "selected_decoration_id", "comment"];
 
 /** Champ en erreur renvoyé par l'API → écran à réafficher. */
 const SCREEN_OF_FIELD: Partial<Record<string, Screen>> = {
   selected_restaurant: "restaurant",
-  visit_period: "period",
   selected_decoration_id: "vote",
-  decoration_impact: "impact",
   comment: "comment",
   pseudo: "name",
   phone_number: "phone",
@@ -317,10 +302,9 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           selected_restaurant: a.selected_restaurant,
-          visit_period: a.visit_period,
           selected_decoration_id: a.selected_decoration_id,
-          decoration_impact: a.decoration_impact,
           comment: a.comment.trim() || null,
+          device: await deviceSignals(),
         }),
       });
       if (res.ok) {
@@ -386,6 +370,8 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
           const body = (await res.json().catch(() => ({}))) as { alreadyRegistered?: boolean };
           const s = useQuestionnaire.getState();
           s.setAnswer("pseudo", values.pseudo);
+          s.setAnswer("first_name", values.first_name);
+          s.setAnswer("last_name", values.last_name);
           s.setAnswer("phone_number", values.phone_number);
           s.setAnswer("email", values.email);
           discard([...RAFFLE_FIELDS]);
@@ -419,13 +405,9 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
         return begin();
       case "restaurant":
         return a.selected_restaurant ? next() : fail("Veuillez choisir un restaurant");
-      case "period":
-        return next();
       case "vote":
         if (groups.length === 0) return fail("Aucune décoration n'est encore disponible");
         return a.selected_decoration_id ? next() : fail("Veuillez choisir une décoration");
-      case "impact":
-        return a.decoration_impact ? next() : fail("Veuillez sélectionner une option");
       case "comment": {
         const r = commentSchema.safeParse(a.comment);
         if (!r.success) return fail(r.error.issues[0]?.message ?? "Commentaire invalide");
@@ -454,14 +436,10 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
 
   const choiceKeys = useMemo((): Record<string, () => void> => {
     const map: Record<string, () => void> = {};
-    if (screen === "period")
-      PERIOD_OPTIONS.forEach((o, i) => (map[LETTERS[i]] = () => (answer("visit_period", o.value), autoAdvance())));
     if (screen === "vote")
       groups.forEach(
         (g, i) => (map[LETTERS[i]] = () => answer("selected_decoration_id", useQuestionnaire.getState().answers.selected_decoration_id === g.id ? null : g.id)),
       );
-    if (screen === "impact")
-      IMPACT_OPTIONS.forEach((o, i) => (map[LETTERS[i]] = () => (answer("decoration_impact", o.value), autoAdvance())));
     if (screen === "raffle") {
       map.Y = map.O = () => (answer("wants_raffle", true), autoAdvance());
       map.N = () => answer("wants_raffle", false);
@@ -545,26 +523,6 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
           </>
         );
 
-      case "period":
-        return (
-          <>
-            <QuestionHeader id={qid} number="2" title="Quand avez-vous visité ce restaurant ?" description="Optionnel" />
-            <RadioGroup.Root
-              aria-labelledby={qid}
-              value={answers.visit_period ?? ""}
-              onValueChange={(v) => {
-                answer("visit_period", v as VisitPeriod);
-                autoAdvance();
-              }}
-              className="flex flex-col gap-3 pl-8 sm:w-fit"
-            >
-              {PERIOD_OPTIONS.map((o, i) => (
-                <ChoicePill key={o.value} value={o.value} letter={LETTERS[i]} emoji={o.emoji} label={o.label} selected={answers.visit_period === o.value} />
-              ))}
-            </RadioGroup.Root>
-          </>
-        );
-
       case "vote":
         return (
           <>
@@ -579,7 +537,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
             )}
             <QuestionHeader
               id={qid}
-              number="3"
+              number="2"
               title="Choisissez le restaurant ayant la meilleure décoration Halloween selon vous"
               required
               description={groups.some((g) => g.items.length > 1) ? "Glissez sur une photo pour voir les autres, touchez ⤢ pour l'agrandir." : undefined}
@@ -599,33 +557,12 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
           </>
         );
 
-      case "impact":
-        return (
-          <>
-            <QuestionHeader id={qid} number="4" title="La décoration d'Halloween a-t-elle influencé votre expérience ?" required />
-            <RadioGroup.Root
-              aria-labelledby={qid}
-              aria-required
-              value={answers.decoration_impact ?? ""}
-              onValueChange={(v) => {
-                answer("decoration_impact", v as Impact);
-                autoAdvance();
-              }}
-              className="flex flex-col gap-3 pl-8 sm:w-fit"
-            >
-              {IMPACT_OPTIONS.map((o, i) => (
-                <ChoicePill key={o.value} value={o.value} letter={LETTERS[i]} emoji={o.emoji} label={o.label} selected={answers.decoration_impact === o.value} />
-              ))}
-            </RadioGroup.Root>
-          </>
-        );
-
       case "comment":
         return (
           <>
             <QuestionHeader
               id={qid}
-              number="5"
+              number="3"
               title={
                 <>
                   <Emoji name="thought" size={30} className="mr-2" />
@@ -727,6 +664,11 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
                 onChange={(e) => answerLocal("pseudo", e.target.value)}
                 className={inputClass}
               />
+              <p className="mt-6 text-sm text-fg-muted">Prénom et nom (facultatif)</p>
+              <div className="mt-2 grid grid-cols-2 gap-4">
+                <input aria-label="Prénom (facultatif)" autoComplete="given-name" maxLength={NAME_MAX} value={answers.first_name} placeholder="Prénom" onChange={(e) => answerLocal("first_name", e.target.value)} className={inputClass} />
+                <input aria-label="Nom (facultatif)" autoComplete="family-name" maxLength={NAME_MAX} value={answers.last_name} placeholder="Nom" onChange={(e) => answerLocal("last_name", e.target.value)} className={inputClass} />
+              </div>
             </div>
           </>
         );
@@ -853,8 +795,8 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
   }, [topbar, showBanner]);
   // Valeurs proposées dans la modale (objet stable : la modale ne se réinitialise qu'à l'ouverture).
   const raffleInitial = useMemo<RaffleValues>(
-    () => ({ pseudo: answers.pseudo, phone_number: answers.phone_number, email: answers.email }),
-    [answers.pseudo, answers.phone_number, answers.email],
+    () => ({ pseudo: answers.pseudo, first_name: answers.first_name, last_name: answers.last_name, phone_number: answers.phone_number, email: answers.email }),
+    [answers.pseudo, answers.first_name, answers.last_name, answers.phone_number, answers.email],
   );
   const okProps = (() => {
     switch (screen) {
@@ -931,7 +873,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
                   className="absolute inset-x-0 -top-24 bottom-0 -z-10 rounded-b-2xl border-x border-b border-edge bg-surface/90 shadow-lg shadow-black/20 backdrop-blur"
                 />
                 <p className="mx-auto flex max-w-[600px] items-start gap-2 text-sm text-fg-muted sm:text-base">
-                  <span className="mt-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded bg-brand text-[11px] font-bold text-black">6</span>
+                  <span className="mt-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded bg-brand text-[11px] font-bold text-black">4</span>
                   <span>
                     Merci beaucoup, votre vote a été enregistré ✅ Pour tenter de gagner l&apos;un de nos nombreux lots, continuez ci-dessous.
                   </span>

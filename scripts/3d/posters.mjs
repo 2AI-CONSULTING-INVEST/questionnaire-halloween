@@ -78,7 +78,8 @@ for (const [scene, route] of SCENES) {
       }, theme);
       await page.goto(base + route, { waitUntil: "domcontentloaded", timeout: 180000 });
       // Canvas affiché d'un coup (pas de fondu) : la capture montre la scène opaque, comme une fois le fondu terminé.
-      await page.addStyleTag({ content: "main, nextjs-portal, .hw-rail, .sky-scrim, .sky-poster { visibility: hidden !important; } .sky-canvas { transition: none !important; }" });
+      // Le sang sur l'écran (clairière) n'est pas dans le poster : il apparaît en fondu une fois le décor 3D affiché.
+      await page.addStyleTag({ content: "main, nextjs-portal, .hw-rail, .sky-scrim, .sky-poster, .sky-blood { visibility: hidden !important; } .sky-canvas { transition: none !important; }" });
       await page.waitForFunction(() => document.querySelector("canvas.sky-canvas")?.hasAttribute("data-ready"), { timeout: 180000, polling: 50 });
       // Deux images rendues, puis capture immédiate (temps de la scène ≈ 0).
       await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));

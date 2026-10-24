@@ -27,7 +27,7 @@ const jsonSchema = z
  * - multipart { name, description, image? } : stockage local (développement).
  */
 export async function POST(req: Request) {
-  const denied = await requireRole("admin");
+  const denied = await requireRole("admin", req);
   if (denied) return denied;
   const store = getStore();
 

@@ -21,7 +21,7 @@ const directSchema = z.object({
  * - multipart { restaurant_name, media, poster? } : stockage local (développement).
  */
 export async function POST(req: Request) {
-  const denied = await requireRole("admin");
+  const denied = await requireRole("admin", req);
   if (denied) return denied;
   const store = getStore();
 

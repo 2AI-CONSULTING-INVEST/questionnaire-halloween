@@ -5,7 +5,9 @@ import { Check, ChevronDown, Download, FileSpreadsheet, Trophy } from "lucide-re
 import { Select } from "radix-ui";
 import type { Summary } from "@/lib/analytics";
 import { isLocalMedia } from "@/lib/schema";
-import { FavoriteBarChart, ImpactBars, TimelineChart } from "./Charts";
+import { DecorationDetails, FavoriteDetails, TimelineDetails } from "./ChartDetails";
+import { ChartDialog } from "./ChartDialog";
+import { FavoriteBarChart, TimelineChart } from "./Charts";
 import { Card, DownloadLink, Empty, fmtPct, inputClass } from "./ui";
 import { withBase } from "@/lib/base-path";
 
@@ -55,12 +57,13 @@ function FilterSelect({
   );
 }
 
-function Kpi({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
+function Kpi({ label, value, sub, action }: { label: string; value: React.ReactNode; sub?: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-line bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted dark:text-zinc-400">{label}</p>
       <p className="mt-2 text-3xl font-bold text-ink dark:text-zinc-100">{value}</p>
       {sub && <p className="mt-1 text-xs text-muted dark:text-zinc-400">{sub}</p>}
+      {action}
     </div>
   );
 }
@@ -70,11 +73,14 @@ export function OverviewTab({
   filters,
   setFilters,
   restaurants,
+  onShowIncomplete,
 }: {
   summary: Summary | null;
   filters: Filters;
   setFilters: (f: Filters) => void;
   restaurants: string[];
+  /** Ouvre l'onglet Réponses filtré sur les votes inachevés. */
+  onShowIncomplete: () => void;
 }) {
   const k = summary?.kpis;
   const top = summary?.byDecoration.filter((d) => d.votes > 0).slice(0, 3) ?? [];
@@ -111,9 +117,19 @@ export function OverviewTab({
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Kpi label="Total votes" value={k ? nf(k.totalVotes) : "—"} />
         <Kpi label="Taux de complétion" value={k ? `${Math.round(k.completionRate * 100)} %` : "—"} sub={k ? `${nf(k.started)} questionnaires commencés` : null} />
+        <Kpi
+          label="Inachevés"
+          value={k ? nf(k.incomplete) : "—"}
+          sub={k ? `commencés − validés − bloqués (${nf(k.blocked)} bloqué${k.blocked > 1 ? "s" : ""})` : null}
+          action={
+            <button type="button" onClick={onShowIncomplete} className="mt-2 text-xs font-semibold text-muted underline underline-offset-2 hover:text-ink dark:text-zinc-400 dark:hover:text-zinc-100">
+              Voir les votes inachevés
+            </button>
+          }
+        />
         <Kpi label="Participants tirage" value={k ? nf(k.raffleParticipants) : "—"} />
         <div className="col-span-2 rounded-xl border border-line bg-white p-4 shadow-sm lg:col-span-1 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted dark:text-zinc-400">Top 3</p>
@@ -138,8 +154,15 @@ export function OverviewTab({
       <Card
         title={
           <span className="inline-flex items-center gap-2">
-            <Trophy className="h-4 w-4" aria-hidden /> Résultats — meilleure décoration (Q3)
+            <Trophy className="h-4 w-4" aria-hidden /> Résultats — meilleure décoration (Q2)
           </span>
+        }
+        actions={
+          summary && (
+            <ChartDialog title="Résultats Q2 : meilleure décoration par restaurant" howToRead="chaque restaurant totalise les votes de toutes ses photos et vidéos ; le tableau détaille les votes du jour, le meilleur jour, les commentaires et les inscrits au tirage, et la courbe suit chaque restaurant jour après jour.">
+              <DecorationDetails summary={summary} />
+            </ChartDialog>
+          )
         }
       >
         {!summary ? (
@@ -188,9 +211,30 @@ export function OverviewTab({
 
       {/* Graphiques */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card title="Chamas Tacos préféré des votants (Q1)">{summary ? <FavoriteBarChart data={summary.byFavorite} /> : <Empty>Chargement…</Empty>}</Card>
-        <Card title="Votes dans le temps">{summary ? <TimelineChart data={summary.timeline} /> : <Empty>Chargement…</Empty>}</Card>
-        <Card title="La décoration a-t-elle influencé l'expérience ? (Q4)">{summary ? <ImpactBars data={summary.impact} /> : <Empty>Chargement…</Empty>}</Card>
+        <Card
+          title="Chamas Tacos préféré des votants (Q1)"
+          actions={
+            summary && (
+              <ChartDialog title="Q1 : Chamas Tacos préféré des votants" howToRead="la question 1 demande le restaurant préféré, la question 2 la meilleure décoration ; le tableau croisé montre, pour chaque restaurant préféré (ligne), vers quelle décoration les votes sont allés (colonne).">
+                <FavoriteDetails summary={summary} />
+              </ChartDialog>
+            )
+          }
+        >
+          {summary ? <FavoriteBarChart data={summary.byFavorite} /> : <Empty>Chargement…</Empty>}
+        </Card>
+        <Card
+          title="Votes dans le temps"
+          actions={
+            summary && (
+              <ChartDialog title="Votes dans le temps" howToRead="les jours sont comptés en heure de Paris ; « démarrés » = questionnaires ouverts, « validés » = votes comptés ; le cumul additionne les votes validés depuis le premier jour ; l'histogramme répartit les votes selon l'heure de la journée.">
+                <TimelineDetails summary={summary} />
+              </ChartDialog>
+            )
+          }
+        >
+          {summary ? <TimelineChart data={summary.timeline} /> : <Empty>Chargement…</Empty>}
+        </Card>
         <Card title="Export des données">
           <div className="flex flex-col gap-3">
             <DownloadLink

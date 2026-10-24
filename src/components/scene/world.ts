@@ -14,12 +14,14 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import type { Theme } from "@/lib/theme";
+import { createBloodMaterial } from "./blood";
+import { createBloodScreen } from "./bloodScreen";
 import { Billboards, easeInOut, flicker, glowTexture, rand, shadowTexture, smokeTexture, smooth } from "./core";
 import { cutGlowWarmup, updateCutGlow } from "./glow";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { createCrypt, type CryptArea, type ResultsData } from "./crypt";
 import { createGraveyard, createGround, createReaperClearing, outdoorPose, type GraveyardArea } from "./outdoor";
-import type { Area, Flame, Frame, Kit, Pose, SceneName } from "./types";
+import type { Area, EyeStyle, Flame, Frame, Kit, Pose, SceneName } from "./types";
 import { ASSETS } from "./assets";
 import { batGeometry, createBatMaterial } from "./bats";
 
@@ -82,6 +84,21 @@ const OUTDOOR: Record<Theme, Palette> = {
   },
 };
 
+// Clairière de la faucheuse : la même nuit, mais le sang est partout — brume et brouillard rougis,
+// sol et contre-jour teintés, lueurs un peu plus vives. Fondue avec OUTDOOR selon la distance (bloodK).
+const CLEARING: Record<Theme, Palette> = {
+  dark: {
+    ...OUTDOOR.dark,
+    fog: "#1a0a12", near: 10, far: 40, hemiSky: "#6e4458", hemiGround: "#24090f", hemi: 0.62, sun: "#c48c90", sunI: 0.74,
+    ground: "#28141e", glow: 0.92, mist: "#8c5868", mistA: 0.34, smoke: "#947080", smokeA: 0.3,
+  },
+  light: {
+    ...OUTDOOR.light,
+    fog: "#6e4658", near: 9, far: 36, hemiSky: "#b89aac", hemiGround: "#4a2630", sun: "#ffa878",
+    ground: "#684a48", mist: "#9a6a80", mistA: 0.34, smoke: "#a88494",
+  },
+};
+
 const INDOOR: Record<Theme, Palette> = {
   dark: {
     fog: "#09070d", near: 8, far: 30, hemiSky: "#5d5070", hemiGround: "#160f0c", hemi: 0.3, sun: "#ffa860", sunI: 0.12,
@@ -102,13 +119,16 @@ type Bat = { active: boolean; t0: number; dur: number; p: THREE.Vector3[]; wobbl
 const EYES_VERT = /* glsl */ `
   attribute vec4 aEye;
   attribute vec3 aColor;
+  attribute float aMean;
   varying vec2 vUv;
   varying vec4 vEye;
   varying vec3 vColor;
+  varying float vMean;
   void main() {
     vUv = uv;
     vEye = aEye;
     vColor = aColor;
+    vMean = aMean;
     vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
     mvPosition.xy += position.xy * aEye.w;
     gl_Position = projectionMatrix * mvPosition;
@@ -119,11 +139,16 @@ const EYES_FRAG = /* glsl */ `
   varying vec2 vUv;
   varying vec4 vEye;
   varying vec3 vColor;
-  float eye(vec2 p, float cx, float open, float look) {
+  varying float vMean;
+  float eye(vec2 p, float cx, float open, float look, float mean) {
     vec2 q = p - vec2(cx, 0.0);
     float ry = max(0.004, 0.07 * open);
     float d = length(vec2(q.x / 0.12, q.y / ry));
     float shape = 1.0 - smoothstep(0.82, 1.0, d);
+    // Sourcil méchant : le haut de l'amande est coupé en biais, bas vers le centre du regard.
+    float inner = -sign(cx) * q.x;
+    float brow = 0.06 - mean * (0.02 + inner * 0.45) * open;
+    shape *= 1.0 - smoothstep(brow - 0.012, brow + 0.012, q.y) * mean;
     float pupil = smoothstep(0.012, 0.03, abs(q.x - look * 0.035)) * 0.65 + 0.35;
     float core = shape * pupil * (1.25 - 0.45 * d);
     float halo = exp(-dot(q, q) * 55.0) * 0.55 * open;
@@ -132,13 +157,14 @@ const EYES_FRAG = /* glsl */ `
   void main() {
     if (vEye.x < 0.002) discard;
     vec2 p = vec2(vUv.x - 0.5, (vUv.y - 0.5) * 0.42);
-    float v = eye(p, -0.2, vEye.y, vEye.z) + eye(p, 0.2, vEye.y, vEye.z);
+    float v = eye(p, -0.2, vEye.y, vEye.z, vMean) + eye(p, 0.2, vEye.y, vEye.z, vMean);
     gl_FragColor = vec4(vColor * v * vEye.x, 1.0);
   }
 `;
 
 type EyeSlot = { spot: number; phase: "off" | "in" | "on" | "out"; t: number; until: number; nextBlink: number; blinkT: number; look: number; lookTarget: number };
-const EYE_COLORS = ["#ffcf3a", "#ff5a2a", "#a6ff4d", "#ffb347"].map((c) => new THREE.Color(c));
+const EYE_COLORS = ["#ffcf3a", "#ff5a2a", "#a6ff4d", "#ffb347"];
+const eyeColor3 = new THREE.Color();
 
 // ---------------------------------------------------------------------------
 // Plans de caméra (enchaînés les uns après les autres)
@@ -161,6 +187,8 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   renderer.setPixelRatio(pixelRatio);
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // Sang qui coule sur l'écran dans la clairière (null si les cibles flottantes manquent).
+  const bloodScreen = createBloodScreen(renderer, reduce);
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 160);
@@ -168,7 +196,23 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   let theme = opts.theme;
   let indoor = false;
   const palette: Palette = structuredClone(OUTDOOR[theme]);
-  const target = () => (indoor ? INDOOR : OUTDOOR)[theme];
+  // Dehors, la palette vire au sang à mesure que la caméra approche de la clairière (bloodK : 0 → 1).
+  let bloodK = 0;
+  const mixed: Palette = structuredClone(OUTDOOR[theme]);
+  const mixA = new THREE.Color();
+  const mixB = new THREE.Color();
+  const target = () => {
+    if (indoor) return INDOOR[theme];
+    if (bloodK <= 0.001) return OUTDOOR[theme];
+    const a = OUTDOOR[theme] as Record<string, number | string>;
+    const b = CLEARING[theme] as Record<string, number | string>;
+    const out = mixed as Record<string, number | string>;
+    for (const key of Object.keys(a)) {
+      const va = a[key];
+      out[key] = typeof va === "number" ? va + ((b[key] as number) - va) * bloodK : "#" + mixA.set(va).lerp(mixB.set(b[key] as string), bloodK).getHexString();
+    }
+    return mixed;
+  };
 
   scene.fog = new THREE.Fog(palette.fog, palette.near, palette.far);
   const hemi = new THREE.HemisphereLight(palette.hemiSky, palette.hemiGround, palette.hemi);
@@ -199,7 +243,8 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   const modelMat = new THREE.MeshLambertMaterial();
   const dungeonMat = new THREE.MeshLambertMaterial();
   const dungeonFlatMat = new THREE.MeshLambertMaterial({ flatShading: true });
-  const kit: Kit = { models: new Map(), modelMat, dungeonMat, dungeonFlatMat, glowTex, smokeTex, shadowTex, time, glowLevel: { value: 1 }, low, reduce, mists: [] };
+  const bloodMat = createBloodMaterial();
+  const kit: Kit = { models: new Map(), modelMat, dungeonMat, dungeonFlatMat, bloodMat, glowTex, smokeTex, shadowTex, time, glowLevel: { value: 1 }, low, reduce, mists: [] };
 
   const outdoor = new THREE.Group();
   scene.add(outdoor);
@@ -327,14 +372,19 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   const swarmBats: Bat[] = Array.from({ length: SWARM_BATS }, () => ({ active: false, t0: 0, dur: 1, p: [0, 1, 2, 3].map(() => new THREE.Vector3()), wobble: 0, scale: 1 }));
 
   // ----- Yeux -----
-  const EYES = low ? 3 : 4;
+  // Nombre d'instances : assez pour la clairière (la plus peuplée) ; chaque lieu limite ses paires (eyeStyle).
+  const EYES = low ? 5 : 8;
+  const DEFAULT_EYES: EyeStyle = { colors: EYE_COLORS, pairs: low ? 3 : 4, mean: 0, scale: 1, haste: 1 };
   const eyesGeo = new THREE.PlaneGeometry(1, 0.42);
   const eyeData = new Float32Array(EYES * 4);
   const eyeColor = new Float32Array(EYES * 3);
+  const eyeMean = new Float32Array(EYES);
   const eyeAttr = new THREE.InstancedBufferAttribute(eyeData, 4).setUsage(THREE.DynamicDrawUsage);
   const eyeColAttr = new THREE.InstancedBufferAttribute(eyeColor, 3).setUsage(THREE.DynamicDrawUsage);
+  const eyeMeanAttr = new THREE.InstancedBufferAttribute(eyeMean, 1).setUsage(THREE.DynamicDrawUsage);
   eyesGeo.setAttribute("aEye", eyeAttr);
   eyesGeo.setAttribute("aColor", eyeColAttr);
+  eyesGeo.setAttribute("aMean", eyeMeanAttr);
   const eyes = new THREE.InstancedMesh(eyesGeo, new THREE.ShaderMaterial({ vertexShader: EYES_VERT, fragmentShader: EYES_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }), EYES);
   eyes.frustumCulled = false;
   eyes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -347,6 +397,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     const w = window.innerWidth;
     const h = window.innerHeight;
     renderer.setSize(w, h, false);
+    bloodScreen?.resize(w, h);
     frame.aspect = w / h;
     frame.fov = frame.aspect < 0.8 ? 52 : frame.aspect < 1.25 ? 46 : 40;
     frame.halfTan = Math.tan(THREE.MathUtils.degToRad(frame.fov / 2));
@@ -668,6 +719,9 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       const p = start.pose(frame);
       cam.pos.copy(p.pos);
       cam.target.copy(p.target);
+      // Ouverture directe sur la clairière : l'air est déjà rougi (même image que le poster).
+      bloodK = start === reaper ? 1 : 0;
+      applyPalette(0, true);
       // Shaders déjà compilés pendant le téléchargement (préchauffage) ; on complète ce qui manque.
       try {
         await warmUp();
@@ -730,6 +784,12 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     sun.color.set(palette.sun);
     sun.intensity = palette.sunI;
     ground.mat.color.set(palette.ground);
+    // Sol texturé de la clairière : la texture porte ses couleurs (terre, herbe), la palette ne
+    // donne que sa dominante, à luminosité fixe (sinon tout est noir sous ce sol très sombre).
+    if (reaper?.groundTint) {
+      const c = reaper.groundTint.set(palette.ground);
+      c.multiplyScalar(2.6 / (Math.max(c.r, c.g, c.b) || 1)).lerp(tmpColor.setRGB(2.6, 2.6, 2.6), 0.8);
+    }
     batMat.color.set(palette.bat);
     batMat.emissive.set(palette.batGlow);
     smoke.color.set(palette.smoke);
@@ -750,6 +810,8 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     clock += dt;
     const t = clock;
     time.value = t;
+    // Le sang de la clairière teinte l'air à l'approche de la caméra (et plus du tout au cimetière).
+    bloodK = reaper && !indoor ? 1 - smooth(3, 12, cam.pos.distanceTo(reaper.pose(frame).pos)) : 0;
     applyPalette(dt);
 
     // --- Caméra ---
@@ -792,6 +854,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       cam.pos.z + (Math.sin(t * 0.09) - 1) * amp.dz * sway,
     );
     camera.lookAt(cam.target);
+    if (active?.flinch) camera.position.add(active.flinch);
     fadeMat.opacity = fade;
     fadeQuad.visible = fade > 0.001;
 
@@ -915,23 +978,29 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     // --- Yeux dans la pénombre ---
     const spotArea = indoor ? crypt : active;
     const spots = spotArea?.eyeSpots ?? [];
+    const style = spotArea?.eyeStyle ?? DEFAULT_EYES;
     if (spotArea !== eyeArea) {
       eyeArea = spotArea;
-      eyeSlots.forEach((e) => Object.assign(e, { phase: "off", spot: -1, t: 0, until: rand(1, 3) }));
+      eyeSlots.forEach((e) => Object.assign(e, { phase: "off", spot: -1, t: 0, until: rand(1, 3) / style.haste }));
     }
+    let shown = eyeSlots.filter((s) => s.phase !== "off").length;
     eyeSlots.forEach((e, i) => {
       e.t += dt;
-      if (e.phase === "off" && e.t > e.until && palette.eyes > 0.3 && !reduce && spots.length && !shots.length) {
+      if (e.phase === "off" && e.t > e.until && palette.eyes > 0.3 && !reduce && spots.length && !shots.length && shown < style.pairs) {
         const used = new Set(eyeSlots.map((s) => s.spot));
         const free = spots.map((_, k) => k).filter((k) => !used.has(k));
-        e.spot = free[Math.floor(Math.random() * free.length)] ?? 0;
+        if (!free.length) return;
+        shown++;
+        e.spot = free[Math.floor(Math.random() * free.length)];
         e.phase = "in";
         e.t = 0;
-        e.until = rand(2.5, 5.5);
+        e.until = rand(2.5, 5.5) * (0.5 + 0.5 / style.haste);
         e.nextBlink = rand(0.8, 2);
-        const col = EYE_COLORS[Math.floor(Math.random() * EYE_COLORS.length)];
+        const col = eyeColor3.set(style.colors[Math.floor(Math.random() * style.colors.length)]);
         eyeColor.set([col.r, col.g, col.b], i * 3);
         eyeColAttr.needsUpdate = true;
+        eyeMean[i] = style.mean;
+        eyeMeanAttr.needsUpdate = true;
       }
       let alpha = 0;
       let open = 1;
@@ -952,7 +1021,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       } else if (e.phase === "out") {
         alpha = 1 - smooth(0, 0.6, e.t);
         open = 1 - smooth(0.2, 0.6, e.t);
-        if (e.t > 0.6) { e.phase = "off"; e.t = 0; e.until = rand(1.5, 6); e.spot = -1; }
+        if (e.t > 0.6) { e.phase = "off"; e.t = 0; e.until = rand(1.5, 6) / style.haste; e.spot = -1; }
       }
       e.look += (e.lookTarget - e.look) * Math.min(1, dt * 4);
       const spot = e.spot >= 0 ? spots[e.spot] : null;
@@ -965,13 +1034,14 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
       eyes.setMatrixAt(i, dummy.matrix);
-      const size = 0.032 * camera.position.distanceTo(spot) * Math.max(0.7, frame.objScale);
+      const size = 0.032 * style.scale * camera.position.distanceTo(spot) * Math.max(0.7, frame.objScale);
       eyeData.set([alpha * palette.eyes, open, e.look, size], i * 4);
     });
     eyes.instanceMatrix.needsUpdate = true;
     eyeAttr.needsUpdate = true;
 
     renderer.render(scene, camera);
+    bloodScreen?.frame(dt, indoor ? 0 : bloodK);
   }
 
   let last = performance.now();
@@ -1083,6 +1153,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       window.removeEventListener("click", onClick);
       document.documentElement.style.cursor = "";
       canvas.removeEventListener("webglcontextlost", onLost);
+      bloodScreen?.dispose();
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
         m.geometry?.dispose();

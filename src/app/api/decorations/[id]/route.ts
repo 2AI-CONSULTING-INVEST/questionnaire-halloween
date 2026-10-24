@@ -14,7 +14,7 @@ const patchSchema = z
   .strict();
 
 export async function PATCH(req: Request, ctx: RouteContext<"/api/decorations/[id]">) {
-  const denied = await requireRole("admin");
+  const denied = await requireRole("admin", req);
   if (denied) return denied;
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Introuvable", 404);
@@ -30,8 +30,8 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/decorations/[i
  * Supprime un média. Les votes sont rattachés au restaurant : ils passent sur un autre
  * média du même restaurant. Le dernier média d'un restaurant déjà voté ne peut pas être supprimé.
  */
-export async function DELETE(_req: Request, ctx: RouteContext<"/api/decorations/[id]">) {
-  const denied = await requireRole("admin");
+export async function DELETE(req: Request, ctx: RouteContext<"/api/decorations/[id]">) {
+  const denied = await requireRole("admin", req);
   if (denied) return denied;
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Introuvable", 404);

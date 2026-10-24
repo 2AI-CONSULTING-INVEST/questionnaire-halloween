@@ -300,6 +300,20 @@ body {
   transition: background 900ms ease;
 }
 
+/* ---- Clairière de la faucheuse : vignette sombre (le sang qui coule est dans le canvas 3D, bloodScreen.ts) ---- */
+.sky-blood {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1.2s ease;
+  background: radial-gradient(ellipse 70% 66% at 50% 48%, transparent 50%, rgba(46, 0, 6, 0.55) 100%);
+}
+/* Apparaît une fois la caméra arrivée (le travelling dure 4 s) ; disparaît vite quand on repart. */
+.backdrop[data-scene="reaper"]:not([data-indoor]) .sky-blood { opacity: 1; transition: opacity 2.6s ease 2.2s; }
+[data-theme="light"] .backdrop[data-scene="reaper"]:not([data-indoor]) .sky-blood { opacity: 0.8; }
+
 /* Dans la crypte : plus de ciel ni de lune. */
 .sky, .sky-scrim { transition-property: opacity, background, box-shadow, transform; }
 .backdrop[data-indoor] .sky,
@@ -330,6 +344,10 @@ body {
   --viz-hover: rgba(11, 11, 11, 0.04);
   --viz-s1: #2a78d6;
   --viz-s2: #eb6834;
+  --viz-s3: #1baf7a;
+  --viz-s4: #eda100;
+  --viz-s5: #e87ba4;
+  --viz-s6: #008300;
 }
 .dark .viz-root {
   --viz-surface: #18181b;
@@ -339,6 +357,10 @@ body {
   --viz-hover: rgba(255, 255, 255, 0.05);
   --viz-s1: #3987e5;
   --viz-s2: #d95926;
+  --viz-s3: #199e70;
+  --viz-s4: #c98500;
+  --viz-s5: #d55181;
+  --viz-s6: #008300;
 }
 
 /* Languettes du coin haut-droit (CornerRail) : tout en haut ; sous la barre d'étape du questionnaire

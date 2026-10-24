@@ -9,7 +9,7 @@ const patchSchema = z.object({ pseudo: pseudoSchema }).strict();
 
 /** Admin : modération du pseudonyme (unicité vérifiée). */
 export async function PATCH(req: Request, ctx: RouteContext<"/api/participants/[id]">) {
-  const denied = await requireRole("admin");
+  const denied = await requireRole("admin", req);
   if (denied) return denied;
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Introuvable", 404);
@@ -25,9 +25,9 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/participants/[
   return json({ ok: true });
 }
 
-/** Admin : supprime un participant (ses réponses restent, sans lien ; son lot éventuel redevient libre). */
-export async function DELETE(_req: Request, ctx: RouteContext<"/api/participants/[id]">) {
-  const denied = await requireRole("admin");
+/** Admin : suppression douce d'un participant (restaurable ; ses votes restent reliés ; son lot éventuel redevient libre). */
+export async function DELETE(req: Request, ctx: RouteContext<"/api/participants/[id]">) {
+  const denied = await requireRole("admin", req);
   if (denied) return denied;
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Introuvable", 404);

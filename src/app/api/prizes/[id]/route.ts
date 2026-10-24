@@ -24,7 +24,7 @@ const patchSchema = z
  * L'ancienne image est supprimée du stockage quand elle est remplacée ou retirée.
  */
 export async function PATCH(req: Request, ctx: RouteContext<"/api/prizes/[id]">) {
-  const denied = await requireRole("admin");
+  const denied = await requireRole("admin", req);
   if (denied) return denied;
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Introuvable", 404);
@@ -38,6 +38,10 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/prizes/[id]">)
     if (!parsed.success) return zodError(parsed.error);
     patch = parsed.data;
     if (patch.image_url && !store.isOwnFile(patch.image_url)) return error("Fichier inconnu");
+    if (patch.winner_participant_id) {
+      const winner = await store.getParticipant(patch.winner_participant_id);
+      if (!winner || winner.deleted_at) return error("Ce participant est supprimé", 409, { winner_participant_id: ["Ce participant est supprimé"] });
+    }
     if (patch.description !== undefined) patch.description = patch.description || null;
   } else {
     const form = await req.formData().catch(() => null);
@@ -64,8 +68,8 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/prizes/[id]">)
 }
 
 /** Admin : supprime un lot et son image. */
-export async function DELETE(_req: Request, ctx: RouteContext<"/api/prizes/[id]">) {
-  const denied = await requireRole("admin");
+export async function DELETE(req: Request, ctx: RouteContext<"/api/prizes/[id]">) {
+  const denied = await requireRole("admin", req);
   if (denied) return denied;
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Introuvable", 404);

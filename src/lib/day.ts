@@ -21,6 +21,13 @@ export function parisDay(at: Date | string | number = Date.now()): string {
   return dayFormat.format(new Date(at));
 }
 
+const hourFormat = new Intl.DateTimeFormat("en-US", { timeZone: VOTE_TIME_ZONE, hourCycle: "h23", hour: "2-digit" });
+
+/** Heure de la journée à Paris (0–23) pour cet instant. */
+export function parisHour(at: Date | string | number = Date.now()): number {
+  return Number(hourFormat.format(new Date(at)));
+}
+
 /** Décalage (ms) entre l'heure de Paris et UTC à cet instant (+3600000 en hiver, +7200000 en été). */
 function parisOffset(at: number) {
   const p: Record<string, number> = {};

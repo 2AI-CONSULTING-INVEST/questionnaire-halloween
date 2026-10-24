@@ -1,13 +1,5 @@
 import { z } from "zod";
 
-export const VOTER_TYPES = ["client", "employee"] as const;
-export const VISIT_PERIODS = ["lundi-jeudi", "vendredi-samedi", "dimanche"] as const;
-export const IMPACTS = ["beaucoup", "un_peu", "pas_du_tout"] as const;
-
-export type VoterType = (typeof VOTER_TYPES)[number];
-export type VisitPeriod = (typeof VISIT_PERIODS)[number];
-export type Impact = (typeof IMPACTS)[number];
-
 export const COMMENT_MAX = 300;
 // Lettres, chiffres, ponctuation, symboles (emojis), espaces et retours à la ligne — sans chevrons.
 const COMMENT_RE = /^[\p{L}\p{N}\p{P}\p{S}\p{M}\p{Zs}\n\r‍️]*$/u;
@@ -68,6 +60,10 @@ export const pseudoSchema = z
       .regex(PSEUDO_RE, "Lettres, chiffres, espaces, « . », « _ » et « - » uniquement"),
   );
 
+/** Prénom / nom : facultatifs, vide = null. */
+export const NAME_MAX = 50;
+export const nameSchema = z.string().trim().max(NAME_MAX, `${NAME_MAX} caractères maximum`).transform((v) => v || null).optional();
+
 export const emailSchema = z.string().trim().toLowerCase().max(255).email("Adresse email invalide");
 export const phoneSchema = z
   .string()
@@ -87,11 +83,8 @@ export const phoneSchema = z
  */
 export const responsePatchSchema = z
   .object({
-    voter_type: z.enum(VOTER_TYPES).nullable(),
     selected_restaurant: trimmed(150).min(1).nullable(),
-    visit_period: z.enum(VISIT_PERIODS).nullable(),
     selected_decoration_id: z.string().uuid().nullable(),
-    decoration_impact: z.enum(IMPACTS).nullable(),
     comment: commentSchema.nullable(),
     wants_raffle: z.boolean().nullable(),
   })
@@ -104,26 +97,48 @@ export type ResponsePatch = z.infer<typeof responsePatchSchema>;
 export const RAFFLE_FIELDS = ["wants_raffle"] as const;
 
 /**
- * Validation du vote (questions 1 → 5). Comme dans le Typeform, le vote est enregistré avant le tirage au sort.
- * « Qui êtes-vous ? » (voter_type) a été retirée du questionnaire : la colonne reste pour les anciennes réponses.
+ * Signaux d'appareil envoyés par le navigateur (src/lib/fingerprint.ts) à l'ouverture et à la
+ * validation du vote : un condensé (jamais stocké en clair) et quelques attributs grossiers.
+ * Données non fiables : bornées, strictes, elles ne font qu'augmenter le score de cette requête.
  */
-export const voteCompleteSchema = z
+export const deviceSchema = z
   .object({
-    selected_restaurant: trimmed(150).min(1),
-    visit_period: z.enum(VISIT_PERIODS).nullable().optional(),
-    selected_decoration_id: z.string().uuid(),
-    decoration_impact: z.enum(IMPACTS),
-    comment: commentSchema.nullable().optional(),
+    hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+    mobile: z.boolean().optional(),
+    platform: z.string().max(32).optional(),
+    /** Navigateur et version majeure déclarés par la page (« Chrome 130 »). */
+    browser: z.string().max(32).optional(),
+    screen: z.string().regex(/^\d{1,5}x\d{1,5}@\d{1,2}(\.\d{1,3})?$/).optional(),
+    touch: z.boolean().optional(),
+    webdriver: z.boolean().optional(),
+    localVoteDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    startedAt: z.number().int().min(0).max(4102444800000).optional(),
   })
   .strict();
 
-/** Validation finale du tirage au sort (Q6) : pseudonyme + téléphone + email, confirmés dans la modale. */
+export type Device = z.infer<typeof deviceSchema>;
+/** Attributs grossiers enregistrés (`responses.device_info`) : tout sauf le condensé. */
+export type DeviceInfo = Omit<Device, "hash">;
+
+/** Validation du vote (questions 1 → 3). Comme dans le Typeform, le vote est enregistré avant le tirage au sort. */
+export const voteCompleteSchema = z
+  .object({
+    selected_restaurant: trimmed(150).min(1),
+    selected_decoration_id: z.string().uuid(),
+    comment: commentSchema.nullable().optional(),
+    device: deviceSchema.optional(),
+  })
+  .strict();
+
+/** Validation finale du tirage au sort (Q4) : pseudonyme + téléphone + email, confirmés dans la modale. */
 export const raffleSchema = z.discriminatedUnion("wants_raffle", [
   z.object({ wants_raffle: z.literal(false) }).strict(),
   z
     .object({
       wants_raffle: z.literal(true),
       pseudo: pseudoSchema,
+      first_name: nameSchema,
+      last_name: nameSchema,
       phone_number: phoneSchema,
       email: emailSchema,
     })
@@ -133,11 +148,13 @@ export const raffleSchema = z.discriminatedUnion("wants_raffle", [
 export type RaffleEntry = Extract<z.infer<typeof raffleSchema>, { wants_raffle: true }>;
 
 /** Coordonnées d'un participant, prêtes à enregistrer (normalisées, clé de pseudo calculée). */
-export type ParticipantInput = { pseudo: string; pseudo_key: string; email: string; phone_number: string };
+export type ParticipantInput = { pseudo: string; pseudo_key: string; first_name: string | null; last_name: string | null; email: string; phone_number: string };
 
 export const participantInput = (e: RaffleEntry): ParticipantInput => ({
   pseudo: e.pseudo,
   pseudo_key: pseudoKey(e.pseudo),
+  first_name: e.first_name ?? null,
+  last_name: e.last_name ?? null,
   email: e.email,
   phone_number: e.phone_number,
 });
@@ -145,18 +162,10 @@ export const participantInput = (e: RaffleEntry): ParticipantInput => ({
 export type ResponseRow = {
   id: string;
   session_id: string;
-  voter_type: VoterType | null;
   selected_restaurant: string | null;
-  visit_period: VisitPeriod | null;
   selected_decoration_id: string | null;
-  decoration_impact: Impact | null;
   comment: string | null;
   wants_raffle: boolean | null;
-  /** Anciennes colonnes (réponses d'avant la table participants) : lues, plus jamais écrites. */
-  participant_name: string | null;
-  phone_number: string | null;
-  email: string | null;
-  is_winner: boolean;
   /** Inscription au tirage reliée à cette réponse. */
   participant_id: string | null;
   /** Identifiant de l'appareil (cookie hw_voter) et jour du vote à Paris : un vote par jour. */
@@ -167,6 +176,15 @@ export type ResponseRow = {
   updated_at: string;
   ip_address: string | null;
   user_agent: string | null;
+  /** Anti-fraude : HMAC du condensé d'appareil, attributs grossiers, score et signaux calculés à la validation. */
+  device_hash: string | null;
+  device_info: DeviceInfo | null;
+  risk_score: number;
+  risk_flags: string[] | null;
+  /** Refus par score : la ligne reste sans `completed_at` (jamais comptée). */
+  blocked_at: string | null;
+  /** Exclu du classement à la main par un admin (le vote reste validé, non compté). */
+  excluded_at: string | null;
 };
 
 /** Participant au tirage au sort : une personne (email / téléphone / pseudo uniques). */
@@ -174,10 +192,15 @@ export type Participant = {
   id: string;
   pseudo: string;
   pseudo_key: string;
+  /** Facultatifs (absents des anciennes lignes du stockage local). */
+  first_name?: string | null;
+  last_name?: string | null;
   email: string;
   phone_number: string;
   created_at: string;
   updated_at: string;
+  /** Suppression douce (backoffice) : la ligne reste, restaurable ; absent des anciens fichiers locaux. */
+  deleted_at?: string | null;
 };
 
 /** Lot à gagner ; un lot a au plus un gagnant, un participant gagne au plus un lot. */
@@ -191,6 +214,54 @@ export type Prize = {
   created_at: string;
   updated_at: string;
 };
+
+/** Journal du backoffice : une connexion (IP, position approximative déduite de l'IP) et ses actions. */
+export type AdminSession = {
+  id: string;
+  role: "admin" | "viewer";
+  ip: string | null;
+  user_agent: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  created_at: string;
+  last_seen_at: string;
+};
+export type AdminAction = {
+  id: string;
+  session_id: string;
+  method: string;
+  path: string;
+  action: string;
+  details: unknown;
+  created_at: string;
+};
+
+/** Visite du site (compteur anti-robots, src/lib/visits.ts) ; une ligne rejetée ne garde que ip, user_agent, rejected, day. */
+export type Visit = {
+  id: string;
+  day: string;
+  created_at: string;
+  ip: string | null;
+  user_agent: string | null;
+  path: string | null;
+  referrer: string | null;
+  device_hash: string | null;
+  device_info: DeviceInfo | null;
+  visitor_id: string | null;
+  rejected: string | null;
+};
+
+/** Beacon de visite envoyé par le navigateur (src/components/VisitBeacon.tsx). */
+export const visitSchema = z
+  .object({
+    path: z.string().max(200),
+    referrer: z.string().max(2000).optional(),
+    device: deviceSchema.optional(),
+  })
+  .strict();
 
 export const PRIZE_DESCRIPTION_MAX = 500;
 export const prizeNameSchema = z.string().trim().min(2, "2 caractères minimum").max(120, "120 caractères maximum");
@@ -209,20 +280,6 @@ export type Restaurant = {
   name: string;
   city: string | null;
   created_at: string;
-};
-
-export const LABELS = {
-  voter_type: { client: "Client", employee: "Employé" } as Record<VoterType, string>,
-  visit_period: {
-    "lundi-jeudi": "Lundi - Jeudi",
-    "vendredi-samedi": "Vendredi - Samedi",
-    dimanche: "Dimanche",
-  } as Record<VisitPeriod, string>,
-  decoration_impact: {
-    beaucoup: "Beaucoup",
-    un_peu: "Un peu",
-    pas_du_tout: "Pas du tout",
-  } as Record<Impact, string>,
 };
 
 // ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ const restaurantSchema = z.object({
 
 /** Admin : ajouter un restaurant à la liste de la question 2. */
 export async function POST(req: Request) {
-  const denied = await requireRole("admin");
+  const denied = await requireRole("admin", req);
   if (denied) return denied;
   const parsed = restaurantSchema.safeParse(await readJson(req));
   if (!parsed.success) return zodError(parsed.error);

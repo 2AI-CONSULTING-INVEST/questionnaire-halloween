@@ -7,14 +7,17 @@ import { Switch, Tabs } from "radix-ui";
 import { useCallback, useEffect, useState } from "react";
 import type { Summary } from "@/lib/analytics";
 import type { Role } from "@/lib/auth";
-import type { Decoration, Participant, Prize, Restaurant, ResponseRow } from "@/lib/schema";
+import type { SecuritySummary } from "@/lib/risk";
+import type { Decoration, Prize, Restaurant } from "@/lib/schema";
+import { SessionsTab, type Journal } from "./SessionsTab";
 import { Emoji } from "../questionnaire/ui";
 import { DecorationsTab } from "./DecorationsTab";
 import { OverviewTab, type Filters } from "./OverviewTab";
 import { ParticipantsTab } from "./ParticipantsTab";
 import { PrizesTab } from "./PrizesTab";
 import { RestaurantsTab } from "./RestaurantsTab";
-import { ResponsesTab } from "./ResponsesTab";
+import { ResponsesTab, type ResponsesStatus } from "./ResponsesTab";
+import { SecurityTab } from "./SecurityTab";
 import { Button } from "./ui";
 import { withBase } from "@/lib/base-path";
 
@@ -35,14 +38,20 @@ export function AdminDashboard({ role }: { role: Role }) {
   const [dark, setDark] = useState(false);
   const [filters, setFilters] = useState<Filters>({ from: "", to: "", restaurant: "all" });
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [responses, setResponses] = useState<ResponseRow[]>([]);
+  const [security, setSecurity] = useState<SecuritySummary | null>(null);
   const [decorations, setDecorations] = useState<Decoration[]>([]);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [participants, setParticipants] = useState<Participant[]>([]);
+  /** Liste légère (id, pseudo) : compteur de l'onglet et nom des gagnants ; la liste complète est paginée dans l'onglet. */
+  const [participants, setParticipants] = useState<{ id: string; pseudo: string }[]>([]);
   const [prizes, setPrizes] = useState<Prize[]>([]);
+  const [journal, setJournal] = useState<Journal>({ sessions: [], actions: [] });
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [failed, setFailed] = useState(false);
+  /** Incrémenté à chaque actualisation : les onglets paginés rechargent les pages affichées. */
+  const [tick, setTick] = useState(0);
+  const [tab, setTab] = useState("overview");
+  const [responsesStatus, setResponsesStatus] = useState<ResponsesStatus>("completed");
 
   // Thème : lu après montage pour éviter un écart d'hydratation.
   useEffect(() => {
@@ -66,25 +75,30 @@ export function AdminDashboard({ role }: { role: Role }) {
     if (filters.to) qs.set("to", filters.to);
     if (filters.restaurant !== "all") qs.set("restaurant", filters.restaurant);
     try {
-      const [s, r, d, rest, p, pr] = await Promise.all([
+      const [s, sec, d, rest, p, pr] = await Promise.all([
         fetch(withBase(`/api/analytics/summary?${qs}`), { cache: "no-store" }),
-        fetch(withBase("/api/admin/responses"), { cache: "no-store" }),
+        fetch(withBase("/api/admin/security"), { cache: "no-store" }),
         fetch(withBase("/api/decorations"), { cache: "no-store" }),
         fetch(withBase("/api/restaurants"), { cache: "no-store" }),
-        fetch(withBase("/api/admin/participants"), { cache: "no-store" }),
+        fetch(withBase("/api/admin/participants?light=1"), { cache: "no-store" }),
         fetch(withBase("/api/prizes"), { cache: "no-store" }),
       ]);
-      if (s.status === 401 || r.status === 401) {
+      if (s.status === 401 || sec.status === 401) {
         router.replace("/admin/login");
         return;
       }
-      if (!s.ok || !r.ok || !d.ok || !rest.ok || !p.ok || !pr.ok) throw new Error("load");
+      if (!s.ok || !sec.ok || !d.ok || !rest.ok || !p.ok || !pr.ok) throw new Error("load");
       setSummary(await s.json());
-      setResponses(await r.json());
+      setSecurity(await sec.json());
       setDecorations(await d.json());
       setRestaurants(await rest.json());
       setParticipants(await p.json());
       setPrizes(await pr.json());
+      setTick((t) => t + 1);
+      if (canWrite) {
+        const j = await fetch(withBase("/api/admin/sessions"), { cache: "no-store" });
+        if (j.ok) setJournal(await j.json());
+      }
       setUpdatedAt(new Date());
       setFailed(false);
     } catch {
@@ -92,7 +106,7 @@ export function AdminDashboard({ role }: { role: Role }) {
     } finally {
       setLoading(false);
     }
-  }, [filters, router]);
+  }, [filters, router, canWrite]);
 
   useEffect(() => {
     const first = setTimeout(() => void load(), 0);
@@ -166,7 +180,7 @@ export function AdminDashboard({ role }: { role: Role }) {
         </div>
       </header>
 
-      <Tabs.Root defaultValue="overview" className="mx-auto max-w-7xl px-4 py-6 sm:px-8">
+      <Tabs.Root value={tab} onValueChange={setTab} className="mx-auto max-w-7xl px-4 py-6 sm:px-8">
         <Tabs.List aria-label="Sections" className="mb-6 flex gap-6 overflow-x-auto border-b border-line dark:border-zinc-800">
           <Tabs.Trigger value="overview" className={tabClass}>Tableau de bord</Tabs.Trigger>
           <Tabs.Trigger value="participants" className={tabClass}>Participants ({participants.length})</Tabs.Trigger>
@@ -174,18 +188,37 @@ export function AdminDashboard({ role }: { role: Role }) {
           <Tabs.Trigger value="responses" className={tabClass}>Réponses</Tabs.Trigger>
           <Tabs.Trigger value="decorations" className={tabClass}>Décorations ({decorations.length})</Tabs.Trigger>
           <Tabs.Trigger value="restaurants" className={tabClass}>Restaurants</Tabs.Trigger>
+          <Tabs.Trigger value="security" className={tabClass}>Sécurité{security ? ` (${security.toReview})` : ""}</Tabs.Trigger>
+          {canWrite && <Tabs.Trigger value="journal" className={tabClass}>Journal ({journal.sessions.length})</Tabs.Trigger>}
         </Tabs.List>
         <Tabs.Content value="overview">
-          <OverviewTab summary={summary} filters={filters} setFilters={setFilters} restaurants={restaurants.map((r) => r.name)} />
+          <OverviewTab
+            summary={summary}
+            filters={filters}
+            setFilters={setFilters}
+            restaurants={restaurants.map((r) => r.name)}
+            onShowIncomplete={() => {
+              setResponsesStatus("incomplete");
+              setTab("responses");
+            }}
+          />
         </Tabs.Content>
         <Tabs.Content value="participants">
-          <ParticipantsTab participants={participants} responses={responses} prizes={prizes} canWrite={canWrite} onChanged={load} />
+          <ParticipantsTab total={participants.length} prizes={prizes} canWrite={canWrite} tick={tick} onChanged={load} />
         </Tabs.Content>
         <Tabs.Content value="prizes">
           <PrizesTab prizes={prizes} participants={participants} canWrite={canWrite} onChanged={load} />
         </Tabs.Content>
         <Tabs.Content value="responses">
-          <ResponsesTab responses={responses} decorations={decorations} canWrite={canWrite} onChanged={load} />
+          <ResponsesTab
+            decorations={decorations}
+            canWrite={canWrite}
+            settings={security?.settings ?? { mode: "block", flag_threshold: 40, block_threshold: 80 }}
+            status={responsesStatus}
+            setStatus={setResponsesStatus}
+            tick={tick}
+            onChanged={load}
+          />
         </Tabs.Content>
         <Tabs.Content value="decorations">
           <DecorationsTab decorations={decorations} restaurants={restaurants.map((r) => r.name)} canWrite={canWrite} onChanged={load} />
@@ -193,6 +226,14 @@ export function AdminDashboard({ role }: { role: Role }) {
         <Tabs.Content value="restaurants">
           <RestaurantsTab restaurants={restaurants} canWrite={canWrite} onChanged={load} />
         </Tabs.Content>
+        <Tabs.Content value="security">
+          <SecurityTab summary={security} decorations={decorations} canWrite={canWrite} tick={tick} onChanged={load} />
+        </Tabs.Content>
+        {canWrite && (
+          <Tabs.Content value="journal">
+            <SessionsTab journal={journal} tick={tick} />
+          </Tabs.Content>
+        )}
       </Tabs.Root>
     </div>
   );

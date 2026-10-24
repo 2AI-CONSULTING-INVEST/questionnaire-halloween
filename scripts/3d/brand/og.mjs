@@ -1,8 +1,8 @@
 // Images d'aperçu des liens partagés (Open Graph / X / WhatsApp…), 1200 × 630 :
 //   src/app/opengraph-image.jpg                    (accueil, et toutes les pages par défaut)
 //   src/app/(public)/resultats/opengraph-image.jpg (résultats en direct)
-// Fond : une capture de la scène 3D sans l'interface (out/bg-home.png, out/bg-results.png), le badge
-// (out/badge.png, produit par render.mjs), un titre et un texte.
+// Fond : une capture de la scène 3D sans l'interface (out/bg-home.png, out/bg-results.png) et deux
+// lignes de texte, rien d'autre (volontairement sobre).
 // Usage : node scripts/3d/brand/og.mjs <racine du projet> [--capture http://localhost:3000]
 //   --capture refait les fonds depuis le serveur de dev : vérifiez ensuite que la crypte est bien
 //   cadrée, panneau encore poussiéreux (délais CRYPT_DELAY / HOME_DELAY en ms selon la machine).
@@ -40,20 +40,16 @@ const CARDS = [
   {
     file: path.join(root, "src/app/opengraph-image.jpg"),
     bg: "bg-home.png",
-    kicker: "Halloween<b>Chamas Tacos</b>",
-    title: "Votez pour la <em>déco Halloween</em> la plus effrayante&nbsp;!",
-    text: "Élisez le restaurant Chamas Tacos le mieux décoré et tentez de gagner l'un de nos nombreux lots.",
-    cta: "Je vote en 2 minutes 🎃",
-    alt: "Vote Halloween Chamas Tacos : votez pour la décoration de restaurant la plus effrayante et tentez de gagner des lots.",
+    l1: "Chamas Tacos",
+    l2: "Jeux concours Halloween",
+    alt: "Chamas Tacos : jeux concours Halloween.",
   },
   {
     file: path.join(root, "src/app/(public)/resultats/opengraph-image.jpg"),
     bg: "bg-results.png",
-    kicker: '<span class="live">En direct</span><b>Chamas Tacos</b>',
-    title: "Résultats du <em>vote Halloween</em>",
-    text: "Quel restaurant Chamas Tacos a la décoration la plus effrayante&nbsp;? Le classement se met à jour en temps réel.",
-    cta: "Voir le classement 🏆",
-    alt: "Résultats en direct du vote Halloween Chamas Tacos : classement des décorations de restaurants.",
+    l1: "Chamas Tacos",
+    l2: "Jeux concours Halloween",
+    alt: "Chamas Tacos : jeux concours Halloween, résultats en direct.",
   },
 ];
 
@@ -69,7 +65,7 @@ const page = await browser.newPage();
 await page.setViewport({ width: 1200, height: 630 });
 for (const card of CARDS) {
   await page.goto("http://localhost:5183/", { waitUntil: "networkidle0" });
-  await page.evaluate((c) => window.fill({ ...c, bg: c.bg }), { kicker: card.kicker, title: card.title, text: card.text, cta: card.cta, bg: card.bg });
+  await page.evaluate((c) => window.fill(c), { l1: card.l1, l2: card.l2, bg: card.bg });
   const png = await page.screenshot({ type: "png" });
   fs.writeFileSync(card.file, await sharp(png).jpeg({ quality: 86, mozjpeg: true }).toBuffer());
   fs.writeFileSync(card.file.replace(/\.jpg$/, ".alt.txt"), card.alt);

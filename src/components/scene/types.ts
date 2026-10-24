@@ -18,6 +18,8 @@ export type Kit = {
   dungeonMat: THREE.MeshLambertMaterial;
   /** Même atlas, facettes marquées (chapeaux de sorcière façon papier plié). */
   dungeonFlatMat: THREE.MeshLambertMaterial;
+  /** Sang (clairière de la faucheuse) : rouge sombre, un peu luisant. */
+  bloodMat: THREE.MeshPhongMaterial;
   glowTex: THREE.Texture;
   smokeTex: THREE.Texture;
   shadowTex: THREE.Texture;
@@ -55,13 +57,22 @@ export type Flame = {
   cut?: CutGlow;
 };
 
+/** Yeux dans la pénombre d'un lieu : couleurs, paires visibles à la fois, sourcils méchants (0 à 1), taille, rythme d'apparition. */
+export type EyeStyle = { colors: string[]; pairs: number; mean: number; scale: number; haste: number };
+
 export interface Area {
   name: SceneName;
   group: THREE.Group;
   flames: Flame[];
   eyeSpots: THREE.Vector3[];
+  /** Style des yeux de la pénombre (défaut : jaunes / orangés, 3 à 4 paires). */
+  eyeStyle?: EyeStyle;
   /** Centre autour duquel tournent les chauves-souris. */
   batHome: THREE.Vector3;
+  /** Teinte du sol propre à la zone (texture qui porte ses couleurs), suivie par la palette. */
+  groundTint?: THREE.Color;
+  /** Sursaut de la caméra (décalage monde ajouté après le placement), ex. coup de faux vers l'écran. */
+  flinch?: THREE.Vector3;
   layout(f: Frame): void;
   pose(f: Frame): Pose;
   update(t: number, dt: number, f: Frame, camera: THREE.Camera): void;

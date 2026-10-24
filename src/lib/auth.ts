@@ -1,5 +1,5 @@
 import "server-only";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 
 export type Role = "admin" | "viewer";
@@ -34,22 +34,29 @@ export function roleForPassword(password: string): Role | null {
   return null;
 }
 
-export function createToken(role: Role) {
-  const payload = `${role}.${Math.floor(Date.now() / 1000) + TTL_SECONDS}`;
+export type Session = { role: Role; sid: string };
+
+/** Jeton signé : rôle, expiration, identifiant de session (ligne du journal `admin_sessions`). */
+export function createToken(role: Role, sid: string = randomUUID()) {
+  const payload = `${role}.${Math.floor(Date.now() / 1000) + TTL_SECONDS}.${sid}`;
   return `${payload}.${sign(payload)}`;
 }
 
-export function verifyToken(token: string | undefined): Role | null {
+export function verifyToken(token: string | undefined): Session | null {
   if (!token) return null;
-  const [role, exp, sig] = token.split(".");
-  if (!role || !exp || !sig) return null;
-  if (!safeEqual(sig, sign(`${role}.${exp}`))) return null;
+  const [role, exp, sid, sig] = token.split(".");
+  if (!role || !exp || !sid || !sig) return null;
+  if (!safeEqual(sig, sign(`${role}.${exp}.${sid}`))) return null;
   if (Number(exp) < Date.now() / 1000) return null;
-  return role === "admin" || role === "viewer" ? role : null;
+  return role === "admin" || role === "viewer" ? { role, sid } : null;
+}
+
+export async function currentSession(): Promise<Session | null> {
+  return verifyToken((await cookies()).get(ADMIN_COOKIE)?.value);
 }
 
 export async function currentRole(): Promise<Role | null> {
-  return verifyToken((await cookies()).get(ADMIN_COOKIE)?.value);
+  return (await currentSession())?.role ?? null;
 }
 
 export const cookieOptions = {

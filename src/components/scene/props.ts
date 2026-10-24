@@ -7,6 +7,7 @@
  */
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { createBladeBloodMaterial, dripGeometry } from "./blood";
 import { seeded } from "./core";
 
 /** Atlas Halloween Bits (colonne, ligne) — grille 8 × 4 de dégradés verticaux. */
@@ -432,7 +433,7 @@ export function createSkeletonArm(mat: THREE.Material, scale: number): SkeletonA
  * Faux, centrée sur le manche ; la lame se recourbe au-dessus de la tête (atlas Dungeon).
  * `grip` : hauteur (sur le manche) et taille du poing qui la tient : le manche y est gainé de cuir.
  */
-export function createScythe(mat: THREE.Material, length: number, grip?: { y: number; h: number }) {
+export function createScythe(mat: THREE.Material, length: number, grip?: { y: number; h: number }, blood?: { value: number }) {
   const r = length * 0.017;
   const L = length * 0.55;
   const blade = new THREE.Shape();
@@ -463,6 +464,42 @@ export function createScythe(mat: THREE.Material, length: number, grip?: { y: nu
       mat,
     ),
   );
+  if (blood) {
+    // Lame ensanglantée : fluide animé en shader sur les deux faces du plat (blood.ts), avec, sous le
+    // tranchant, une « jupe » dans le plan de la lame où pendent les gouttes (face avant seulement).
+    const spine = (t: number) => {
+      const u = 1 - t;
+      return { x: 2 * u * t * L * 0.5 + t * t * L * 1.05, y: u * u * L * 0.05 + 2 * u * t * L * 0.22 - t * t * L * 0.3 };
+    };
+    const cut = (t: number) => {
+      const u = 1 - t;
+      return { x: 2 * u * t * L * 0.48 + t * t * L * 1.05, y: -u * u * L * 0.08 - 2 * u * t * L * 0.02 - t * t * L * 0.3 };
+    };
+    const skirt = L * 0.32;
+    const outline = new THREE.Shape();
+    const top = Array.from({ length: 21 }, (_, i) => {
+      const t = i / 20;
+      const s = spine(t);
+      const e = cut(t);
+      return { x: s.x + (e.x - s.x) * 0.05, y: s.y + (e.y - s.y) * 0.05 }; // en retrait du biseau
+    });
+    outline.moveTo(top[0].x, top[0].y);
+    top.forEach((q) => outline.lineTo(q.x, q.y));
+    for (let i = 20; i >= 0; i--) {
+      const e = cut(i / 20);
+      outline.lineTo(e.x + (i === 20 ? L * 0.03 : 0), e.y - skirt);
+    }
+    outline.closePath();
+    const flat = new THREE.ShapeGeometry(outline, 1);
+    // Le shader lit la position dans le repère de la forme : le placement se fait sur le maillage.
+    const back = flat.clone().scale(1, 1, -1);
+    for (const [geo, zOff, skirted] of [[flat, L * 0.037 + 0.004, true], [back, -L * 0.012 - 0.004, false]] as const) {
+      const m = new THREE.Mesh(geo, createBladeBloodMaterial(L, blood, skirted));
+      m.position.set(0, length * 0.47, zOff - L * 0.012);
+      m.renderOrder = 2;
+      g.add(m);
+    }
+  }
   return g;
 }
 
@@ -474,8 +511,9 @@ export function createScythe(mat: THREE.Material, length: number, grip?: { y: nu
  * La faux et la main gauche suivent l'os de la main (gestes compris). Repère : celui du modèle,
  * pose de repos déjà appliquée (mixer.update), hauteur du modèle `height`.
  */
-export function armReaper(model: THREE.Object3D, scytheMat: THREE.Material, boneMat: THREE.Material, height: number) {
+export function armReaper(model: THREE.Object3D, scytheMat: THREE.Material, boneMat: THREE.Material, height: number, blood?: { value: number }): THREE.Group | null {
   const K = 1.3; // taille des mains squelette (la main de createBoneHand fait 0,26 de long)
+  let scytheOut: THREE.Group | null = null;
   model.updateMatrixWorld(true);
   const local = (name: string) => {
     const o = model.getObjectByName(name);
@@ -510,7 +548,7 @@ export function armReaper(model: THREE.Object3D, scytheMat: THREE.Material, bone
     const q = basis(up.clone().negate(), y).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), slant));
     const length = height * 1.3;
     const gripH = 0.2 * K;
-    const scythe = createScythe(scytheMat, length, { y: -height * 0.2, h: gripH });
+    const scythe = (scytheOut = createScythe(scytheMat, length, { y: -height * 0.2, h: gripH }, blood));
     // Poing refermé sur la gaine de cuir (rayon du manche × 1,12, cf. createScythe) ; point de l'axe
     // au milieu de la largeur des doigts et du pouce (x de -0,08 à 0,11 dans le repère de la main).
     const hand = createBoneHand(boneMat);
@@ -549,6 +587,7 @@ export function armReaper(model: THREE.Object3D, scytheMat: THREE.Material, bone
     model.updateMatrixWorld(true);
     handR.attach(holder);
   }
+  return scytheOut;
 }
 
 /**
@@ -614,18 +653,57 @@ export function createRobeTop(map: THREE.Texture | null) {
 }
 
 // ---------------------------------------------------------------------------
-// Chaudron : marmite noire bien ronde, anses, pieds en bois, remplie de bonbons à ras bord.
-// Pas de feu, pas de potion.
+// Chaudron : marmite noire bien ronde, anses, pieds en bois, remplie de bonbons à ras bord
+// (rien d'autre dedans : un lit de bonbons emballés sur plusieurs couches, fond sombre).
+// Une main squelette en sort de temps en temps, fouille, attrape un bonbon et replonge ; les
+// bonbons autour sont bousculés (petite physique : poussée, chute, glissade sur le dôme, culbute).
 // ---------------------------------------------------------------------------
 
 /** Teintes des bonbons, prises dans les atlas KayKit (posées sur une cellule claire). */
 const CANDY_TINTS = ["#f37b2f", "#9b59d0", "#e2c93f", "#f06a7a", "#2bb5ad", "#d42c3c", "#ffffff"];
 
-export type Cauldron = { group: THREE.Group; glow: THREE.Vector3; update(t: number): void };
+/** Hauteur (repère du chaudron) du centre d'un bonbon posé en surface, à la distance d de l'axe : dôme bombé. */
+const candySurface = (d: number) => 1.02 + 0.15 * Math.sqrt(Math.max(0, 1 - (d / 0.62) ** 2));
+const CANDY_RIM = 0.44; // centres des bonbons : l'ouverture fait 0,53, un bonbon en travers déborde de 0,08
+const RIM_TANGENT = 0.3; // au-delà, les bonbons se couchent le long de la paroi (jamais à travers)
+const HAND_SCALE = 0.85;
+const HAND_RISE = 0.36; // poignet au-dessus de la surface, bras tendu
+const HAND_DOWN = -0.78; // poignet enfoui (bout des doigts sous les bonbons)
+const LEAN = 0.28; // inclinaison du bras vers la gauche de l'écran (rad)
+const ARM_R = 0.16; // rayon d'encombrement de l'avant-bras (+ un demi-bonbon)
+const PUSH_R = 0.3; // rayon de la poussée sur les bonbons voisins
+const G = 9;
 
-export function createCauldron(mat: THREE.Material, candyMat: THREE.Material): Cauldron {
+/** Phases du cycle de la main : durée en secondes (l'attente est tirée au sort). */
+const HAND_PHASES = [
+  ["rise", 1.1],
+  ["search", 1.7],
+  ["grab", 0.5],
+  ["sink", 0.9],
+] as const;
+type HandPhase = (typeof HAND_PHASES)[number][0] | "hidden";
+
+const easeOut = (t: number) => 1 - (1 - t) ** 3;
+const easeIn = (t: number) => t * t * t;
+
+type Candy = {
+  x: number; y: number; z: number;
+  vx: number; vy: number; vz: number;
+  rx: number; rz: number; // repos (surface)
+  q: THREE.Quaternion;
+  s: number;
+};
+
+export type Cauldron = { group: THREE.Group; glow: THREE.Vector3; update(t: number, dt: number, camWorld: THREE.Vector3): void };
+
+export function createCauldron(mat: THREE.Material, candyMat: THREE.Material, bloodMat?: THREE.Material, opts = { low: false, animate: true }): Cauldron {
   const group = new THREE.Group();
   const r = seeded(13);
+  if (bloodMat) {
+    // Sang qui déborde : coulures qui descendent du rebord sur la panse.
+    const drips = [0.2, 1.7, 3.4, 5.2].map((a, i) => ({ x: Math.cos(a) * 0.69, y: 1.09, z: Math.sin(a) * 0.69, len: [0.3, 0.2, 0.36, 0.14][i], r: 0.032 }));
+    group.add(new THREE.Mesh(dripGeometry(drips), bloodMat));
+  }
   const pot = new THREE.LatheGeometry(
     [[0, 0.16], [0.32, 0.18], [0.58, 0.32], [0.72, 0.56], [0.72, 0.82], [0.62, 1.0], [0.58, 1.04], [0.66, 1.07], [0.67, 1.13], [0.57, 1.15], [0.53, 1.02]].map(
       ([x, y]) => new THREE.Vector2(x, y),
@@ -633,8 +711,13 @@ export function createCauldron(mat: THREE.Material, candyMat: THREE.Material): C
     22,
   );
   pot.computeVertexNormals();
+  // Intérieur : cuve sombre (profil parcouru de haut en bas : faces tournées vers l'axe), que l'on
+  // devine entre les bonbons, à l'ombre.
+  const bowl = new THREE.LatheGeometry([[0.56, 1.05], [0.52, 0.9], [0.4, 0.74], [0.18, 0.62], [0, 0.6]].map(([x, y]) => new THREE.Vector2(x, y)), 22);
+  bowl.computeVertexNormals();
   const parts = [
     paint(pot, DCELL.black),
+    paint(bowl, DCELL.black, { min: 3, max: 4 }), // bas de la cellule : le plus sombre
     ...[-1, 1].map((s) => paint(placed(new THREE.TorusGeometry(0.15, 0.04, 8, 16), [s * 0.74, 0.86, 0], [0, Math.PI / 2, 0]), DCELL.black)),
     // Pieds : trois bâtons de bois écartés
     ...[0, 1, 2].map((i) => {
@@ -645,52 +728,255 @@ export function createCauldron(mat: THREE.Material, candyMat: THREE.Material): C
   ];
   group.add(new THREE.Mesh(merge(parts), mat));
 
-  // Rempli de bonbons à ras bord : un tas bosselé (bonbons du fond) couvert de bonbons emballés.
-  const heap = new THREE.IcosahedronGeometry(0.6, 2);
-  const hp = heap.attributes.position;
-  for (let i = 0; i < hp.count; i++) {
-    const x = hp.getX(i);
-    const y = hp.getY(i);
-    const z = hp.getZ(i);
-    const bump = 1 + 0.08 * Math.sin(x * 13 + z * 7) + 0.06 * Math.sin(z * 17 - x * 5);
-    hp.setXYZ(i, x * bump * 0.95, Math.max(y * 0.3 * bump, -0.04), z * bump * 0.95);
-  }
-  heap.computeVertexNormals();
-  group.add(new THREE.Mesh(paint(heap.translate(0, 1.06, 0), DCELL.orange), mat));
-
-  const tmp = new THREE.Object3D();
-  const color = new THREE.Color();
   const wrapped = merge([
     paint(new THREE.SphereGeometry(0.07, 10, 7).scale(1.45, 1, 1), "ice"),
     paint(new THREE.ConeGeometry(0.055, 0.08, 6).rotateZ(Math.PI / 2).translate(0.135, 0, 0), "ice"),
     paint(new THREE.ConeGeometry(0.055, 0.08, 6).rotateZ(-Math.PI / 2).translate(-0.135, 0, 0), "ice"),
   ]);
-  // Bonbons posés sur le tas (suivent sa surface) et quelques-uns tombés au pied du chaudron.
-  const IN = 34;
-  const OUT = 14;
-  const candies = new THREE.InstancedMesh(wrapped, candyMat, IN + OUT);
-  for (let i = 0; i < IN + OUT; i++) {
-    if (i < IN) {
-      const a = r() * Math.PI * 2;
-      const d = Math.sqrt(r()) * 0.56;
-      tmp.position.set(Math.cos(a) * d, 1.04 + 0.15 * Math.sqrt(Math.max(0, 1 - (d / 0.6) ** 2)), Math.sin(a) * d);
-    } else {
-      const a = -0.6 + r() * 2.2;
-      const d = 0.95 + r() * 0.7;
-      tmp.position.set(Math.cos(a) * d, 0.06, Math.sin(a) * d);
+
+  // Lit de bonbons : grille hexagonale brouillée par couche (la couche du dessus suit le dôme, les
+  // couches du dessous bouchent les trous), plus quelques bonbons tombés au pied du chaudron.
+  const spots: { x: number; y: number; z: number; top: boolean; yaw: number; tilt: number }[] = [];
+  const tangent = (x: number, z: number) => Math.atan2(z, x) + Math.PI / 2;
+  (opts.low ? [0, 0.12] : [0, 0.11, 0.22]).forEach((depth, li) => {
+    const step = 0.15;
+    const rMax = CANDY_RIM - depth * 0.5;
+    let row = 0;
+    for (let gz = -rMax; gz <= rMax; gz += step * 0.87, row++) {
+      for (let gx = -rMax; gx <= rMax; gx += step) {
+        const x = gx + (row % 2) * step * 0.5 + (r() - 0.5) * step * 0.5;
+        const z = gz + (r() - 0.5) * step * 0.5;
+        const d = Math.hypot(x, z);
+        if (d > rMax) continue;
+        const near = d > RIM_TANGENT;
+        spots.push({ x, y: candySurface(d) - depth, z, top: li === 0, yaw: near ? tangent(x, z) + (r() - 0.5) * 0.5 : r() * 6, tilt: near ? 0.3 : 0.7 });
+      }
     }
-    tmp.rotation.set(r() * 0.8 - 0.4, r() * 6, r() * 0.8 - 0.4); // posés à plat, comme versés
+  });
+  const OUT = 14;
+  for (let i = 0; i < OUT; i++) {
+    const a = -0.6 + r() * 2.2;
+    const d = 0.95 + r() * 0.7;
+    spots.push({ x: Math.cos(a) * d, y: 0.06, z: Math.sin(a) * d, top: false, yaw: r() * 6, tilt: 0.7 });
+  }
+  const candies = new THREE.InstancedMesh(wrapped, candyMat, spots.length);
+  const tmp = new THREE.Object3D();
+  const color = new THREE.Color();
+  const dyn: { i: number; c: Candy }[] = [];
+  spots.forEach((p, i) => {
+    tmp.position.set(p.x, p.y, p.z);
+    tmp.rotation.set((r() - 0.5) * p.tilt, p.yaw, (r() - 0.5) * p.tilt); // posés à plat, comme versés
     tmp.scale.setScalar(0.85 + r() * 0.3);
     tmp.updateMatrix();
     candies.setMatrixAt(i, tmp.matrix);
     candies.setColorAt(i, color.set(CANDY_TINTS[Math.floor(r() * CANDY_TINTS.length)]));
-  }
+    if (p.top) dyn.push({ i, c: { x: p.x, y: p.y, z: p.z, vx: 0, vy: 0, vz: 0, rx: p.x, rz: p.z, q: tmp.quaternion.clone(), s: tmp.scale.x } });
+  });
   group.add(candies);
+
+  // --- Main squelette (avec avant-bras), doigts vers le haut, paume vers la caméra ---
+  const pivot = new THREE.Group();
+  const hand = createBoneHand(candyMat, true); // os « crème » : cellule de l'atlas Halloween Bits
+  hand.root.rotation.z = Math.PI; // doigts -y → +y
+  hand.root.scale.setScalar(HAND_SCALE);
+  hand.root.visible = false;
+  pivot.add(hand.root);
+  group.add(pivot);
+
+  let phase: HandPhase = "hidden";
+  let phaseT = 0;
+  let phaseLen = 3;
+  let step = -1;
+  const spot = new THREE.Vector3();
+  let surfaceY = candySurface(0);
+  let wristY = HAND_DOWN;
+  let handVy = 0;
+  let settleUntil = 0; // après un cycle, le lit continue de se tasser un moment
+  const local = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+  const axis = new THREE.Vector3();
+
+  const startCycle = (cam: THREE.Vector3) => {
+    // Sort dans la moitié gauche de l'ouverture (vue de la caméra), paume tournée vers elle,
+    // bras penché vers la gauche : (dx, dz) pointe vers la caméra, (-dz, dx) vers la gauche de l'écran.
+    local.copy(cam);
+    group.worldToLocal(local);
+    const d = Math.hypot(local.x, local.z) || 1;
+    const dx = local.x / d;
+    const dz = local.z / d;
+    spot.set(dx * 0.08 - dz * 0.1, 0, dz * 0.08 + dx * 0.1);
+    surfaceY = candySurface(Math.hypot(spot.x, spot.z));
+    // Pivot posé à la surface des bonbons : l'inclinaison tourne autour du point de sortie (le
+    // poignet reste dans l'ouverture ; sous la surface, le bras penche dans l'autre sens, invisible).
+    pivot.position.set(spot.x, surfaceY, spot.z);
+    pivot.rotation.set(0, Math.atan2(dx, dz), LEAN);
+    step = 0;
+    phase = HAND_PHASES[0][0];
+    phaseLen = HAND_PHASES[0][1];
+    phaseT = 0;
+    hand.root.visible = true;
+  };
+
+  const stepHand = (t: number, dt: number, cam: THREE.Vector3) => {
+    phaseT += dt;
+    if (phase === "hidden") {
+      if (phaseT >= phaseLen) startCycle(cam);
+      return;
+    }
+    if (phaseT >= phaseLen) {
+      step++;
+      if (step >= HAND_PHASES.length) {
+        phase = "hidden";
+        phaseLen = 6 + Math.random() * 5;
+        phaseT = 0;
+        hand.root.visible = false;
+        handVy = 0;
+        settleUntil = t + 16;
+        return;
+      }
+      phase = HAND_PHASES[step][0];
+      phaseLen = HAND_PHASES[step][1];
+      phaseT = 0;
+    }
+    const k = Math.min(1, phaseT / phaseLen);
+    const prevY = wristY;
+    let curl = 1;
+    let wave = 0;
+    let sway = 0;
+    let lean = LEAN;
+    if (phase === "rise") {
+      // Poing qui force vers le haut, s'ouvre en sortant.
+      wristY = surfaceY + HAND_DOWN + (HAND_RISE - HAND_DOWN) * easeOut(k);
+      curl = 0.95 - 0.7 * easeOut(Math.max(0, (k - 0.35) / 0.65));
+      sway = Math.sin(t * 11) * 0.04 * (1 - k);
+    } else if (phase === "search") {
+      wristY = surfaceY + HAND_RISE + 0.025 * Math.sin(t * 2.6);
+      curl = 0.25 + 0.1 * Math.sin(t * 3);
+      wave = 0.4;
+      sway = Math.sin(t * 1.7) * 0.28;
+      lean = LEAN + 0.1 * Math.sin(t * 1.3);
+    } else if (phase === "grab") {
+      wristY = surfaceY + HAND_RISE - 0.06 * easeOut(k);
+      curl = 0.3 + 0.7 * easeOut(k);
+      sway = 0.28 * Math.sin(t * 1.7) * (1 - k);
+    } else {
+      wristY = surfaceY + HAND_RISE - 0.06 + (HAND_DOWN - HAND_RISE + 0.06) * easeIn(k);
+      curl = 1;
+      sway = 0.35 * k;
+      lean = LEAN + 0.22 * k; // replonge en s'inclinant encore vers la gauche
+    }
+    handVy = dt > 0 ? (wristY - prevY) / dt : 0;
+    hand.root.position.y = wristY - surfaceY;
+    hand.root.rotation.y = sway;
+    pivot.rotation.z = lean;
+    hand.pose(curl, 0.14, curl, wave, t * 9);
+  };
+
+  const stepCandies = (dt: number) => {
+    const active = phase !== "hidden";
+    const hx = spot.x;
+    const hz = spot.z;
+    const handTop = wristY + 0.62 * HAND_SCALE;
+    for (const { i, c } of dyn) {
+      let ax = 0;
+      let az = 0;
+      const dcx = c.x - hx;
+      const dcz = c.z - hz;
+      const dh = Math.hypot(dcx, dcz) || 1e-3;
+      if (active && c.y < handTop + 0.1 && dh < PUSH_R) {
+        const kk = 1 - dh / PUSH_R;
+        ax += (dcx / dh) * kk * 50;
+        az += (dcz / dh) * kk * 50;
+        // Bonbons posés sur le poing : un peu soulevés avec lui, puis ils roulent de côté.
+        if (handVy > 0) c.vy = Math.max(c.vy, Math.min(1.1, handVy * kk * 0.45));
+        if (dh < ARM_R) {
+          // Jamais dans l'avant-bras : repoussés hors de la colonne.
+          c.x = hx + (dcx / dh) * ARM_R;
+          c.z = hz + (dcz / dh) * ARM_R;
+          c.vx += (dcx / dh) * 0.4;
+          c.vz += (dcz / dh) * 0.4;
+        }
+        // Le bras replonge : les voisins s'effondrent vers le trou.
+        if (phase === "sink" && dh > ARM_R) {
+          ax -= (dcx / dh) * kk * 25;
+          az -= (dcz / dh) * kk * 25;
+        }
+      }
+      if (!active) {
+        // Le lit se tasse doucement vers sa forme de départ (invisible, évite la dérive au fil des cycles).
+        const kr = Math.min(1, dt * 0.25);
+        c.x += (c.rx - c.x) * kr;
+        c.z += (c.rz - c.z) * kr;
+      }
+      c.vx += ax * dt;
+      c.vz += az * dt;
+      c.vy -= G * dt;
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+      c.z += c.vz * dt;
+      // Surface du lit : contact, rebond amorti, frottement, glissade vers le bord du dôme.
+      let dc = Math.hypot(c.x, c.z);
+      if (dc > CANDY_RIM) {
+        c.x *= CANDY_RIM / dc;
+        c.z *= CANDY_RIM / dc;
+        const vr = (c.vx * c.x + c.vz * c.z) / CANDY_RIM;
+        if (vr > 0) {
+          c.vx -= (c.x / CANDY_RIM) * vr * 1.2;
+          c.vz -= (c.z / CANDY_RIM) * vr * 1.2;
+        }
+        dc = CANDY_RIM;
+      }
+      const h = candySurface(dc);
+      if (c.y <= h) {
+        c.y = h;
+        if (c.vy < 0) c.vy = -c.vy * 0.2;
+        const fr = Math.max(0, 1 - dt * 6);
+        c.vx *= fr;
+        c.vz *= fr;
+        if (dc > 0.02) {
+          const slope = (0.15 * dc) / (0.62 * 0.62) / Math.sqrt(Math.max(0.05, 1 - (dc / 0.62) ** 2));
+          c.vx += (c.x / dc) * slope * G * 0.35 * dt;
+          c.vz += (c.z / dc) * slope * G * 0.35 * dt;
+        }
+        const sp = Math.hypot(c.vx, c.vz);
+        if (sp < 0.03 && Math.abs(c.vy) < 0.05) c.vx = c.vz = c.vy = 0;
+      }
+      // Près de la paroi : se couche le long d'elle (un bonbon radial entrerait dans la lèvre).
+      if (dc > RIM_TANGENT) c.q.slerp(q.setFromAxisAngle(axis.set(0, 1, 0), tangent(c.x, c.z)), Math.min(1, dt * 4));
+      // Contrainte stricte : le bout du bonbon (demi-longueur 0,175 selon son axe x) reste dans l'ouverture (0,53).
+      if (dc > 0.2) {
+        axis.set(1, 0, 0).applyQuaternion(c.q);
+        const reach = 0.175 * c.s * Math.abs((axis.x * c.x + axis.z * c.z) / dc) + 0.07 * c.s;
+        const maxC = 0.52 - reach;
+        if (dc > maxC) {
+          c.x *= maxC / dc;
+          c.z *= maxC / dc;
+        }
+      }
+      // Culbute : roule dans le sens où il glisse.
+      const sp = Math.hypot(c.vx, c.vz);
+      if (sp > 1e-3) {
+        axis.set(-c.vz / sp, 0, c.vx / sp);
+        c.q.premultiply(q.setFromAxisAngle(axis, (sp * dt) / 0.07));
+      }
+      tmp.position.set(c.x, c.y, c.z);
+      tmp.quaternion.copy(c.q);
+      tmp.scale.setScalar(c.s);
+      tmp.updateMatrix();
+      candies.setMatrixAt(i, tmp.matrix);
+    }
+    candies.instanceMatrix.needsUpdate = true;
+  };
 
   return {
     group,
     glow: new THREE.Vector3(0, 1.5, 0),
-    update() {},
+    update(t, dt, cam) {
+      if (!opts.animate) return;
+      const d = Math.min(dt, 1 / 30);
+      stepHand(t, d, cam);
+      if (phase !== "hidden" || t < settleUntil) stepCandies(d);
+    },
   };
 }
 

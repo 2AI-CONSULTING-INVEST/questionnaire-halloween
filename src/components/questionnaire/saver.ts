@@ -1,6 +1,7 @@
 "use client";
 
 import { withBase } from "@/lib/base-path";
+import { deviceSignals } from "@/lib/fingerprint";
 import { apiFetch, isDemoMode } from "./demo";
 
 /**
@@ -36,14 +37,14 @@ export function initSaver(id: string) {
   sessionId = id;
 }
 
-/** Ouvre la session côté serveur. Renvoie l'heure de réouverture si l'appareil a déjà voté aujourd'hui. */
+/** Ouvre la session côté serveur (avec les signaux d'appareil). Renvoie l'heure de réouverture si l'appareil a déjà voté aujourd'hui. */
 export async function createSession(id: string): Promise<{ alreadyVoted: string } | null> {
   sessionId = id;
   try {
     const res = await apiFetch("/api/responses/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: id }),
+      body: JSON.stringify({ session_id: id, device: await deviceSignals() }),
       keepalive: true,
     });
     if (res.status === 409) {

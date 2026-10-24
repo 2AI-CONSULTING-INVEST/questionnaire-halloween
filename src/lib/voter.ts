@@ -1,8 +1,10 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import type { NextResponse } from "next/server";
 import { BASE_PATH } from "./base-path";
+import type { DeviceStamp } from "./db";
 import { isUuid } from "./http";
+import type { Device } from "./schema";
 
 /**
  * Identifiant d'appareil du vote quotidien : cookie `hw_voter` (uuid aléatoire), posé par le
@@ -42,4 +44,21 @@ export function ensureVoter(req: Request): { id: string; isNew: boolean } {
 export function setVoterCookie(res: NextResponse, id: string) {
   res.cookies.set(VOTER_COOKIE, id, voterCookieOptions);
   return res;
+}
+
+/**
+ * Empreinte d'appareil enregistrée : HMAC-SHA256 (secret serveur) du condensé envoyé par le
+ * navigateur, en hexa. Le condensé brut n'est jamais stocké ; sans secret, rien n'est recalculable.
+ */
+export function deviceHash(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const secret = process.env.RISK_SECRET || process.env.ADMIN_SESSION_SECRET || "dev-only-secret-change-me-dev-only-secret";
+  return createHmac("sha256", secret).update(raw).digest("hex");
+}
+
+/** Ce qui est enregistré sur la réponse : l'empreinte HMAC et les attributs grossiers (sans le condensé). */
+export function deviceStamp(device: Device | undefined): DeviceStamp {
+  if (!device) return { device_hash: null, device_info: null };
+  const { hash, ...info } = device;
+  return { device_hash: deviceHash(hash), device_info: Object.keys(info).length ? info : null };
 }

@@ -16,7 +16,7 @@ const bodySchema = z.object({
  * Stockage local → { mode: "form" } : le fichier passe par POST /api/decorations.
  */
 export async function POST(req: Request) {
-  const denied = await requireRole("admin");
+  const denied = await requireRole("admin", req);
   if (denied) return denied;
   const parsed = bodySchema.safeParse(await readJson(req));
   if (!parsed.success) return zodError(parsed.error);

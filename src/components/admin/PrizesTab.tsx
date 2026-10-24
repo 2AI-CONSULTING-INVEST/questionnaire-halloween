@@ -4,7 +4,7 @@ import Image from "next/image";
 import { ArrowDown, ArrowUp, ImagePlus, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Label } from "radix-ui";
 import { useRef, useState } from "react";
-import { isLocalMedia, PRIZE_DESCRIPTION_MAX, type Participant, type Prize } from "@/lib/schema";
+import { isLocalMedia, PRIZE_DESCRIPTION_MAX, type Prize } from "@/lib/schema";
 import { createPrize, prepareImageOnly, replacePrizeImage } from "./upload";
 import { Button, Card, ConfirmDialog, Empty, inputClass } from "./ui";
 import { withBase } from "@/lib/base-path";
@@ -24,7 +24,8 @@ export function PrizesTab({
   onChanged,
 }: {
   prizes: Prize[];
-  participants: Participant[];
+  /** Liste légère : seul le pseudo du gagnant est affiché. */
+  participants: { id: string; pseudo: string }[];
   canWrite: boolean;
   onChanged: () => void;
 }) {
