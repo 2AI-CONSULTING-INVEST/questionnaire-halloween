@@ -1,97 +1,98 @@
 # Graph Report - questionnaire-halloween  (2026-10-26)
 
 ## Corpus Check
-- 171 files · ~367,097 words
+- 172 files · ~368,942 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 28 file(s) not represented in the graph (top: .avif 18, .glb 5, .css 2)
 
 ## Summary
-- 1510 nodes · 4368 edges · 66 communities (56 shown, 10 thin omitted)
+- 1520 nodes · 4391 edges · 68 communities (58 shown, 10 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 68 edges (avg confidence: 0.89)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b0f0947d`
+- Built from commit: `ea7a9178`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - getStore
-- withBase
-- createCrypt
+- admin/ui.tsx
 - world.ts
+- glow.ts
 - outdoor.ts
 - SupabaseStore
-- .mutate
+- Empty
 - Store
 - props.ts
-- complete/route.ts
+- Card
 - site.ts
-- CornerRail.tsx
+- withBase
 - createWorld
 - package.json
 - Fonctionnement
 - risk.ts
 - brand/render.mjs
-- participants/page.tsx
+- complete/route.ts
 - Questionnaire.tsx
 - compilerOptions
 - react
 - 6. Résultats
 - pack-models.mjs
-- guard.ts
+- upload.ts
 - engine.ts
 - dependencies
-- clock.ts
+- Questionnaire
 - modal-props/render.mjs
 - export/route.ts
 - raffle-props/render.mjs
 - og.mjs
 - devDependencies
 - core.ts
-- redact.ts
+- rand
 - prize-props/render.mjs
 - analytics.ts
 - scripts
 - posters.mjs
 - laugh.mjs
-- wordmark.mjs
-- visits.ts
+- world.ts
+- AdminDashboard.tsx
 - AGENTS.md
 - db.ts
 - CLAUDE.md
 - Questionnaire.tsx
-- ref_node_assert
+- http.ts
 - LocalStore
 - schema.ts
-- antifraude.mjs
+- guard.ts
 - verificateur-scene.md
 - ref_node_fs
 - three
-- Decoration
-- fingerprint.ts
+- auth.ts
 - demo.ts
-- decorations/route.ts
-- SpookyBackdrop.tsx
-- SocialCards.tsx
+- redact.ts
+- LiveResults.tsx
+- antifraude.mjs
 - purge.test.ts
-- ResponsePatch
-- ResponseRow
+- VisitsCard.tsx
+- clock.ts
 - login/layout.tsx
-- AdminSession
+- Decoration
 - vercel.json
+- ResponsePatch
+- AdminSession
 
 ## God Nodes (most connected - your core abstractions)
 1. `getStore()` - 80 edges
-2. `withBase()` - 78 edges
+2. `withBase()` - 79 edges
 3. `json()` - 67 edges
 4. `SupabaseStore` - 65 edges
 5. `LocalStore` - 62 edges
 6. `requireRole()` - 58 edges
 7. `Store` - 57 edges
 8. `error()` - 54 edges
-9. `next` - 46 edges
-10. `react` - 38 edges
+9. `next` - 47 edges
+10. `createWorld()` - 40 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `F-05 — Authentification par mot de passe partagé, limiteur en mémoire, pas de verrouillage ni de journal des échecs` --references--> `roleForPassword()`  [INFERRED]
@@ -108,79 +109,83 @@
 ## Import Cycles
 - None detected.
 
-## Communities (66 total, 10 thin omitted)
+## Communities (68 total, 10 thin omitted)
 
 ### Community 0 - "getStore"
 Cohesion: 0.15
-Nodes (44): POST(), POST(), GET(), PATCH(), DELETE(), PATCH(), patchSchema, POST() (+36 more)
+Nodes (46): POST(), GET(), POST(), GET(), PATCH(), GET(), DELETE(), PATCH() (+38 more)
 
-### Community 1 - "withBase"
-Cohesion: 0.05
-Nodes (134): lucide-react, radix-ui, react, AdminLogin(), submit(), metadata, AdminDashboard(), logout() (+126 more)
+### Community 1 - "admin/ui.tsx"
+Cohesion: 0.16
+Nodes (35): usePage(), edge(), ParticipantDrawer(), Row(), Vote, Votes(), ParticipantRow(), ParticipantsTab() (+27 more)
 
-### Community 2 - "createCrypt"
+### Community 2 - "world.ts"
 Cohesion: 0.11
-Nodes (15): Billboards, BADGE, createCrypt(), placeArm(), redraw(), CRYPT_ORIGIN, CryptArea, drawResults() (+7 more)
+Nodes (16): Billboards, smooth(), BADGE, createCrypt(), placeArm(), redraw(), CRYPT_ORIGIN, CryptArea (+8 more)
 
-### Community 3 - "world.ts"
-Cohesion: 0.09
-Nodes (32): applyCutGlow(), colGlsl(), CUT_SHINE_ORDER, CutGlow, cutGlowWarmup(), cutGlsl(), CutSpec, f() (+24 more)
+### Community 3 - "glow.ts"
+Cohesion: 0.30
+Nodes (11): applyCutGlow(), colGlsl(), CUT_SHINE_ORDER, cutGlowWarmup(), cutGlsl(), CutSpec, f(), glowMaterial() (+3 more)
 
 ### Community 4 - "outdoor.ts"
 Cohesion: 0.05
-Nodes (49): Décor 3D : trois lieux sur un même parcours, BigJack, BLOOD_EYES, BLOOD_POOLS, CAMERA_Z, CAULDRON_AT, CLEARING, CLEARING_EYES (+41 more)
+Nodes (56): BLOOD_COLOR, bloodTexture(), createBloodMaterial(), createDrops(), createPools(), PoolSpec, groundHeight(), BigJack (+48 more)
 
 ### Community 5 - "SupabaseStore"
 Cohesion: 0.07
 Nodes (11): applyResponseFilter(), ConflictError, conflictFields(), filtered(), kindOf(), PgFilter, sameParticipant(), slicePage() (+3 more)
 
+### Community 6 - "Empty"
+Cohesion: 0.20
+Nodes (31): DecorationDetails(), FavoriteDetails(), foldSeries(), Kpis(), nf(), seriesRows(), Stat(), Table() (+23 more)
+
 ### Community 7 - "Store"
 Cohesion: 0.05
-Nodes (5): Store, LoginFailure, Participant, Prize, Restaurant
+Nodes (7): Store, Page, LoginFailure, Participant, Prize, Restaurant, Visit
 
 ### Community 8 - "props.ts"
 Cohesion: 0.11
 Nodes (36): Préparation des modèles 3D, createBladeBloodMaterial(), dripGeometry(), merge(), armReaper(), BoneHand, Candy, CANDY_TINTS (+28 more)
 
-### Community 9 - "complete/route.ts"
-Cohesion: 0.14
-Nodes (32): server-only, GET(), POST(), POST(), GET(), POST(), GET(), serverNow() (+24 more)
+### Community 9 - "Card"
+Cohesion: 0.31
+Nodes (11): NewPrizeCard(), submit(), patchPrize(), PrizeRow(), PrizesTab(), Callout(), n(), RiskMethodology() (+3 more)
 
 ### Community 10 - "site.ts"
-Cohesion: 0.09
-Nodes (28): inter, metadata, viewport, Home(), metadata, revalidate, LanternPost(), LiveResults() (+20 more)
+Cohesion: 0.05
+Nodes (49): react-dom, inter, metadata, viewport, Home(), metadata, revalidate, metadata (+41 more)
 
-### Community 11 - "CornerRail.tsx"
-Cohesion: 0.25
-Nodes (16): getSoundPrefs(), isSoundStarted(), loadPrefs(), masterLevel(), onVisibility(), ramp(), serverSoundPrefs(), setPrefs() (+8 more)
+### Community 11 - "withBase"
+Cohesion: 0.16
+Nodes (20): AdminLogin(), submit(), BatSwarm(), Jumper(), PrizeDecor(), GalleryPrize, PrizeImage(), PrizesGallery() (+12 more)
 
 ### Community 12 - "createWorld"
-Cohesion: 0.12
-Nodes (31): createBloodScreen(), reset(), splash(), Inj, easeInOut(), flicker(), rand(), smooth() (+23 more)
+Cohesion: 0.18
+Nodes (25): frame(), flicker(), updateCutGlow(), outdoorPose(), createWorld(), adapt(), applyPalette(), doorSwarm() (+17 more)
 
 ### Community 13 - "package.json"
-Cohesion: 0.12
-Nodes (15): eslintConfig, name, private, version, eslint, eslint-config-next, recharts, @supabase/supabase-js (+7 more)
+Cohesion: 0.11
+Nodes (17): eslintConfig, author, contributors, name, private, version, eslint, eslint-config-next (+9 more)
 
 ### Community 14 - "Fonctionnement"
 Cohesion: 0.09
-Nodes (20): 1. Supabase (~5 min), 2. Vercel, API, Compteur de visites (robots écartés), Données et conservation, Démarrage local (sans Supabase), Enregistrement en direct, Espace démo (+12 more)
+Nodes (21): 1. Supabase (~5 min), 2. Vercel, API, Compteur de visites (robots écartés), Crédits, Données et conservation, Démarrage local (sans Supabase), Enregistrement en direct (+13 more)
 
 ### Community 15 - "risk.ts"
-Cohesion: 0.16
-Nodes (18): browserFamily(), DeviceVote, IP_DAILY_MAX_FLAG, IP_DAILY_MAX_LABEL, IP_POINTS_MAX, OWN_SIGNALS, RISK_SIGNAL_ORDER, RISK_SIGNALS (+10 more)
+Cohesion: 0.06
+Nodes (44): nextConfig, Sécurité, buildCsp(), securityHeaders(), audioRate(), browserName(), canvas(), compute() (+36 more)
 
 ### Community 16 - "brand/render.mjs"
 Cohesion: 0.11
 Nodes (17): appDir, disc, header, here, out, puppeteer, raw, require (+9 more)
 
-### Community 17 - "participants/page.tsx"
-Cohesion: 0.19
-Nodes (14): metadata, ParticipantsPage(), PrizeThumb(), revalidate, ParticipantsList(), BatSwarm(), Jumper(), PrizeDecor() (+6 more)
+### Community 17 - "complete/route.ts"
+Cohesion: 0.13
+Nodes (32): GET(), GET(), POST(), POST(), GET(), POST(), GET(), serverNow() (+24 more)
 
 ### Community 18 - "Questionnaire.tsx"
-Cohesion: 0.07
-Nodes (48): zustand, LETTERS, apiFetch(), isDemoMode(), setDemoMode(), ApiError, Props, Questionnaire() (+40 more)
+Cohesion: 0.15
+Nodes (15): isDemoMode(), setDemoMode(), Answers, blankSession, emptyAnswers, modeAwareStorage, restartDemo(), Screen (+7 more)
 
 ### Community 19 - "compilerOptions"
 Cohesion: 0.11
@@ -188,67 +193,67 @@ Nodes (18): compilerOptions, allowJs, esModuleInterop, incremental, isolatedModu
 
 ### Community 20 - "react"
 Cohesion: 0.24
-Nodes (15): GroupRow(), move(), remove(), Dir, LightboxGroup, MediaLightbox(), SlideVideo(), Viewer() (+7 more)
+Nodes (19): radix-ui, DecorationsTab(), GroupRow(), QueueItem, Dir, LightboxGroup, MediaLightbox(), SlideVideo() (+11 more)
 
 ### Community 21 - "6. Résultats"
 Cohesion: 0.06
 Nodes (34): 1. Synthèse exécutive, 2. Périmètre et exclusions, 3. Méthodologie et organisation, 4. Outils utilisés, 5. Limites de l'audit, 6. Résultats, 7. Plan d'actions priorisé, 8. Zones non couvertes (+26 more)
 
 ### Community 22 - "pack-models.mjs"
-Cohesion: 0.13
+Cohesion: 0.14
 Nodes (12): io, args, io, paints, roots, hex(), io, KEEP (+4 more)
 
-### Community 23 - "guard.ts"
-Cohesion: 0.13
-Nodes (24): next, AdminPage(), metadata, geo(), POST(), POST(), DemoPage(), metadata (+16 more)
+### Community 23 - "upload.ts"
+Cohesion: 0.22
+Nodes (20): UploadCard(), start(), asFile(), canvasToBlob(), createPrize(), decodeImage(), drawScaled(), fmtMb() (+12 more)
 
 ### Community 24 - "engine.ts"
-Cohesion: 0.13
-Nodes (29): bats(), birds(), build(), BUS, candle(), clampPan(), crows(), DEFAULT_PREFS (+21 more)
+Cohesion: 0.07
+Nodes (69): canRun3D(), CSSVars, SpookyBackdrop(), STARS, toggleTheme(), applyAmbience(), bats(), birds() (+61 more)
 
 ### Community 25 - "dependencies"
 Cohesion: 0.13
 Nodes (15): dependencies, framer-motion, lucide-react, next, papaparse, radix-ui, react, react-dom (+7 more)
 
-### Community 26 - "clock.ts"
-Cohesion: 0.21
-Nodes (13): markShown(), NextVoteTimer(), two(), wasShown(), clientNow(), parse(), TEST_CLOCK, TEST_CLOCK_COOKIE (+5 more)
+### Community 26 - "Questionnaire"
+Cohesion: 0.18
+Nodes (17): apiFetch(), Questionnaire(), SaveIndicator(), createSession(), discard(), flush(), initSaver(), Listener (+9 more)
 
 ### Community 27 - "modal-props/render.mjs"
 Cohesion: 0.18
 Nodes (10): crops, here, meta, packsRoot, { PNG }, projectRoot, require, [rootArg, packsArg, outDir] (+2 more)
 
 ### Community 28 - "export/route.ts"
-Cohesion: 0.21
-Nodes (13): papaparse, xlsx, GET, PERSONAL_COLUMNS, POST, STATUS_FILTER, allResponsesRows(), date() (+5 more)
+Cohesion: 0.23
+Nodes (14): papaparse, xlsx, GET, handle(), PERSONAL_COLUMNS, POST, STATUS_FILTER, allResponsesRows() (+6 more)
 
 ### Community 29 - "raffle-props/render.mjs"
-Cohesion: 0.18
-Nodes (10): here, meta, packsRoot, { PNG }, projectRoot, puppeteer, require, [rootArg, packsArg, outDir] (+2 more)
+Cohesion: 0.13
+Nodes (11): here, meta, packsRoot, { PNG }, projectRoot, puppeteer, require, [rootArg, packsArg, outDir] (+3 more)
 
 ### Community 30 - "og.mjs"
-Cohesion: 0.18
-Nodes (10): CARDS, chrome, here, out, puppeteer, require, root, server (+2 more)
+Cohesion: 0.13
+Nodes (12): CARDS, chrome, here, out, puppeteer, require, root, server (+4 more)
 
 ### Community 31 - "devDependencies"
 Cohesion: 0.18
 Nodes (11): devDependencies, eslint, eslint-config-next, tailwindcss, @tailwindcss/turbopack, @types/node, @types/papaparse, @types/react (+3 more)
 
 ### Community 32 - "core.ts"
-Cohesion: 0.20
-Nodes (18): BLOOD_COLOR, bloodTexture(), createBloodMaterial(), createDrops(), createPools(), PoolSpec, canvasTexture(), dustTexture() (+10 more)
+Cohesion: 0.27
+Nodes (13): Décor 3D : trois lieux sur un même parcours, canvasTexture(), dustTexture(), glowTexture(), seeded(), shadowTexture(), smokeTexture(), stoneTexture() (+5 more)
 
-### Community 33 - "redact.ts"
-Cohesion: 0.16
-Nodes (24): zod, GET(), querySchema, GET(), querySchema, GET(), GET(), querySchema (+16 more)
+### Community 33 - "rand"
+Cohesion: 0.48
+Nodes (5): createBloodScreen(), reset(), splash(), Inj, rand()
 
 ### Community 34 - "prize-props/render.mjs"
 Cohesion: 0.13
 Nodes (13): typescript, here, outDir, packsRoot, { PNG }, projectRoot, puppeteer, require (+5 more)
 
 ### Community 35 - "analytics.ts"
-Cohesion: 0.16
-Nodes (20): GET(), GET(), AnalyticsFilter, count(), dayOf(), dayRange(), DecorationResult, getSummary() (+12 more)
+Cohesion: 0.17
+Nodes (17): ResultsPage(), AnalyticsFilter, count(), dayOf(), dayRange(), DecorationResult, loadFiltered(), summarize() (+9 more)
 
 ### Community 36 - "scripts"
 Cohesion: 0.22
@@ -259,100 +264,104 @@ Cohesion: 0.14
 Nodes (15): Backoffice, args, block(), cssOnly, FORMATS, out, puppeteer, require (+7 more)
 
 ### Community 38 - "laugh.mjs"
-Cohesion: 0.12
-Nodes (12): buf, [dir, root = "."], out, puppeteer, require, server, puppeteer, require (+4 more)
+Cohesion: 0.10
+Nodes (15): here, out, puppeteer, raw, require, root, server, sharp (+7 more)
 
-### Community 39 - "wordmark.mjs"
+### Community 39 - "world.ts"
+Cohesion: 0.10
+Nodes (21): easeInOut(), CutGlow, GraveyardArea, Area, EyeStyle, Flame, Frame, Kit (+13 more)
+
+### Community 40 - "AdminDashboard.tsx"
 Cohesion: 0.14
-Nodes (11): here, out, puppeteer, raw, require, root, server, sharp (+3 more)
-
-### Community 40 - "visits.ts"
-Cohesion: 0.19
-Nodes (12): Device, BOT_UA_RE, isDuplicateVisit(), summarizeVisits(), VISIT_REJECTIONS, VisitCounts, VisitLike, visitorKey() (+4 more)
+Nodes (12): lucide-react, react, metadata, metadata, readTheme(), Filters, lastStep(), ResponsesStatus (+4 more)
 
 ### Community 42 - "db.ts"
-Cohesion: 0.06
+Cohesion: 0.07
 Nodes (37): AdminActionInput, AdminSessionInput, CompleteResult, CONSTRAINT_FIELD, Coordinates, DATA_FILE, DeviceStamp, FILE_NAME_RE (+29 more)
 
 ### Community 44 - "Questionnaire.tsx"
-Cohesion: 0.16
-Nodes (17): framer-motion, AlreadyVoted(), two(), COLORS, Confetti(), makePieces(), Piece, formatPhoneInput() (+9 more)
+Cohesion: 0.15
+Nodes (16): framer-motion, COLORS, Confetti(), makePieces(), Piece, formatPhoneInput(), renderScreen(), normalize() (+8 more)
 
-### Community 45 - "ref_node_assert"
-Cohesion: 0.24
-Nodes (4): nextConfig, Sécurité, buildCsp(), securityHeaders()
+### Community 45 - "http.ts"
+Cohesion: 0.17
+Nodes (10): next, server-only, zod, querySchema, patchSchema, directSchema, bodySchema, restaurantSchema (+2 more)
 
 ### Community 46 - "LocalStore"
 Cohesion: 0.11
 Nodes (4): LocalStore, pageLocal(), seed(), visitsSince()
 
 ### Community 47 - "schema.ts"
-Cohesion: 0.11
-Nodes (24): Cobweb(), FIELDS, FormProps, LanternPost(), RaffleConfirmDialog(), RaffleField, RaffleForm(), validateRaffle() (+16 more)
+Cohesion: 0.08
+Nodes (35): ApiError, Props, SCREEN_OF_FIELD, STEP_TITLE, variants, VOTE_FIELDS, Cobweb(), FIELDS (+27 more)
 
-### Community 48 - "antifraude.mjs"
-Cohesion: 0.27
-Nodes (12): client(), DATA, DECO_A, DECO_B, DEVICE(), login(), main(), ok() (+4 more)
+### Community 48 - "guard.ts"
+Cohesion: 0.16
+Nodes (15): AdminPage(), metadata, GET(), GET(), DemoPage(), metadata, getSummary(), parseFilter() (+7 more)
 
 ### Community 50 - "verificateur-scene.md"
 Cohesion: 0.50
 Nodes (3): Ce que tu reçois, Méthode, Verdict
 
 ### Community 51 - "ref_node_fs"
-Cohesion: 0.25
-Nodes (3): io, [srcDir, outDir, name], SRC
+Cohesion: 0.18
+Nodes (8): io, [srcDir, outDir, name], puppeteer, require, result, root, server, TRACKS
 
 ### Community 52 - "three"
-Cohesion: 0.33
-Nodes (11): three, bezier(), Flyer, rand(), startBatSwarm(), frame(), launch(), schedule() (+3 more)
+Cohesion: 0.32
+Nodes (10): three, bezier(), Flyer, rand(), startBatSwarm(), launch(), schedule(), startPoint() (+2 more)
 
-### Community 54 - "fingerprint.ts"
-Cohesion: 0.33
-Nodes (10): audioRate(), browserName(), canvas(), compute(), deviceSignals(), localVoteDay(), nav(), UaData (+2 more)
+### Community 54 - "auth.ts"
+Cohesion: 0.22
+Nodes (16): F-03 — Sessions du backoffice non révocables côté serveur, geo(), POST(), POST(), ADMIN_COOKIE, cookieOptions, createToken(), currentSession() (+8 more)
 
 ### Community 55 - "demo.ts"
-Cohesion: 0.14
-Nodes (20): react-dom, PublicLayout(), DEMO_RESTART_EVENT, demoFetch(), enterDemoTab(), exitDemoTab(), invalid(), isDemoTab() (+12 more)
+Cohesion: 0.19
+Nodes (17): PublicLayout(), DEMO_RESTART_EVENT, demoFetch(), enterDemoTab(), exitDemoTab(), invalid(), isDemoTab(), readBody() (+9 more)
 
-### Community 56 - "decorations/route.ts"
-Cohesion: 0.31
-Nodes (5): directSchema, GET(), bodySchema, MEDIA_LIMITS, MEDIA_TYPES
+### Community 56 - "redact.ts"
+Cohesion: 0.24
+Nodes (13): GET(), querySchema, querySchema, decodeCursor(), PAGE_MAX, PAGE_SIZE, maskEmail(), maskIp() (+5 more)
 
-### Community 57 - "SpookyBackdrop.tsx"
-Cohesion: 0.22
-Nodes (15): useSceneState, canRun3D(), CSSVars, SpookyBackdrop(), STARS, toggleTheme(), applyAmbience(), setSoundPlace() (+7 more)
+### Community 57 - "LiveResults.tsx"
+Cohesion: 0.21
+Nodes (13): zustand, LanternPost(), LiveResults(), MEDALS, pct(), Ranking(), ResultsData, SceneState (+5 more)
 
-### Community 58 - "SocialCards.tsx"
-Cohesion: 0.17
-Nodes (19): Btn, copy(), noSubscribe(), ShareButtons(), shareUrl(), InstagramIcon(), LABELS, Network (+11 more)
+### Community 58 - "antifraude.mjs"
+Cohesion: 0.27
+Nodes (12): client(), DATA, DECO_A, DECO_B, DEVICE(), login(), main(), ok() (+4 more)
 
 ### Community 59 - "purge.test.ts"
-Cohesion: 0.27
-Nodes (8): LocalData, migrateLocal(), RETENTION_DAYS, NOW, response(), session(), uuid(), visit()
+Cohesion: 0.21
+Nodes (9): LocalData, migrateLocal(), purgeLocal(), RETENTION_DAYS, NOW, response(), session(), uuid() (+1 more)
 
-### Community 61 - "ResponseRow"
-Cohesion: 0.18
-Nodes (3): Page, ResponseRow, Visit
+### Community 60 - "VisitsCard.tsx"
+Cohesion: 0.33
+Nodes (10): device(), Journal, place(), SessionsTab(), Counts(), nf(), Stat(), TopList() (+2 more)
+
+### Community 61 - "clock.ts"
+Cohesion: 0.36
+Nodes (7): AlreadyVoted(), two(), Emoji(), clientNow(), parse(), TEST_CLOCK_COOKIE, TEST_CLOCK_STORAGE_KEY
 
 ## Knowledge Gaps
 - **7 isolated node(s):** `@tailwindcss/turbopack`, `@types/node`, `@types/papaparse`, `@types/react`, `@types/react-dom` (+2 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 486 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 492 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `LocalStore` connect `LocalStore` to `getStore`, `SupabaseStore`, `.mutate`, `Store`, `db.ts`, `Decoration`, `ResponsePatch`, `ResponseRow`?**
-  _High betweenness centrality (0.060) - this node is a cross-community bridge._
+- **Why does `withBase()` connect `withBase` to `admin/ui.tsx`, `Empty`, `AdminDashboard.tsx`, `Card`, `site.ts`, `Questionnaire.tsx`, `Fonctionnement`, `schema.ts`, `react`, `demo.ts`, `upload.ts`, `engine.ts`, `LiveResults.tsx`, `Questionnaire`, `VisitsCard.tsx`?**
+  _High betweenness centrality (0.061) - this node is a cross-community bridge._
 - **What connects `@tailwindcss/turbopack`, `@types/node`, `@types/papaparse` to the rest of the system?**
   _7 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `withBase` be split into smaller, more focused modules?**
-  _Cohesion score 0.05087375469541074 - nodes in this community are weakly interconnected._
-- **Why does `withBase()` connect `withBase` to `site.ts`, `CornerRail.tsx`, `Questionnaire.tsx`, `Fonctionnement`, `schema.ts`, `participants/page.tsx`, `Questionnaire.tsx`, `react`, `demo.ts`, `engine.ts`, `clock.ts`?**
-  _High betweenness centrality (0.055) - this node is a cross-community bridge._
-- **Should `createCrypt` be split into smaller, more focused modules?**
-  _Cohesion score 0.10507246376811594 - nodes in this community are weakly interconnected._
-- **Why does `next` connect `guard.ts` to `getStore`, `withBase`, `complete/route.ts`, `site.ts`, `CornerRail.tsx`, `Questionnaire.tsx`, `package.json`, `ref_node_assert`, `schema.ts`, `participants/page.tsx`, `react`, `demo.ts`, `decorations/route.ts`, `SpookyBackdrop.tsx`, `SocialCards.tsx`, `login/layout.tsx`?**
-  _High betweenness centrality (0.054) - this node is a cross-community bridge._
 - **Should `world.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.0873015873015873 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.10666666666666667 - nodes in this community are weakly interconnected._
+- **Why does `next` connect `http.ts` to `getStore`, `Empty`, `AdminDashboard.tsx`, `Card`, `site.ts`, `withBase`, `Questionnaire.tsx`, `package.json`, `risk.ts`, `guard.ts`, `complete/route.ts`, `schema.ts`, `react`, `auth.ts`, `demo.ts`, `engine.ts`, `LiveResults.tsx`, `login/layout.tsx`?**
+  _High betweenness centrality (0.059) - this node is a cross-community bridge._
+- **Should `outdoor.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.05310734463276836 - nodes in this community are weakly interconnected._
+- **Why does `LocalStore` connect `LocalStore` to `getStore`, `Decoration`, `ResponsePatch`, `SupabaseStore`, `Store`, `db.ts`, `.mutate`, `purge.test.ts`?**
+  _High betweenness centrality (0.056) - this node is a cross-community bridge._
+- **Should `SupabaseStore` be split into smaller, more focused modules?**
+  _Cohesion score 0.06944444444444445 - nodes in this community are weakly interconnected._

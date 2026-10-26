@@ -209,10 +209,15 @@ function RaffleForm({ initial, formatPhone, onConfirm, onBusy }: FormProps) {
         </Dialog.Description>
 
         <p className="mt-3 text-xs text-fg-muted">
-          Ces coordonnées servent uniquement au tirage au sort et ne sont jamais publiées.{" "}
+          Ces coordonnées servent uniquement au tirage au sort et ne sont jamais publiées. En confirmant votre participation, vous acceptez nos{" "}
+          <a href={withBase("/conditions")} target="_blank" rel="noopener" className="underline underline-offset-2 hover:text-fg">
+            conditions d&apos;utilisation
+          </a>{" "}
+          et notre{" "}
           <a href={withBase("/confidentialite")} target="_blank" rel="noopener" className="underline underline-offset-2 hover:text-fg">
-            Confidentialité
+            politique de confidentialité
           </a>
+          .
         </p>
         <div className="mt-4 grid grid-cols-2 gap-3.5">
           {FIELDS.map((f) => {

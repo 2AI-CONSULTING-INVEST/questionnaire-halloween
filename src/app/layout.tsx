@@ -19,6 +19,10 @@ export const metadata: Metadata = {
   openGraph: { ...OG_BASE, title: HOME.shareTitle, description: HOME.shareDescription },
   twitter: { card: "summary_large_image", title: HOME.shareTitle, description: HOME.shareDescription },
   appleWebApp: { title: "Chamas Halloween" },
+  // Crédits (balises meta + public/humans.txt), sans affichage sur le site.
+  authors: [{ name: "2AI CONSULTING & INVEST" }, { name: "Steeve MOKOKO" }, { name: "ai assistant" }],
+  creator: "2AI CONSULTING & INVEST",
+  publisher: "Chamas Tacos",
 };
 
 export const viewport: Viewport = {

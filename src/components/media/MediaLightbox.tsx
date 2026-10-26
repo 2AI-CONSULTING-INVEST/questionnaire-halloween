@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Play, VideoOff, X } from "lucide-react";
 import { Dialog } from "radix-ui";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { isLocalMedia, mediaKind, posterOf, shortName, type Decoration } from "@/lib/schema";
+import { holdSound } from "@/components/sound/engine";
 
 export type LightboxGroup = { id: string; title: string; items: Decoration[] };
 
@@ -298,10 +299,17 @@ function SlideVideo({ src, active }: { src: string; active: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
   const [failed, setFailed] = useState(false);
+  const holding = useRef(false);
+  const hold = (on: boolean) => {
+    if (holding.current === on) return;
+    holding.current = on;
+    holdSound(on);
+  };
 
   useEffect(() => {
     if (!active) ref.current?.pause();
   }, [active]);
+  useEffect(() => () => hold(false), []);
 
   if (failed) {
     return (
@@ -322,7 +330,12 @@ function SlideVideo({ src, active }: { src: string; active: boolean }) {
         controls={started}
         preload="none"
         onError={() => setFailed(true)}
-        onPlay={() => setStarted(true)}
+        onPlay={() => {
+          setStarted(true);
+          hold(true);
+        }}
+        onPause={() => hold(false)}
+        onEnded={() => hold(false)}
         className="max-h-full max-w-full rounded-lg bg-black object-contain"
       />
       {!started && (

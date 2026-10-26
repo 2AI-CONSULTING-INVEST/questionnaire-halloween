@@ -18,6 +18,10 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
       <SpookyBackdrop />
       {children}
       <footer className="relative z-10 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-center text-xs text-fg-muted">
+        <Link href="/conditions" className="underline-offset-2 hover:text-fg hover:underline">
+          Conditions d&apos;utilisation
+        </Link>
+        {" · "}
         <Link href="/confidentialite" className="underline-offset-2 hover:text-fg hover:underline">
           Confidentialité
         </Link>

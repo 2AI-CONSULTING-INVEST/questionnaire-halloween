@@ -7,8 +7,9 @@
  *
  * Performances mobiles : un matériau texturé partagé, un nombre FIXE de lumières (un « pool »
  * attribué aux flammes les plus proches : aucun recompilage de shader), particules
- * instanciées, lieux masqués quand ils ne sont pas visibles, résolution réduite si le
- * téléphone peine.
+ * instanciées, lieux masqués quand ils ne sont pas visibles, résolution adaptative : native
+ * (écrans 3x compris) tant que l'appareil tient 40 images/s, baissée par paliers sinon et
+ * remontée prudemment quand il a de la marge.
  */
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -182,9 +183,16 @@ type Shot = {
 export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): World {
   const low = opts.quality === "low";
   const reduce = opts.reducedMotion;
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: !low, powerPreference: "low-power" });
-  let pixelRatio = Math.min(window.devicePixelRatio || 1, low ? 1.25 : 1.75);
+  // MSAA partout : quasi gratuit sur les GPU mobiles (rendu par tuiles) et net sur les arêtes des modèles.
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "low-power" });
+  const dpr = window.devicePixelRatio || 1;
+  // Plafond de résolution (fraction du natif) : les appareils modestes partent plus bas ; la boucle
+  // d'adaptation (`adapt`) monte jusqu'au plafond ou descend jusqu'à 1 selon la cadence mesurée.
+  const ratioCap = Math.min(dpr, low ? 2 : 3);
+  let maxRatio = ratioCap;
+  let pixelRatio = Math.min(dpr, low ? 1.5 : 2);
   renderer.setPixelRatio(pixelRatio);
+  const anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy()); // sols vus de biais nets
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // Sang qui coule sur l'écran dans la clairière (null si les cibles flottantes manquent).
@@ -624,6 +632,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       const src = mesh.material as THREE.MeshStandardMaterial;
+      if (src.map) src.map.anisotropy = anisotropy;
       if (!packMat) packMat = new THREE.MeshLambertMaterial({ map: src.map });
       else if (packMat.map !== src.map) {
         packMat.map = src.map; // remplace l'atlas de préchauffage (même programme : pas de recompilation)
@@ -640,6 +649,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     dungeonTexReady ??= new THREE.TextureLoader().loadAsync(ASSETS.dungeonTexture).then((tex) => {
       tex.flipY = false; // convention glTF, comme les autres atlas
       tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = anisotropy;
       for (const m of [dungeonMat, dungeonFlatMat]) {
         m.map = tex;
         m.needsUpdate = true;
@@ -758,8 +768,8 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   let raf = 0;
   let nextSwarm = rand(5, 9);
   let slowFrames = 0;
+  let fastFrames = 0;
   let eyeArea: Area | null = null;
-  let degraded = low;
 
   const bezier = (p: THREE.Vector3[], t: number, out: THREE.Vector3) => {
     const u = 1 - t;
@@ -1050,17 +1060,39 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (!graveyard) return; // modèles en cours de chargement
-    // Téléphone qui peine : on réduit la résolution une fois pour toutes.
-    if (!degraded) {
-      slowFrames = dt > 1 / 38 ? slowFrames + 1 : Math.max(0, slowFrames - 1);
-      if (slowFrames > 90) {
-        degraded = true;
-        pixelRatio = 1;
-        renderer.setPixelRatio(1);
-        layout();
-      }
-    }
+    adapt(dt);
     renderFrame(dt);
+  }
+
+  /**
+   * Résolution adaptative : un cran (0,25) de moins après ~1,5 s d'images lentes (< 40 i/s), et ce
+   * palier devient le plafond ; un cran de plus après ~6 s d'images rapides (> 56 i/s). Le plafond
+   * lui-même ne remonte qu'après ~30 s de cadence stable : un à-coup passager (chargement, vidéo)
+   * ne fige pas la qualité, et un appareil vraiment lent ne réessaie que rarement et brièvement.
+   */
+  function adapt(dt: number) {
+    if (dt > 1 / 40) {
+      slowFrames++;
+      fastFrames = 0;
+    } else if (dt < 1 / 56) {
+      fastFrames++;
+      slowFrames = Math.max(0, slowFrames - 1);
+    }
+    if (slowFrames > 60 && pixelRatio > 1) {
+      maxRatio = Math.max(1, pixelRatio - 0.25);
+      setRatio(maxRatio);
+    } else if (fastFrames > 360 && pixelRatio < maxRatio) setRatio(Math.min(maxRatio, pixelRatio + 0.25));
+    else if (fastFrames > 1800 && maxRatio < ratioCap) {
+      maxRatio = Math.min(ratioCap, maxRatio + 0.25);
+      setRatio(maxRatio);
+    }
+  }
+  function setRatio(r: number) {
+    pixelRatio = r;
+    slowFrames = 0;
+    fastFrames = 0;
+    renderer.setPixelRatio(r);
+    layout();
   }
 
   const onResize = () => layout();

@@ -128,6 +128,8 @@ let voices = 0;
 let place: Place = "outdoor";
 let theme: "dark" | "light" = "dark";
 let hidden = false;
+/** Vidéos en cours de lecture (cartes, visionneuse) : le site se tait tant qu'il y en a une. */
+let held = 0;
 /** Fin du dernier effet (temps du contexte) : les évènements rares attendent qu'il soit fini. */
 let busyUntil = 0;
 /** Morceau en cours (index de TRACKS), -1 sinon. */
@@ -145,7 +147,7 @@ function ramp(p: AudioParam, value: number, seconds: number, at?: number) {
   p.linearRampToValueAtTime(value, t + seconds);
 }
 
-const masterLevel = () => (prefs.muted ? 0 : MASTER_MAX * prefs.volume * prefs.volume * 2);
+const masterLevel = () => (prefs.muted || held > 0 ? 0 : MASTER_MAX * prefs.volume * prefs.volume * 2);
 
 function build(): Engine {
   const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -763,6 +765,12 @@ export function setSoundMuted(muted: boolean) {
   if (eng) ramp(eng.master.gain, masterLevel(), muted ? 0.4 : 1.2);
 }
 
+/** Une vidéo démarre (`true`) ou s'arrête (`false`) : musique, ambiance et effets s'effacent, puis reviennent. */
+export function holdSound(on: boolean) {
+  held = Math.max(0, held + (on ? 1 : -1));
+  if (eng) ramp(eng.master.gain, masterLevel(), on ? 0.3 : 1.5);
+}
+
 export function setSoundPlace(p: Place) {
   if (p === place) return;
   place = p;
@@ -778,7 +786,7 @@ export function setSoundTheme(t: "dark" | "light") {
 
 /** Évènements du décor 3D (world.ts → SpookyBackdrop). */
 export function soundEvent(e: SoundEvent) {
-  if (!eng || hidden || prefs.muted) return;
+  if (!eng || hidden || prefs.muted || held > 0) return;
   if (e.type === "swarm") {
     // Nuée qui traverse : de loin d'un côté, au plus près au milieu, puis s'éloigne de l'autre côté.
     if (Math.random() < 0.3) bats(-e.side * 0.8, e.side * 0.9, Math.max(3, Math.min(e.dur + 1, 5)), 0.11, 0.5);
@@ -819,7 +827,7 @@ if (typeof document !== "undefined") document.addEventListener("visibilitychange
 // Mesures pour les tests (build de test seulement : NEXT_PUBLIC_HW_TEST_CLOCK=1).
 if (TEST_CLOCK && typeof window !== "undefined") {
   (window as unknown as { __hwSound: unknown }).__hwSound = {
-    state: () => ({ started, ctxCount, voices, place, theme, musicPlaying: plan?.phase === "music", hushed: plan?.hushed ?? false, wind: eng?.groups.wind.gain.value ?? null, master: eng?.master.gain.value ?? null, ctxState: eng?.ctx.state ?? null }),
+    state: () => ({ started, ctxCount, voices, place, theme, held, musicPlaying: plan?.phase === "music", hushed: plan?.hushed ?? false, wind: eng?.groups.wind.gain.value ?? null, master: eng?.master.gain.value ?? null, ctxState: eng?.ctx.state ?? null }),
     /** RMS et crête (dBFS) de chaque bus pendant `seconds` secondes. */
     measure: (seconds: number) =>
       new Promise((resolve) => {

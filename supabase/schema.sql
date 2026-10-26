@@ -76,7 +76,9 @@ create table if not exists participants (
   constraint participants_email_format check (email = lower(btrim(email)) and email like '%@%')
 );
 
--- Base existante : suppression douce des participants.
+-- Base existante : prénom / nom (facultatifs) et suppression douce des participants.
+alter table participants add column if not exists first_name varchar(50);
+alter table participants add column if not exists last_name varchar(50);
 alter table participants add column if not exists deleted_at timestamptz;
 -- Unicité des participants ACTIFS seulement (une personne supprimée peut se réinscrire) : index uniques
 -- partiels. Leurs noms sont lus par src/lib/db.ts pour traduire l'erreur 23505 en champ en conflit

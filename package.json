@@ -2,6 +2,8 @@
   "name": "questionnaire-halloween",
   "version": "0.1.0",
   "private": true,
+  "author": "2AI CONSULTING & INVEST",
+  "contributors": ["Steeve MOKOKO", "ai assistant"],
   "scripts": {
     "dev": "node node_modules/next/dist/bin/next dev",
     "build": "node node_modules/next/dist/bin/next build",

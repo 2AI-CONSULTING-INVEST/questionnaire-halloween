@@ -4,7 +4,8 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { Check, ChevronLeft, ChevronRight, Expand, Film, Play } from "lucide-react";
 import { RadioGroup } from "radix-ui";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { holdSound } from "@/components/sound/engine";
 import { MediaLightbox } from "@/components/media/MediaLightbox";
 import { isLocalMedia, mediaKind, shortName, thumbOf, type DecorationGroup } from "@/lib/schema";
 import { KeyBadge } from "./ui";
@@ -16,6 +17,8 @@ export const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
  * Chaque carte fait défiler ses photos / vidéos au doigt ; l'icône « agrandir » ouvre
  * la visionneuse plein écran (qui enchaîne les restaurants), d'où l'on peut aussi voter.
  * Une fois un choix fait, les autres cartes sont grisées ; toucher la coche verte annule le choix.
+ * Si le média affiché du restaurant choisi est une vidéo, elle se lance dans la carte, avec son :
+ * le son du site s'efface pendant ce temps (voir `holdSound`).
  */
 export function DecorationGallery({
   groups,
@@ -51,6 +54,7 @@ export function DecorationGallery({
             eager={i < 4}
             selected={g.id === selectedGroup}
             dimmed={selectedGroup !== "" && g.id !== selectedGroup}
+            paused={viewer !== null}
             onExpand={(index) => setViewer({ group: i, index })}
             onDeselect={() => onChange(null)}
           />
@@ -98,6 +102,7 @@ function DecorationCard({
   selected,
   dimmed,
   eager,
+  paused,
   onExpand,
   onDeselect,
 }: {
@@ -107,6 +112,8 @@ function DecorationCard({
   /** Un autre restaurant est choisi : carte légèrement grisée. */
   dimmed: boolean;
   eager: boolean;
+  /** La visionneuse est ouverte : la vidéo de la carte se tait. */
+  paused: boolean;
   onExpand: (index: number) => void;
   onDeselect: () => void;
 }) {
@@ -118,6 +125,30 @@ function DecorationCard({
   const drag = useRef<{ x: number; y: number; dx: number; active: boolean } | null>(null);
   const swiped = useRef(false);
   const name = shortName(group.restaurant_name);
+
+  // Vidéo du média affiché, lue dans la carte tant que le restaurant est choisi.
+  const video = useRef<HTMLVideoElement>(null);
+  const [videoFailed, setVideoFailed] = useState<string | null>(null);
+  const [needsTap, setNeedsTap] = useState(false);
+  const current = items[index];
+  const playing = selected && !paused && mediaKind(current.image_url) === "video" && videoFailed !== current.image_url;
+  const play = () => {
+    void video.current?.play().then(
+      () => setNeedsTap(false),
+      () => setNeedsTap(true), // lecture avec son refusée sans geste direct (iOS) : bouton « lire »
+    );
+  };
+  useEffect(() => {
+    if (!playing) return;
+    const el = video.current;
+    holdSound(true);
+    play();
+    return () => {
+      el?.pause();
+      setNeedsTap(false);
+      holdSound(false);
+    };
+  }, [playing, current.id]);
 
   const go = (i: number) => setIndex(Math.max(0, Math.min(count - 1, i)));
 
@@ -209,7 +240,20 @@ function DecorationCard({
                       onError={() => setBroken((b) => new Set(b).add(src))}
                     />
                   )}
-                  {isVideo && (
+                  {isVideo && playing && i === index && (
+                    <video
+                      key={item.id}
+                      ref={video}
+                      src={item.image_url}
+                      poster={src}
+                      playsInline
+                      loop
+                      preload="auto"
+                      onError={() => setVideoFailed(item.image_url)}
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
+                  )}
+                  {isVideo && !(playing && i === index && !needsTap) && (
                     <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                       <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
                         <Play className="ml-0.5 h-6 w-6" fill="currentColor" aria-hidden />
@@ -242,6 +286,14 @@ function DecorationCard({
 
       {/* Commandes posées sur la carte (hors du bouton de sélection) */}
       <div className="pointer-events-none absolute inset-x-0 top-0 aspect-[3/4]">
+        {needsTap && (
+          <button
+            type="button"
+            onClick={play}
+            aria-label={`Lire la vidéo (${group.restaurant_name})`}
+            className="pointer-events-auto absolute inset-0"
+          />
+        )}
         {selected && (
           <motion.button
             type="button"
