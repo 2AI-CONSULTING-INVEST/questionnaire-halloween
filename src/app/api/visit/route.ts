@@ -21,7 +21,9 @@ export async function POST(req: Request) {
   const userAgent = req.headers.get("user-agent")?.slice(0, 500) ?? null;
   const rejectedRow = (rejected: string): VisitInput => ({ day, ip, user_agent: userAgent, path: null, referrer: null, device_hash: null, device_info: null, visitor_id: null, rejected });
 
-  const parsed = visitSchema.safeParse(await readJson(req));
+  const body = await readJson(req);
+  if (body instanceof Response) return body;
+  const parsed = visitSchema.safeParse(body);
   if (!parsed.success) return zodError(parsed.error);
   const { path, referrer, device } = parsed.data;
 

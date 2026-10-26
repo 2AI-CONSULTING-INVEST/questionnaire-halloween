@@ -1,6 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getStore } from "@/lib/db";
+import { CONFLICT_MESSAGES, ConflictError, getStore } from "@/lib/db";
 import { requireRole } from "@/lib/guard";
 import { error, json, readJson, zodError } from "@/lib/http";
 
@@ -17,13 +17,16 @@ const restaurantSchema = z.object({
 export async function POST(req: Request) {
   const denied = await requireRole("admin", req);
   if (denied) return denied;
-  const parsed = restaurantSchema.safeParse(await readJson(req));
+  const body = await readJson(req);
+  if (body instanceof Response) return body;
+  const parsed = restaurantSchema.safeParse(body);
   if (!parsed.success) return zodError(parsed.error);
   try {
     const r = await getStore().addRestaurant(parsed.data.name.toUpperCase(), parsed.data.city || null);
     revalidatePath("/");
     return json(r, 201);
   } catch (e) {
-    return error(e instanceof Error ? e.message : "Erreur", 409);
+    if (e instanceof ConflictError) return error(CONFLICT_MESSAGES.restaurant, 409); // message fixe, jamais celui de la base
+    throw e;
   }
 }

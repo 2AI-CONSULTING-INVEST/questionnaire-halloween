@@ -177,8 +177,11 @@ create table if not exists admin_sessions (
   latitude double precision,
   longitude double precision,
   created_at timestamptz not null default now(),
-  last_seen_at timestamptz not null default now()
+  last_seen_at timestamptz not null default now(),
+  revoked_at timestamptz                    -- déconnexion ou révocation depuis le Journal : jeton refusé
 );
+-- Base existante : révocation des sessions du backoffice.
+alter table admin_sessions add column if not exists revoked_at timestamptz;
 create table if not exists admin_actions (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references admin_sessions(id) on delete cascade,
@@ -189,6 +192,16 @@ create table if not exists admin_actions (
   created_at timestamptz not null default now()
 );
 create index if not exists idx_admin_actions_session on admin_actions(session_id, created_at);
+
+-- Échecs de connexion au backoffice (src/app/api/admin/login/route.ts) : verrouillage persistant,
+-- 10 échecs par IP ou 30 toutes IP en 15 minutes → 429 pendant 15 minutes. Purgés après 30 jours.
+create table if not exists login_failures (
+  id uuid primary key default gen_random_uuid(),
+  ip varchar(45),
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_login_failures_ip_created on login_failures(ip, created_at);
+create index if not exists idx_login_failures_created on login_failures(created_at);
 
 -- Compteur de visites (src/lib/visits.ts) : une ligne par beacon accepté ou rejeté (`rejected` = raison :
 -- ua_bot, webdriver, no_js_signals, ua_mismatch, rate ; null = visite comptée). Une ligne rejetée ne garde
@@ -231,17 +244,23 @@ alter table admin_sessions enable row level security;
 alter table admin_actions enable row level security;
 alter table settings enable row level security;
 alter table visits enable row level security;
+alter table login_failures enable row level security;
 
 -- Droits de l'API Supabase (Data API) : depuis le 30/10/2026, une table neuve de « public » n'en a
 -- plus aucun par défaut. Seule la clé service_role (serveur) en a besoin ; anon et authenticated
 -- n'ont rien (les clés publiques ne peuvent même pas tenter une lecture).
-grant select, insert, update, delete on restaurants, decorations, responses, participants, prizes, admin_sessions, admin_actions, settings, visits to service_role;
-revoke all on restaurants, decorations, responses, participants, prizes, admin_sessions, admin_actions, settings, visits from anon, authenticated;
+grant select, insert, update, delete on restaurants, decorations, responses, participants, prizes, admin_sessions, admin_actions, settings, visits, login_failures to service_role;
+revoke all on restaurants, decorations, responses, participants, prizes, admin_sessions, admin_actions, settings, visits, login_failures from anon, authenticated;
 
 -- Bucket public pour les photos de décoration et les images des lots
 insert into storage.buckets (id, name, public)
 values ('decorations', 'decorations', true)
 on conflict (id) do nothing;
+-- Limites du bucket (50 Mo, images et vidéos seulement), appliquées aussi à l'envoi direct par URL signée.
+update storage.buckets
+   set file_size_limit = 52428800,
+       allowed_mime_types = array['image/jpeg','image/png','image/webp','image/avif','video/mp4','video/webm']
+ where id = 'decorations';
 
 -- Restaurants participants (modifiables depuis le backoffice)
 insert into restaurants (name, city) values

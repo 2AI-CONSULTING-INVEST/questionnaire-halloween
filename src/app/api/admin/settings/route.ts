@@ -7,7 +7,9 @@ import { riskSettingsSchema } from "@/lib/risk";
 export async function PATCH(req: Request) {
   const denied = await requireRole("admin", req);
   if (denied) return denied;
-  const parsed = riskSettingsSchema.safeParse(await readJson(req));
+  const body = await readJson(req);
+  if (body instanceof Response) return body;
+  const parsed = riskSettingsSchema.safeParse(body);
   if (!parsed.success) return zodError(parsed.error);
   await getStore().setSetting("risk", parsed.data);
   return json({ ok: true, settings: parsed.data });

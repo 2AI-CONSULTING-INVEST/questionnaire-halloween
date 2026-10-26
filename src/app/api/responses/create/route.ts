@@ -15,7 +15,9 @@ export async function POST(req: Request) {
   const blocked = limited(req, "responses", 100);
   if (blocked) return blocked;
 
-  const body = (await readJson(req)) as { session_id?: unknown; device?: unknown } | undefined;
+  const raw = await readJson(req);
+  if (raw instanceof Response) return raw;
+  const body = raw as { session_id?: unknown; device?: unknown } | undefined;
   const sessionId = body?.session_id;
   if (typeof sessionId !== "string" || !isUuid(sessionId)) return error("session_id invalide");
   const device = deviceSchema.optional().safeParse(body?.device);

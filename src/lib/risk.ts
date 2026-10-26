@@ -76,14 +76,33 @@ export const RISK_SIGNALS = {
     points: 15,
     why: "Le navigateur annoncé par la page (Chrome, Safari, Firefox…) n'est pas celui que la requête présente au serveur : signaux falsifiés ou outil qui se déguise.",
   },
+  no_device: {
+    label: "Aucune empreinte d'appareil envoyée",
+    points: 45,
+    why: "La page envoie toujours une empreinte ; son absence signifie un appel direct à l'API ou un navigateur sans WebCrypto (très rare). Jamais bloquant seul.",
+  },
 } as const satisfies Record<string, RiskSignal>;
 
+/**
+ * Plafond dur de votes validés par adresse IP et par jour (réglage `ip_daily_max`, 0 = désactivé) :
+ * pas des points, une règle appliquée à la validation ; le code apparaît dans `risk_flags`.
+ */
+export const IP_DAILY_MAX_FLAG = "ip_daily_max";
+export const IP_DAILY_MAX_LABEL = "Plafond de votes par adresse IP atteint";
+
 export type RiskFlag = keyof typeof RISK_SIGNALS;
+
+/**
+ * Signaux propres à la requête (ni l'empreinte ni l'IP, que des appareils identiques ou un tiers
+ * peuvent partager) : sans au moins l'un d'eux, le score est plafonné sous le seuil de blocage.
+ */
+export const OWN_SIGNALS: readonly RiskFlag[] = ["local_vote_day", "too_fast", "way_too_fast", "webdriver", "ua_mismatch", "browser_mismatch", "no_device"];
 
 /** Ordre d'affichage des signaux dans la méthodologie (du plus fort au plus faible). */
 export const RISK_SIGNAL_ORDER: RiskFlag[] = [
   "device_voted_twice",
   "device_voted_today",
+  "no_device",
   "local_vote_day",
   "way_too_fast",
   "webdriver",
@@ -104,11 +123,13 @@ export const riskSettingsSchema = z
     mode: z.enum(["block", "observe"]),
     flag_threshold: z.number().int().min(0).max(200),
     block_threshold: z.number().int().min(0).max(200),
+    /** Votes validés max. par IP et par jour (0 = sans limite) ; `.default` : les réglages déjà enregistrés sans cette clé restent valides. */
+    ip_daily_max: z.number().int().min(0).max(1000).default(60),
   })
   .strict()
   .refine((s) => s.flag_threshold < s.block_threshold, { message: "Le seuil de signalement doit être inférieur au seuil de blocage", path: ["flag_threshold"] });
 
-export const DEFAULT_RISK_SETTINGS: RiskSettings = { mode: "block", flag_threshold: 40, block_threshold: 80 };
+export const DEFAULT_RISK_SETTINGS: RiskSettings = { mode: "block", flag_threshold: 40, block_threshold: 80, ip_daily_max: 60 };
 
 /** Réglages enregistrés (clé `risk`), ou les valeurs par défaut si absents ou invalides. */
 export async function loadRiskSettings(store: { getSetting(key: string): Promise<unknown> }): Promise<RiskSettings> {
@@ -122,10 +143,12 @@ export type DeviceVote = { voterId: string | null; ip: string | null; decoration
 export type RiskInput = {
   /** Votes validés aujourd'hui avec la même empreinte (vide sans empreinte). */
   deviceVotesToday: DeviceVote[];
-  /** Nombre de votes validés aujourd'hui depuis la même IP. */
+  /** Nombre de votes validés aujourd'hui depuis la même IP (IP inconnue : votes sans IP, comptés ensemble). */
   ipVotesToday: number;
   /** Cookie `hw_voter` absent de la requête. */
   cookieIsNew: boolean;
+  /** Aucune empreinte (`device_hash` null) : appel direct à l'API. */
+  noDevice: boolean;
   voterId: string | null;
   ip: string | null;
   decorationId: string;
@@ -138,6 +161,8 @@ export type RiskInput = {
   userAgent: string | null;
   /** Ce que la page a déclaré d'elle-même (non fiable : sert aux contrôles de cohérence). */
   declared: { mobile?: boolean; browser?: string };
+  /** Seuil de blocage en vigueur : sans signal propre à la requête, le score reste en dessous. */
+  blockThreshold: number;
 };
 
 /** Plafond commun des signaux liés à l'IP (Wi-Fi partagé des restaurants) : jamais plus de 20. */
@@ -172,6 +197,7 @@ export function scoreRisk(input: RiskInput): { score: number; flags: RiskFlag[] 
 
   if (n >= 2) add("device_voted_twice");
   else if (n === 1) add("device_voted_today");
+  if (input.noDevice) add("no_device");
   // Le stockage local dit « déjà voté aujourd'hui » mais ce cookie n'a pas de vote : cookies effacés.
   if (input.localVoteDay === input.today && !input.deviceVotesToday.some(sameCookie)) add("local_vote_day");
   if (input.cookieIsNew && n >= 1) add("new_cookie_device_voted");
@@ -204,6 +230,12 @@ export function scoreRisk(input: RiskInput): { score: number; flags: RiskFlag[] 
     const client = browserFamily(input.declared.browser);
     if (server !== "Autre" && client !== "Autre" && server !== client) add("browser_mismatch");
   }
+  // Empreinte et IP seules (deux téléphones identiques, un tiers sur le même Wi-Fi) : signalé, jamais bloqué,
+  // sauf le 3e vote du même appareil depuis la même connexion (cookies et stockage effacés, revote lent) :
+  // un tiers devrait avoir voté deux fois depuis le réseau de ses victimes, qui seraient alors refusées dès leur
+  // premier vote sur ce réseau (compte par empreinte) : accepté, visible, réversible, neutralisé en mode observe.
+  const thirdSameNetwork = flags.includes("device_voted_twice") && flags.includes("device_same_ip");
+  if (!flags.some((f) => OWN_SIGNALS.includes(f)) && !thirdSameNetwork) score = Math.min(score, input.blockThreshold - 1);
 
   return { score, flags };
 }
@@ -214,4 +246,4 @@ export type TopEntry = { key: string; votes: number; flagged: number };
 export type SecuritySummary = { settings: RiskSettings; today: RiskCounts; total: RiskCounts; topIps: TopEntry[]; topDevices: TopEntry[]; toReview: number };
 
 /** Code d'un signal → libellé lisible (code brut si inconnu). */
-export const flagLabel = (code: string) => (RISK_SIGNALS as Record<string, RiskSignal>)[code]?.label ?? code;
+export const flagLabel = (code: string) => (code === IP_DAILY_MAX_FLAG ? IP_DAILY_MAX_LABEL : ((RISK_SIGNALS as Record<string, RiskSignal>)[code]?.label ?? code));

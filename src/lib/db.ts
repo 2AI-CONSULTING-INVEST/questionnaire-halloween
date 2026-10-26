@@ -5,10 +5,11 @@ import { isIP } from "node:net";
 import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { parisDay } from "./day";
+import { isUuid } from "./http";
 import { afterCursor, compareKeys, encodeCursor, escapeLike, searchKind, type Cursor, type Page } from "./paging";
 import type { DeviceVote } from "./risk";
-import { pseudoKey, type AdminAction, type AdminSession, type Decoration, type DeviceInfo, type Participant, type ParticipantInput, type Prize, type Restaurant, type ResponsePatch, type ResponseRow, type Visit } from "./schema";
-import { visitorKey } from "./visits";
+import { pseudoKey, type AdminAction, type AdminSession, type Decoration, type DeviceInfo, type LoginFailure, type Participant, type ParticipantInput, type Prize, type Restaurant, type ResponsePatch, type ResponseRow, type Visit } from "./schema";
+import { isDuplicateVisit, visitorKey } from "./visits";
 
 export type Meta = { ip: string | null; userAgent: string | null };
 export type UpdateResult = "ok" | "completed";
@@ -38,7 +39,12 @@ export type ParticipantWithVotes = Participant & { votes: number };
 export type RaffleLink = { wants_raffle: boolean; participant_id?: string | null };
 export type PrizeInput = Pick<Prize, "name" | "description" | "image_url" | "display_order">;
 export type PrizePatch = Partial<Pick<Prize, "name" | "description" | "image_url" | "display_order" | "winner_participant_id">>;
-export type AdminSessionInput = Omit<AdminSession, "id" | "created_at" | "last_seen_at">;
+export type AdminSessionInput = Omit<AdminSession, "id" | "created_at" | "last_seen_at" | "revoked_at">;
+/** Conservation (jours), mêmes valeurs que supabase/purge.sql : au-delà, `purge()` efface ou supprime. */
+export const RETENTION_DAYS = { responses: 30, visits: 90, admin_sessions: 180, login_failures: 30 } as const;
+/** Résumé des visites : fenêtre de rétention (90 jours) et nombre de lignes relues borné. */
+const VISITS_MAX = 50_000;
+const visitsSince = () => new Date(Date.now() - RETENTION_DAYS.visits * 86_400_000).toISOString();
 export type AdminActionInput = Pick<AdminAction, "session_id" | "method" | "path" | "action" | "details">;
 
 /**
@@ -58,6 +64,7 @@ export const CONFLICT_MESSAGES = {
   phone_number: "Ce numéro est déjà inscrit au tirage",
   winner_participant_id: "Ce participant a déjà gagné un lot",
   raffle: "Une inscription au tirage est déjà enregistrée pour ce vote",
+  restaurant: "Ce restaurant existe déjà",
 } as const;
 
 /** Les trois coordonnées de `input` désignent ce participant. */
@@ -78,9 +85,10 @@ type Coordinates = Pick<ParticipantInput, "pseudo_key" | "email" | "phone_number
 export interface Store {
   readonly kind: "supabase" | "local";
   createResponse(sessionId: string, meta: Meta, voterId: string | null, device: DeviceStamp): Promise<UpdateResult>;
-  updateResponse(sessionId: string, patch: ResponsePatch, meta: Meta, voterId: string | null): Promise<UpdateResult>;
-  /** Valide le vote ; refuse si l'appareil a déjà voté ce jour-là (index unique côté base). */
-  completeResponse(sessionId: string, data: ResponsePatch, meta: Meta, vote: VoteStamp): Promise<CompleteResult>;
+  /** Auto-save ; « missing » si la session n'a jamais été ouverte (plus aucune ligne créée ici). */
+  updateResponse(sessionId: string, patch: ResponsePatch): Promise<UpdateResult | "missing">;
+  /** Valide le vote d'une session ouverte ; refuse si l'appareil a déjà voté ce jour-là (index unique côté base). */
+  completeResponse(sessionId: string, data: ResponsePatch, vote: VoteStamp): Promise<CompleteResult>;
   /** Choix du tirage au sort : modifiable même après validation du vote. */
   updateRaffle(sessionId: string, link: RaffleLink): Promise<void>;
   getResponse(idOrSessionId: string): Promise<ResponseRow | null>;
@@ -133,8 +141,17 @@ export interface Store {
 
   /** Journal du backoffice : sessions (connexions) et actions. */
   createAdminSession(s: AdminSessionInput): Promise<AdminSession>;
+  getAdminSession(id: string): Promise<AdminSession | null>;
+  /** Révocation (déconnexion, bouton du Journal) : le jeton de cette session n'est plus accepté. */
+  revokeAdminSession(id: string): Promise<void>;
   logAdminAction(a: AdminActionInput): Promise<void>;
   listAdminSessions(): Promise<{ sessions: AdminSession[]; actions: AdminAction[] }>;
+  /** Échecs de connexion (verrouillage persistant) : enregistrement, décompte depuis `since` (par IP si donnée ; null = sans IP), derniers échecs. */
+  recordLoginFailure(ip: string | null): Promise<void>;
+  countLoginFailures(since: string, ip?: string | null): Promise<number>;
+  listLoginFailures(limit: number): Promise<LoginFailure[]>;
+  /** Purge des données expirées (RETENTION_DAYS), idempotente. */
+  purge(): Promise<void>;
 
   listRestaurants(): Promise<Restaurant[]>;
   addRestaurant(name: string, city: string | null): Promise<Restaurant>;
@@ -159,6 +176,8 @@ export interface Store {
   saveFile(file: Blob, name: string): Promise<string>;
   /** Vrai si l'URL désigne un fichier de notre propre stockage. */
   isOwnFile(url: string): boolean;
+  /** Vrai si ce fichier existe bien dans le stockage (après un envoi direct par URL signée). */
+  fileExists(url: string): Promise<boolean>;
   removeFiles(urls: string[]): Promise<void>;
 }
 
@@ -273,7 +292,7 @@ class SupabaseStore implements Store {
     return "ok" as const;
   }
 
-  async updateResponse(sessionId: string, patch: ResponsePatch, meta: Meta, voterId: string | null) {
+  async updateResponse(sessionId: string, patch: ResponsePatch) {
     const updated = this.check(
       await this.sb
         .from("responses")
@@ -283,23 +302,11 @@ class SupabaseStore implements Store {
         .select("id"),
     );
     if (updated && updated.length > 0) return "ok" as const;
-
     const existing = await this.getResponse(sessionId);
-    if (existing?.completed_at) return "completed" as const;
-    // La création initiale a échoué (réseau) : on crée la ligne maintenant.
-    this.check(
-      await this.sb.from("responses").insert({
-        session_id: sessionId,
-        ip_address: meta.ip,
-        user_agent: meta.userAgent,
-        voter_id: voterId,
-        ...patch,
-      }),
-    );
-    return "ok" as const;
+    return existing?.completed_at ? ("completed" as const) : ("missing" as const);
   }
 
-  async completeResponse(sessionId: string, data: ResponsePatch, meta: Meta, vote: VoteStamp) {
+  async completeResponse(sessionId: string, data: ResponsePatch, vote: VoteStamp) {
     // Une seule écriture : les champs du vote, l'appareil, le jour, le score et la validation (ou le
     // refus par score : blocked_at, completed_at reste null). L'index unique partiel (voter_id, vote_day)
     // refuse un second vote le même jour, même en requêtes parallèles.
@@ -317,6 +324,7 @@ class SupabaseStore implements Store {
       .update({ ...data, ...stamp })
       .eq("session_id", sessionId)
       .is("completed_at", null)
+      .is("blocked_at", null) // une ligne refusée par le score ne se valide jamais
       .select("id");
     if (violatedConstraint(res.error) !== null) return "already_voted_today" as const;
     const updated = this.check(res);
@@ -324,10 +332,8 @@ class SupabaseStore implements Store {
 
     const existing = await this.getResponse(sessionId);
     if (existing?.completed_at) return "completed" as const;
-    const ins = await this.sb.from("responses").insert({ session_id: sessionId, ip_address: meta.ip, user_agent: meta.userAgent, ...data, ...stamp });
-    if (violatedConstraint(ins.error) !== null) return "already_voted_today" as const;
-    this.check(ins);
-    return "ok" as const;
+    if (existing?.blocked_at) return "already_voted_today" as const;
+    throw new Error("Session introuvable"); // la route a vérifié la ligne juste avant : supprimée entre-temps
   }
 
   async updateRaffle(sessionId: string, link: RaffleLink) {
@@ -335,6 +341,7 @@ class SupabaseStore implements Store {
   }
 
   async getResponse(idOrSessionId: string) {
+    if (!isUuid(idOrSessionId)) return null; // jamais de valeur libre dans le filtre PostgREST
     const data = this.check(
       await this.sb
         .from("responses")
@@ -394,13 +401,16 @@ class SupabaseStore implements Store {
   async riskContext(deviceHash: string | null, ip: string | null, day: string): Promise<RiskContext> {
     const [dev, byIp] = await Promise.all([
       deviceHash ? this.sb.from("responses").select("voter_id, ip_address, selected_decoration_id").eq("vote_day", day).not("completed_at", "is", null).eq("device_hash", deviceHash).limit(20) : null,
-      ip ? this.sb.from("responses").select("id", { count: "exact", head: true }).eq("vote_day", day).not("completed_at", "is", null).eq("ip_address", ip) : null,
+      // IP inconnue (en-tête absent ou mal formé) : les votes sans IP comptent ensemble, brouiller son IP ne rapporte rien.
+      ip
+        ? this.sb.from("responses").select("id", { count: "exact", head: true }).eq("vote_day", day).not("completed_at", "is", null).eq("ip_address", ip)
+        : this.sb.from("responses").select("id", { count: "exact", head: true }).eq("vote_day", day).not("completed_at", "is", null).is("ip_address", null),
     ]);
     const deviceVotes = dev ? (this.check(dev) as { voter_id: string | null; ip_address: string | null; selected_decoration_id: string | null }[]) : [];
-    if (byIp) this.check(byIp);
+    this.check(byIp);
     return {
       deviceVotes: deviceVotes.map((v) => ({ voterId: v.voter_id, ip: v.ip_address, decorationId: v.selected_decoration_id })),
-      ipVotes: byIp?.count ?? 0,
+      ipVotes: byIp.count ?? 0,
     };
   }
 
@@ -560,8 +570,13 @@ class SupabaseStore implements Store {
 
   async recordVisit(v: VisitInput) {
     const key = visitorKey(v);
-    if (!v.rejected && key) {
-      // shortcut: contrôle puis insertion (deux beacons simultanés du même visiteur peuvent compter double), à remplacer par un index unique si le compteur doit être exact.
+    // shortcut: contrôle puis insertion (deux beacons simultanés du même visiteur peuvent compter double), à remplacer par un index unique si le compteur doit être exact.
+    if (v.rejected) {
+      // Une ligne rejetée par (jour, IP, raison) au plus : les robots ne remplissent pas la table.
+      const q = this.sb.from("visits").select("id").eq("day", v.day).eq("rejected", v.rejected);
+      const dup = this.check(await (v.ip ? q.eq("ip", v.ip) : q.is("ip", null)).limit(1));
+      if (dup?.length) return "duplicate" as const;
+    } else if (key) {
       const dup = this.check(await this.sb.from("visits").select("id").eq("day", v.day).eq("path", v.path ?? "").is("rejected", null).eq(v.device_hash ? "device_hash" : "visitor_id", key).limit(1));
       if (dup?.length) return "duplicate" as const;
     }
@@ -580,11 +595,11 @@ class SupabaseStore implements Store {
   }
 
   async listVisits() {
-    // shortcut: toutes les visites sont relues à chaque résumé (1000 par requête) ; à agréger en base si le site dépasse quelques dizaines de milliers de visites.
+    // shortcut: les visites de la fenêtre de rétention (90 jours, au plus VISITS_MAX) sont relues à chaque résumé (1000 par requête) ; à agréger en base si le site dépasse quelques dizaines de milliers de visites.
     const rows: Visit[] = [];
     const page = 1000;
-    for (let offset = 0; ; offset += page) {
-      const data = this.check(await this.sb.from("visits").select("*").order("created_at", { ascending: true }).range(offset, offset + page - 1)) as Visit[];
+    for (let offset = 0; offset < VISITS_MAX; offset += page) {
+      const data = this.check(await this.sb.from("visits").select("*").gte("created_at", visitsSince()).order("created_at", { ascending: true }).range(offset, offset + page - 1)) as Visit[];
       rows.push(...data);
       if (data.length < page) break;
     }
@@ -617,6 +632,46 @@ class SupabaseStore implements Store {
     return this.check(await this.sb.from("admin_sessions").insert(s).select("*").single()) as AdminSession;
   }
 
+  async getAdminSession(id: string) {
+    const data = this.check(await this.sb.from("admin_sessions").select("*").eq("id", id).limit(1));
+    return (data?.[0] as AdminSession | undefined) ?? null;
+  }
+
+  async revokeAdminSession(id: string) {
+    this.check(await this.sb.from("admin_sessions").update({ revoked_at: new Date().toISOString() }).eq("id", id).is("revoked_at", null));
+  }
+
+  async recordLoginFailure(ip: string | null) {
+    this.check(await this.sb.from("login_failures").insert({ ip }));
+  }
+
+  async countLoginFailures(since: string, ip?: string | null) {
+    let q = this.sb.from("login_failures").select("id", { count: "exact", head: true }).gte("created_at", since);
+    if (ip !== undefined) q = ip === null ? q.is("ip", null) : q.eq("ip", ip);
+    const res = await q;
+    this.check(res);
+    return res.count ?? 0;
+  }
+
+  async listLoginFailures(limit: number) {
+    return this.check(await this.sb.from("login_failures").select("*").order("created_at", { ascending: false }).limit(limit)) as LoginFailure[];
+  }
+
+  async purge() {
+    const before = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+    // Seules les lignes qui ont encore quelque chose à effacer (le trigger updated_at ne touche pas les autres).
+    this.check(
+      await this.sb
+        .from("responses")
+        .update({ ip_address: null, user_agent: null, device_info: null })
+        .lt("created_at", before(RETENTION_DAYS.responses))
+        .or("ip_address.not.is.null,user_agent.not.is.null,device_info.not.is.null"),
+    );
+    this.check(await this.sb.from("visits").delete().lt("created_at", before(RETENTION_DAYS.visits)));
+    this.check(await this.sb.from("admin_sessions").delete().lt("created_at", before(RETENTION_DAYS.admin_sessions))); // actions en cascade
+    this.check(await this.sb.from("login_failures").delete().lt("created_at", before(RETENTION_DAYS.login_failures)));
+  }
+
   async logAdminAction(a: AdminActionInput) {
     this.check(await this.sb.from("admin_actions").insert(a));
     this.check(await this.sb.from("admin_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", a.session_id));
@@ -633,9 +688,9 @@ class SupabaseStore implements Store {
   }
 
   async addRestaurant(name: string, city: string | null) {
-    return this.check(
-      await this.sb.from("restaurants").insert({ name, city }).select("*").single(),
-    ) as Restaurant;
+    const res = await this.sb.from("restaurants").insert({ name, city }).select("*").single();
+    if (violatedConstraint(res.error) !== null) throw new ConflictError({ name: CONFLICT_MESSAGES.restaurant });
+    return this.check(res) as Restaurant;
   }
 
   async deleteRestaurant(id: string) {
@@ -713,6 +768,14 @@ class SupabaseStore implements Store {
     return this.keyOf(url) !== null;
   }
 
+  async fileExists(url: string) {
+    const key = this.keyOf(url);
+    if (key === null) return false;
+    const { data, error } = await this.sb.storage.from(this.bucket).list("", { search: key, limit: 1 });
+    if (error) throw new Error(error.message);
+    return data.some((o) => o.name === key);
+  }
+
   async removeFiles(urls: string[]) {
     const keys = urls.map((u) => this.keyOf(u)).filter((k): k is string => k !== null);
     if (keys.length === 0) return;
@@ -726,7 +789,7 @@ class SupabaseStore implements Store {
 // lecture seule sur Vercel).
 // ---------------------------------------------------------------------------
 
-type LocalData = {
+export type LocalData = {
   responses: ResponseRow[];
   restaurants: Restaurant[];
   decorations: Decoration[];
@@ -736,6 +799,7 @@ type LocalData = {
   admin_actions: AdminAction[];
   settings: Record<string, unknown>;
   visits: Visit[];
+  login_failures: LoginFailure[];
 };
 
 const DATA_FILE = path.join(process.cwd(), ".data", "db.json");
@@ -765,6 +829,7 @@ function seed(): LocalData {
     admin_actions: [],
     settings: {},
     visits: [],
+    login_failures: [],
   };
 }
 
@@ -773,7 +838,7 @@ function seed(): LocalData {
  * de `responses` (jour du vote déduit de la validation). Appliquée en mémoire à chaque lecture ;
  * le fichier est réécrit à la première modification. Vrai si quelque chose a changé.
  */
-function migrateLocal(d: LocalData): boolean {
+export function migrateLocal(d: LocalData): boolean {
   let changed = false;
   if (!d.participants) {
     d.participants = [];
@@ -794,6 +859,10 @@ function migrateLocal(d: LocalData): boolean {
   }
   if (!d.visits) {
     d.visits = [];
+    changed = true;
+  }
+  if (!d.login_failures) {
+    d.login_failures = [];
     changed = true;
   }
   for (const p of d.participants) {
@@ -822,6 +891,17 @@ function migrateLocal(d: LocalData): boolean {
     }
   }
   return changed;
+}
+
+/** Purge locale (mêmes règles que `SupabaseStore.purge` et supabase/purge.sql), à l'instant `now` (ms). */
+export function purgeLocal(d: LocalData, now: number) {
+  const before = (days: number) => new Date(now - days * 86_400_000).toISOString();
+  for (const r of d.responses) if (r.created_at < before(RETENTION_DAYS.responses)) Object.assign(r, { ip_address: null, user_agent: null, device_info: null });
+  d.visits = d.visits.filter((v) => v.created_at >= before(RETENTION_DAYS.visits));
+  const expired = new Set(d.admin_sessions.filter((s) => s.created_at < before(RETENTION_DAYS.admin_sessions)).map((s) => s.id));
+  d.admin_sessions = d.admin_sessions.filter((s) => !expired.has(s.id));
+  d.admin_actions = d.admin_actions.filter((a) => !expired.has(a.session_id));
+  d.login_failures = d.login_failures.filter((f) => f.created_at >= before(RETENTION_DAYS.login_failures));
 }
 
 class LocalStore implements Store {
@@ -872,7 +952,7 @@ class LocalStore implements Store {
     return run;
   }
 
-  private blank(sessionId: string, meta: Meta, voterId: string | null, device: DeviceStamp = { device_hash: null, device_info: null }): ResponseRow {
+  private blank(sessionId: string, meta: Meta, voterId: string | null, device: DeviceStamp): ResponseRow {
     const now = new Date().toISOString();
     return {
       id: randomUUID(),
@@ -904,31 +984,26 @@ class LocalStore implements Store {
     });
   }
 
-  updateResponse(sessionId: string, patch: ResponsePatch, meta: Meta, voterId: string | null) {
+  updateResponse(sessionId: string, patch: ResponsePatch) {
     return this.mutate((d) => {
-      let row = d.responses.find((r) => r.session_id === sessionId);
-      if (row?.completed_at) return "completed" as const;
-      if (!row) {
-        row = this.blank(sessionId, meta, voterId);
-        d.responses.push(row);
-      }
+      const row = d.responses.find((r) => r.session_id === sessionId);
+      if (!row) return "missing" as const;
+      if (row.completed_at) return "completed" as const;
       Object.assign(row, patch, { updated_at: new Date().toISOString() });
       return "ok" as const;
     });
   }
 
-  completeResponse(sessionId: string, data: ResponsePatch, meta: Meta, vote: VoteStamp) {
+  completeResponse(sessionId: string, data: ResponsePatch, vote: VoteStamp) {
     // Même règle que l'index unique partiel de la base, appliquée dans la file d'écriture (atomique).
     return this.mutate((d) => {
-      let row = d.responses.find((r) => r.session_id === sessionId);
+      const row = d.responses.find((r) => r.session_id === sessionId);
       if (row?.completed_at) return "completed" as const;
+      if (row?.blocked_at) return "already_voted_today" as const; // refus par score : définitif
       if (vote.voterId && d.responses.some((r) => r.completed_at && r.voter_id === vote.voterId && r.vote_day === vote.voteDay)) {
         return "already_voted_today" as const;
       }
-      if (!row) {
-        row = this.blank(sessionId, meta, vote.voterId);
-        d.responses.push(row);
-      }
+      if (!row) throw new Error("Session introuvable"); // la route a vérifié la ligne juste avant
       const now = new Date().toISOString();
       const stamp = vote.blocked ? { blocked_at: now } : { completed_at: now };
       Object.assign(row, data, { voter_id: vote.voterId, vote_day: vote.voteDay, ...vote.device, risk_score: vote.riskScore, risk_flags: vote.riskFlags, ...stamp, updated_at: now });
@@ -944,6 +1019,7 @@ class LocalStore implements Store {
   }
 
   async getResponse(idOrSessionId: string) {
+    if (!isUuid(idOrSessionId)) return null;
     const d = await this.read();
     return d.responses.find((r) => r.id === idOrSessionId || r.session_id === idOrSessionId) ?? null;
   }
@@ -999,7 +1075,7 @@ class LocalStore implements Store {
     const today = d.responses.filter((r) => r.completed_at && r.vote_day === day);
     return {
       deviceVotes: deviceHash ? today.filter((r) => r.device_hash === deviceHash).map((r) => ({ voterId: r.voter_id, ip: r.ip_address, decorationId: r.selected_decoration_id })) : [],
-      ipVotes: ip ? today.filter((r) => r.ip_address === ip).length : 0,
+      ipVotes: today.filter((r) => r.ip_address === ip).length, // ip null : votes sans IP, comptés ensemble
     };
   }
 
@@ -1104,8 +1180,7 @@ class LocalStore implements Store {
 
   recordVisit(v: VisitInput) {
     return this.mutate((d) => {
-      const key = visitorKey(v);
-      if (!v.rejected && key && d.visits.some((x) => !x.rejected && x.day === v.day && x.path === v.path && visitorKey(x) === key)) return "duplicate" as const;
+      if (d.visits.some((x) => isDuplicateVisit(x, v))) return "duplicate" as const;
       d.visits.push({ id: randomUUID(), created_at: new Date().toISOString(), ...v });
       return v.rejected ? ("rejected" as const) : ("counted" as const);
     });
@@ -1119,7 +1194,8 @@ class LocalStore implements Store {
 
   async listVisits() {
     const d = await this.read();
-    return [...d.visits].sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const since = visitsSince();
+    return d.visits.filter((v) => v.created_at >= since).sort((a, b) => a.created_at.localeCompare(b.created_at)).slice(0, VISITS_MAX);
   }
 
   async listPrizes() {
@@ -1161,9 +1237,39 @@ class LocalStore implements Store {
 
   async createAdminSession(s: AdminSessionInput) {
     const now = new Date().toISOString();
-    const session: AdminSession = { id: randomUUID(), ...s, created_at: now, last_seen_at: now };
+    const session: AdminSession = { id: randomUUID(), ...s, created_at: now, last_seen_at: now, revoked_at: null };
     await this.mutate((d) => d.admin_sessions.push(session));
     return session;
+  }
+
+  async getAdminSession(id: string) {
+    const d = await this.read();
+    return d.admin_sessions.find((s) => s.id === id) ?? null;
+  }
+
+  async revokeAdminSession(id: string) {
+    await this.mutate((d) => {
+      const s = d.admin_sessions.find((x) => x.id === id);
+      if (s && !s.revoked_at) s.revoked_at = new Date().toISOString();
+    });
+  }
+
+  async recordLoginFailure(ip: string | null) {
+    await this.mutate((d) => d.login_failures.push({ id: randomUUID(), ip, created_at: new Date().toISOString() }));
+  }
+
+  async countLoginFailures(since: string, ip?: string | null) {
+    const d = await this.read();
+    return d.login_failures.filter((f) => f.created_at >= since && (ip === undefined || f.ip === ip)).length;
+  }
+
+  async listLoginFailures(limit: number) {
+    const d = await this.read();
+    return [...d.login_failures].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, limit);
+  }
+
+  async purge() {
+    await this.mutate((d) => purgeLocal(d, Date.now()));
   }
 
   async logAdminAction(a: AdminActionInput) {
@@ -1188,7 +1294,7 @@ class LocalStore implements Store {
 
   addRestaurant(name: string, city: string | null) {
     return this.mutate((d) => {
-      if (d.restaurants.some((r) => r.name === name)) throw new Error("Ce restaurant existe déjà");
+      if (d.restaurants.some((r) => r.name === name)) throw new ConflictError({ name: CONFLICT_MESSAGES.restaurant });
       const r: Restaurant = { id: randomUUID(), name, city, created_at: new Date().toISOString() };
       d.restaurants.push(r);
       return r;
@@ -1258,6 +1364,11 @@ class LocalStore implements Store {
 
   isOwnFile(url: string) {
     return url.startsWith("/uploads/") && FILE_NAME_RE.test(url.slice("/uploads/".length));
+  }
+
+  async fileExists(url: string) {
+    if (!this.isOwnFile(url)) return false;
+    return fs.access(path.join(UPLOAD_DIR, url.slice("/uploads/".length))).then(() => true, () => false);
   }
 
   async removeFiles(urls: string[]) {

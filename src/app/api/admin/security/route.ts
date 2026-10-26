@@ -1,15 +1,18 @@
+import { currentSession } from "@/lib/auth";
 import { serverNow } from "@/lib/clock";
 import { parisDay } from "@/lib/day";
 import { getStore } from "@/lib/db";
 import { requireRole } from "@/lib/guard";
 import { json } from "@/lib/http";
+import { maskIp } from "@/lib/redact";
 import { loadRiskSettings, type RiskCounts, type SecuritySummary, type TopEntry } from "@/lib/risk";
 import type { ResponseRow } from "@/lib/schema";
 
-/** Admin (lecture) : réglages, KPI anti-fraude du jour (Europe/Paris) et depuis le début, top 10 IP et empreintes du jour. */
+/** Admin (lecture) : réglages, KPI anti-fraude du jour (Europe/Paris) et depuis le début, top 10 IP (masquées `x.x.x.*` en lecture seule) et empreintes du jour. */
 export async function GET(req: Request) {
   const denied = await requireRole("viewer");
   if (denied) return denied;
+  const viewerOnly = (await currentSession())?.role !== "admin";
   const store = getStore();
   const today = parisDay(serverNow(req));
   const settings = await loadRiskSettings(store);
@@ -45,7 +48,7 @@ export async function GET(req: Request) {
     today: counts,
     total: { validated, flagged, blocked, excluded },
     toReview,
-    topIps: top((r) => r.ip_address),
+    topIps: top((r) => r.ip_address).map((e) => (viewerOnly ? { ...e, key: maskIp(e.key) } : e)),
     topDevices: top((r) => r.device_hash?.slice(0, 8) ?? null),
   };
   return json(summary, { headers: { "Cache-Control": "no-store" } });

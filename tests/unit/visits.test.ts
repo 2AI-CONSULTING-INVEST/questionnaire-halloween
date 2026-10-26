@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Visit } from "../../src/lib/schema";
-import { BOT_UA_RE, referrerHost, summarizeVisits, VISIT_REJECTIONS, visitRejection } from "../../src/lib/visits";
+import { BOT_UA_RE, isDuplicateVisit, referrerHost, summarizeVisits, VISIT_REJECTIONS, visitRejection } from "../../src/lib/visits";
 
 const HUMANS = {
   "Chrome iPhone": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/130.0.6723.37 Mobile/15E148 Safari/604.1",
@@ -78,6 +78,26 @@ const visit = (over: Partial<Visit>): Visit => ({
   visitor_id: null,
   rejected: null,
   ...over,
+});
+
+describe("isDuplicateVisit (F-17)", () => {
+  const base = { day: "2026-10-23", ip: "1.1.1.1", path: "/", rejected: null, device_hash: "h1", visitor_id: null };
+  it("ligne rejetée : doublon par (jour, IP, raison) seulement", () => {
+    const bot = { ...base, path: null, device_hash: null, rejected: "ua_bot" };
+    assert.equal(isDuplicateVisit(bot, { ...bot }), true);
+    assert.equal(isDuplicateVisit(bot, { ...bot, rejected: "webdriver" }), false);
+    assert.equal(isDuplicateVisit(bot, { ...bot, ip: "2.2.2.2" }), false);
+    assert.equal(isDuplicateVisit(bot, { ...bot, day: "2026-10-24" }), false);
+    assert.equal(isDuplicateVisit(bot, { ...bot, ip: null }), false);
+    assert.equal(isDuplicateVisit({ ...bot, ip: null }, { ...bot, ip: null }), true, "sans IP : une ligne par (jour, raison)");
+  });
+  it("visite comptée : doublon par (jour, page, visiteur) ; une rejetée ne compte pas comme comptée", () => {
+    assert.equal(isDuplicateVisit(base, { ...base }), true);
+    assert.equal(isDuplicateVisit(base, { ...base, path: "/resultats" }), false);
+    assert.equal(isDuplicateVisit(base, { ...base, device_hash: "h2" }), false);
+    assert.equal(isDuplicateVisit({ ...base, rejected: "ua_bot" }, base), false);
+    assert.equal(isDuplicateVisit(base, { ...base, device_hash: null, visitor_id: null }), false, "sans visiteur identifiable : jamais doublon");
+  });
 });
 
 describe("summarizeVisits", () => {

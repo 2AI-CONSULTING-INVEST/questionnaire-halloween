@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { currentSession } from "@/lib/auth";
 import { getStore } from "@/lib/db";
 import { requireRole } from "@/lib/guard";
 import { error, json, zodError } from "@/lib/http";
 import { decodeCursor, PAGE_MAX, PAGE_SIZE } from "@/lib/paging";
+import { redactForViewer } from "@/lib/redact";
 import { loadRiskSettings } from "@/lib/risk";
 
 const querySchema = z.object({
@@ -19,11 +21,12 @@ const querySchema = z.object({
 /**
  * Admin : page de réponses (les plus récentes d'abord), 100 par page, curseur `created_at|id`.
  * ?limit=100&cursor=…&status=completed|incomplete|blocked|excluded|all&raffle=1&risk=flagged&q=
- * → { rows, nextCursor, total }
+ * → { rows, nextCursor, total } (en lecture seule : sans IP, navigateur ni appareil)
  */
 export async function GET(req: Request) {
   const denied = await requireRole("viewer");
   if (denied) return denied;
+  const viewerOnly = (await currentSession())?.role !== "admin";
   const parsed = querySchema.safeParse(Object.fromEntries(new URL(req.url).searchParams));
   if (!parsed.success) return zodError(parsed.error);
   const p = parsed.data;
@@ -34,5 +37,5 @@ export async function GET(req: Request) {
   const flaggedFrom = p.risk ? (await loadRiskSettings(store)).flag_threshold : undefined;
   const status = p.status ?? (p.risk ? "all" : "completed");
   const page = await store.pageResponses({ status, raffle: p.raffle === "1", flaggedFrom, q: p.q }, { limit: p.limit, cursor });
-  return json(page, { headers: { "Cache-Control": "no-store" } });
+  return json(viewerOnly ? { ...page, rows: page.rows.map(redactForViewer) } : page, { headers: { "Cache-Control": "no-store" } });
 }

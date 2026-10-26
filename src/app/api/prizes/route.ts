@@ -34,7 +34,9 @@ export async function POST(req: Request) {
   let fields: z.infer<typeof jsonSchema>;
   let imageUrl: string | null = null;
   if (req.headers.get("content-type")?.includes("application/json")) {
-    const parsed = jsonSchema.safeParse(await readJson(req));
+    const body = await readJson(req);
+    if (body instanceof Response) return body;
+    const parsed = jsonSchema.safeParse(body);
     if (!parsed.success) return zodError(parsed.error);
     fields = parsed.data;
     if (fields.image_url && !store.isOwnFile(fields.image_url)) return error("Fichier inconnu");

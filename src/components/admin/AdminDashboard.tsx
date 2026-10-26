@@ -7,7 +7,7 @@ import { Switch, Tabs } from "radix-ui";
 import { useCallback, useEffect, useState } from "react";
 import type { Summary } from "@/lib/analytics";
 import type { Role } from "@/lib/auth";
-import type { SecuritySummary } from "@/lib/risk";
+import { DEFAULT_RISK_SETTINGS, type SecuritySummary } from "@/lib/risk";
 import type { Decoration, Prize, Restaurant } from "@/lib/schema";
 import { SessionsTab, type Journal } from "./SessionsTab";
 import { Emoji } from "../questionnaire/ui";
@@ -44,7 +44,7 @@ export function AdminDashboard({ role }: { role: Role }) {
   /** Liste légère (id, pseudo) : compteur de l'onglet et nom des gagnants ; la liste complète est paginée dans l'onglet. */
   const [participants, setParticipants] = useState<{ id: string; pseudo: string }[]>([]);
   const [prizes, setPrizes] = useState<Prize[]>([]);
-  const [journal, setJournal] = useState<Journal>({ sessions: [], actions: [] });
+  const [journal, setJournal] = useState<Journal>({ sessions: [], actions: [], failures: { last24h: 0, recent: [] } });
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [failed, setFailed] = useState(false);
@@ -213,7 +213,7 @@ export function AdminDashboard({ role }: { role: Role }) {
           <ResponsesTab
             decorations={decorations}
             canWrite={canWrite}
-            settings={security?.settings ?? { mode: "block", flag_threshold: 40, block_threshold: 80 }}
+            settings={security?.settings ?? DEFAULT_RISK_SETTINGS}
             status={responsesStatus}
             setStatus={setResponsesStatus}
             tick={tick}
@@ -231,7 +231,7 @@ export function AdminDashboard({ role }: { role: Role }) {
         </Tabs.Content>
         {canWrite && (
           <Tabs.Content value="journal">
-            <SessionsTab journal={journal} tick={tick} />
+            <SessionsTab journal={journal} tick={tick} onChanged={load} />
           </Tabs.Content>
         )}
       </Tabs.Root>

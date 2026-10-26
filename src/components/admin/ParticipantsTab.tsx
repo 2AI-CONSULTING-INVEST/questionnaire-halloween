@@ -228,11 +228,12 @@ function ParticipantRow({
           </p>
         )}
       </td>
+      {/* Lecture seule : email et téléphone arrivent masqués du serveur (j***@…, 07 ** ** ** 67), sans lien. */}
       <td className="px-3 py-2.5 text-ink dark:text-zinc-200">
-        <a href={`mailto:${p.email}`} className="hover:underline">{p.email}</a>
+        {canWrite ? <a href={`mailto:${p.email}`} className="hover:underline">{p.email}</a> : p.email}
       </td>
       <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-ink dark:text-zinc-200">
-        <a href={`tel:${p.phone_number}`} className="hover:underline">{formatFrPhone(p.phone_number)}</a>
+        {canWrite ? <a href={`tel:${p.phone_number}`} className="hover:underline">{formatFrPhone(p.phone_number)}</a> : formatFrPhone(p.phone_number)}
       </td>
       <td className="whitespace-nowrap px-3 py-2.5 text-muted dark:text-zinc-400">{fmtDate(p.created_at)}</td>
       {deleted && <td className="whitespace-nowrap px-3 py-2.5 text-muted dark:text-zinc-400">{fmtDate(p.deleted_at ?? null)}</td>}

@@ -74,17 +74,21 @@ export async function flush(): Promise<void> {
   while (inflight) await inflight;
   if (!sessionId || Object.keys(pending).length === 0) return;
 
+  const id = sessionId;
   const sent = pending;
   pending = {};
   setStatus("saving");
 
   inflight = (async () => {
     try {
-      const res = await apiFetch(`/api/responses/${sessionId}/update`, {
+      const res = await apiFetch(`/api/responses/${id}/update`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sent),
       });
+      // Ligne absente (ouverture de session perdue) : on la rouvre puis on réessaie ; si l'appareil a
+      // déjà voté aujourd'hui, l'ouverture est refusée et il n'y a plus rien à enregistrer.
+      if (res.status === 404 && !(await createSession(id))) throw new Error("HTTP 404");
       if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 429)) {
         // 4xx (hors 429) : donnée refusée, inutile de réessayer.
         retryDelay = 2000;

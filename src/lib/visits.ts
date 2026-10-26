@@ -62,6 +62,18 @@ export type VisitsSummary = {
 /** Clé d'un visiteur : son empreinte, sinon son cookie de vote ; null = impossible à dédoublonner. */
 export const visitorKey = (v: Pick<Visit, "device_hash" | "visitor_id">) => v.device_hash ?? v.visitor_id;
 
+type VisitLike = Pick<Visit, "day" | "ip" | "path" | "rejected" | "device_hash" | "visitor_id">;
+/**
+ * Dédoublonnage des beacons (même règle dans les deux stores) : une visite comptée par (jour, page,
+ * visiteur) ; une ligne rejetée par (jour, IP, raison), pour que les robots ne remplissent pas la table.
+ */
+export function isDuplicateVisit(existing: VisitLike, incoming: VisitLike): boolean {
+  if (existing.day !== incoming.day) return false;
+  if (incoming.rejected) return existing.rejected === incoming.rejected && existing.ip === incoming.ip;
+  const key = visitorKey(incoming);
+  return key !== null && !existing.rejected && existing.path === incoming.path && visitorKey(existing) === key;
+}
+
 /** Agrégats du compteur de visites, à partir de toutes les lignes (comptées et rejetées). */
 export function summarizeVisits(rows: Visit[], today: string): VisitsSummary {
   const counted = rows.filter((v) => !v.rejected);

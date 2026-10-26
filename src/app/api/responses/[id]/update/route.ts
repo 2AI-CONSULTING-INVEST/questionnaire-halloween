@@ -1,10 +1,12 @@
-import { CONFLICT_MESSAGES, getStore, requestMeta } from "@/lib/db";
+import { CONFLICT_MESSAGES, getStore } from "@/lib/db";
 import { error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
-import { clientIp } from "@/lib/rate-limit";
 import { RAFFLE_FIELDS, responsePatchSchema } from "@/lib/schema";
-import { ensureVoter, setVoterCookie } from "@/lib/voter";
 
-/** Auto-save : met à jour un ou plusieurs champs d'une session. :id = session_id */
+/**
+ * Auto-save : met à jour un ou plusieurs champs d'une session. :id = session_id
+ * La ligne doit exister (ouverte par /create) : sinon 404, et le navigateur rouvre la session
+ * (saver.ts) ; plus aucune ligne n'est créée ici.
+ */
 async function handle(req: Request, ctx: RouteContext<"/api/responses/[id]/update">) {
   const blocked = limited(req, "responses", 100);
   if (blocked) return blocked;
@@ -12,16 +14,17 @@ async function handle(req: Request, ctx: RouteContext<"/api/responses/[id]/updat
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Session invalide", 404);
 
-  const parsed = responsePatchSchema.safeParse(await readJson(req));
+  const body = await readJson(req);
+  if (body instanceof Response) return body;
+  const parsed = responsePatchSchema.safeParse(body);
   if (!parsed.success) return zodError(parsed.error);
   const patch = parsed.data;
   if (Object.keys(patch).length === 0) return error("Aucun champ à mettre à jour");
 
   const store = getStore();
-  const voter = ensureVoter(req);
-  const withCookie = (res: ReturnType<typeof json>) => (voter.isNew ? setVoterCookie(res, voter.id) : res);
-  const result = await store.updateResponse(id, patch, requestMeta(req, clientIp(req)), voter.id);
-  if (result === "ok") return withCookie(json({ ok: true }));
+  const result = await store.updateResponse(id, patch);
+  if (result === "ok") return json({ ok: true });
+  if (result === "missing") return error("Session introuvable", 404);
 
   // Vote déjà validé : seul le choix du tirage au sort reste modifiable (les coordonnées passent
   // par /raffle), et une inscription faite ne se détache jamais d'ici.
@@ -32,7 +35,7 @@ async function handle(req: Request, ctx: RouteContext<"/api/responses/[id]/updat
     if (row?.participant_id) return error(CONFLICT_MESSAGES.raffle, 409, { raffle: [CONFLICT_MESSAGES.raffle] });
     await store.updateRaffle(id, { wants_raffle: patch.wants_raffle });
   }
-  return withCookie(json({ ok: true }));
+  return json({ ok: true });
 }
 
 export const PATCH = handle;

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
-import { currentRole } from "@/lib/auth";
+import { liveSession } from "@/lib/guard";
 
 export const metadata: Metadata = {
   title: "Backoffice du vote Halloween",
@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminPage() {
-  const role = await currentRole();
+  const role = (await liveSession())?.role;
   if (!role) redirect("/admin/login");
   return <AdminDashboard role={role} />;
 }

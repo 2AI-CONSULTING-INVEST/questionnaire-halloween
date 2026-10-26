@@ -1,20 +1,26 @@
 import { revalidatePath } from "next/cache";
 import { CONFLICT_MESSAGES, ConflictError, getStore } from "@/lib/db";
 import { conflictError, error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
+
+/** Conflit de coordonnées : message unique, sans dire quel champ (pas d'oracle « cette personne participe déjà »). */
+const TAKEN = "Ces coordonnées sont déjà utilisées pour une inscription";
 import { participantInput, raffleSchema } from "@/lib/schema";
 
 /**
  * Validation finale de l'inscription au tirage au sort (Q6), après la modale de vérification.
- * :id = session_id. Une participation par personne : pseudo, email et téléphone sont uniques.
+ * :id = session_id. Une participation par personne : pseudo, email et téléphone sont uniques ; un
+ * conflit répond 409 avec un message générique (jamais le champ en cause).
  */
 export async function POST(req: Request, ctx: RouteContext<"/api/responses/[id]/raffle">) {
-  const blocked = limited(req, "raffle", 30);
+  const blocked = limited(req, "raffle", 10);
   if (blocked) return blocked;
 
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Session invalide", 404);
 
-  const parsed = raffleSchema.safeParse(await readJson(req));
+  const body = await readJson(req);
+  if (body instanceof Response) return body;
+  const parsed = raffleSchema.safeParse(body);
   if (!parsed.success) return zodError(parsed.error);
 
   const store = getStore();
@@ -33,7 +39,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/responses/[id]/
     revalidatePath("/participants");
     return json({ ok: true, alreadyRegistered });
   } catch (e) {
-    if (e instanceof ConflictError) return conflictError(e);
+    // « raffle » (cette réponse est déjà inscrite avec d'autres coordonnées) ne révèle rien sur autrui.
+    if (e instanceof ConflictError) return e.fields.raffle ? conflictError(e) : error(TAKEN, 409);
     throw e;
   }
 }

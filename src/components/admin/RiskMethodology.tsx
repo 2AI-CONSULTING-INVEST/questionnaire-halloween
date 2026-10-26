@@ -46,7 +46,10 @@ export function RiskMethodology({ settings }: { settings: RiskSettings }) {
   const s = RISK_SIGNALS;
   const twins = s.device_voted_today.points + Math.min(IP_POINTS_MAX, s.device_same_ip.points + s.ip_many_votes.points) + s.device_same_decoration.points;
   const cleared = s.device_voted_today.points + s.local_vote_day.points + s.new_cookie_device_voted.points;
-  const third = s.device_voted_twice.points + s.new_cookie_device_voted.points + Math.min(IP_POINTS_MAX, s.device_same_ip.points) + s.device_same_decoration.points;
+  // Sans signal propre à la requête (empreinte et IP seulement), le score est plafonné sous le seuil de blocage,
+  // sauf le 3e vote du même appareil depuis la même connexion.
+  const third = s.device_voted_twice.points + Math.min(IP_POINTS_MAX, s.device_same_ip.points) + s.device_same_decoration.points;
+  const thirdElsewhere = Math.min(settings.block_threshold - 1, s.device_voted_twice.points + s.device_same_decoration.points);
   const verdict = (score: number) => (score >= settings.block_threshold ? "bloqué" : score >= settings.flag_threshold ? "signalé" : "accepté sans signal");
 
   return (
@@ -121,6 +124,20 @@ export function RiskMethodology({ settings }: { settings: RiskSettings }) {
               <strong className="text-ink dark:text-zinc-100">{n(IP_POINTS_MAX)} points</strong>, car plusieurs clients d&apos;un même restaurant partagent la même
               connexion Wi-Fi.
             </p>
+            <h4 className="mb-1 mt-4 text-sm font-semibold text-ink dark:text-zinc-100">Plafond par adresse IP</h4>
+            <p className="text-sm text-muted dark:text-zinc-400">
+              En plus du score, une règle dure&nbsp;: au-delà de{" "}
+              {settings.ip_daily_max > 0 ? (
+                <>
+                  <strong className="text-ink dark:text-zinc-100">{n(settings.ip_daily_max)} votes validés</strong> depuis la même adresse IP dans la journée
+                </>
+              ) : (
+                <strong className="text-ink dark:text-zinc-100">(désactivé&nbsp;: aucune limite)</strong>
+              )}
+              , le vote suivant est refusé comme un « déjà voté » (mode « Blocage ») ou seulement marqué (mode « Observation »), avec le signal « Plafond de votes par
+              adresse IP atteint », sans points. Elle borne ce qu&apos;un script peut faire depuis une connexion, même sans empreinte&nbsp;; laissez une marge pour le
+              Wi-Fi des restaurants.
+            </p>
           </div>
 
           <div>
@@ -136,7 +153,7 @@ export function RiskMethodology({ settings }: { settings: RiskSettings }) {
               <Callout tone="danger" title="Cookies effacés pour revoter, stockage local conservé">
                 Même empreinte (+{s.device_voted_today.points}), trace locale du vote du jour (+{s.local_vote_day.points}), cookie absent (+
                 {s.new_cookie_device_voted.points}) : score <strong>{cleared}</strong>. Vote {verdict(cleared)}. Un troisième vote du même appareil, même sans
-                trace locale, atteint {third} : {verdict(third)}.
+                trace locale, depuis la même connexion atteint {third} : {verdict(third)} ; depuis une autre connexion il est plafonné à {thirdElsewhere} ({verdict(thirdElsewhere)}).
               </Callout>
             </div>
           </div>
@@ -148,8 +165,8 @@ export function RiskMethodology({ settings }: { settings: RiskSettings }) {
               </h4>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-relaxed text-muted dark:text-zinc-400">
                 <li>L&apos;adresse IP seule ne peut jamais atteindre le seuil de signalement ({IP_POINTS_MAX} points au plus).</li>
-                <li>L&apos;empreinte seule (un vote précédent) ne peut jamais atteindre le seuil de blocage : il faut un second indice fort.</li>
-                <li>Une personne ne peut pas faire bloquer quelqu&apos;un d&apos;autre : les seuls signaux qu&apos;elle peut provoquer chez un tiers passent par l&apos;IP, plafonnée.</li>
+                <li>Les signaux d&apos;empreinte et d&apos;IP seuls ne suffisent pas à bloquer : sans au moins un indice propre à la requête (trace locale du vote, rapidité, automate, incohérences, absence d&apos;empreinte), le score reste sous le seuil de blocage, à une exception près : le 3e vote du jour d&apos;un même appareil depuis la même connexion.</li>
+                <li>Un tiers qui voudrait faire bloquer des appareils identiques au sien devrait avoir voté deux fois depuis le même réseau que ses victimes, et ses victimes seraient alors refusées dès leur premier vote sur ce réseau (le compte porte sur l&apos;empreinte, pas sur l&apos;appareil) : cas visible dans « Votes à examiner », réversible, et neutralisé par le mode « Observation » ; en contrepartie, un appareil qui revote seul une 3e fois dans la journée depuis la même connexion est bloqué.</li>
                 <li>Si l&apos;empreinte n&apos;a pas pu être calculée, le vote est accepté sans aucun de ces signaux.</li>
                 <li>Chaque blocage est visible ici et réversible (suppression de la ligne, exclusion annulable).</li>
               </ul>

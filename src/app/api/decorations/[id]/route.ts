@@ -18,7 +18,9 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/decorations/[i
   if (denied) return denied;
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Introuvable", 404);
-  const parsed = patchSchema.safeParse(await readJson(req));
+  const body = await readJson(req);
+  if (body instanceof Response) return body;
+  const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return zodError(parsed.error);
   await getStore().updateDecoration(id, parsed.data);
   revalidatePath("/");

@@ -62,7 +62,13 @@ export const pseudoSchema = z
 
 /** Prénom / nom : facultatifs, vide = null. */
 export const NAME_MAX = 50;
-export const nameSchema = z.string().trim().max(NAME_MAX, `${NAME_MAX} caractères maximum`).transform((v) => v || null).optional();
+export const nameSchema = z
+  .string()
+  .trim()
+  .max(NAME_MAX, `${NAME_MAX} caractères maximum`)
+  .refine((v) => v === "" || PSEUDO_RE.test(v), "Lettres, chiffres, espaces, « . », « _ » et « - » uniquement")
+  .transform((v) => v || null)
+  .optional();
 
 export const emailSchema = z.string().trim().toLowerCase().max(255).email("Adresse email invalide");
 export const phoneSchema = z
@@ -117,8 +123,8 @@ export const deviceSchema = z
   .strict();
 
 export type Device = z.infer<typeof deviceSchema>;
-/** Attributs grossiers enregistrés (`responses.device_info`) : tout sauf le condensé. */
-export type DeviceInfo = Omit<Device, "hash">;
+/** Attributs grossiers enregistrés (`responses.device_info`) : tout sauf le condensé et les signaux de session (`localVoteDay`, `startedAt`). */
+export type DeviceInfo = Omit<Device, "hash" | "localVoteDay" | "startedAt">;
 
 /** Validation du vote (questions 1 → 3). Comme dans le Typeform, le vote est enregistré avant le tirage au sort. */
 export const voteCompleteSchema = z
@@ -228,6 +234,8 @@ export type AdminSession = {
   longitude: number | null;
   created_at: string;
   last_seen_at: string;
+  /** Déconnexion ou révocation depuis le Journal : le jeton n'est plus accepté. Absent des anciens fichiers locaux. */
+  revoked_at?: string | null;
 };
 export type AdminAction = {
   id: string;
@@ -238,6 +246,9 @@ export type AdminAction = {
   details: unknown;
   created_at: string;
 };
+
+/** Échec de connexion au backoffice (verrouillage persistant par IP et global, voir /api/admin/login). */
+export type LoginFailure = { id: string; ip: string | null; created_at: string };
 
 /** Visite du site (compteur anti-robots, src/lib/visits.ts) ; une ligne rejetée ne garde que ip, user_agent, rejected, day. */
 export type Visit = {

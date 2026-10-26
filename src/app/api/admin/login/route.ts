@@ -4,11 +4,21 @@ import { getStore } from "@/lib/db";
 import { error, limited, readJson } from "@/lib/http";
 import { clientIp } from "@/lib/rate-limit";
 
+/** Verrouillage persistant (table `login_failures`) : 10 échecs par IP ou 30 toutes IP en 15 minutes → 429 pendant 15 minutes. */
+const LOCK_WINDOW_MS = 15 * 60_000;
+const LOCK_PER_IP = 10;
+const LOCK_GLOBAL = 30;
+
 /** En-têtes de géolocalisation par IP posés par Vercel (absents en local : valeurs nulles). */
 function geo(req: Request) {
   const text = (name: string) => {
     const v = req.headers.get(name);
-    return v ? decodeURIComponent(v).slice(0, 120) : null;
+    if (!v) return null;
+    try {
+      return decodeURIComponent(v).slice(0, 120);
+    } catch {
+      return v.slice(0, 120); // encodage invalide : valeur brute (la connexion et son journal ne doivent pas en dépendre)
+    }
   };
   const num = (name: string) => {
     const v = Number(req.headers.get(name));
@@ -21,22 +31,38 @@ export async function POST(req: Request) {
   const blocked = limited(req, "admin-login", 10);
   if (blocked) return blocked;
 
-  if (!process.env.ADMIN_PASSWORD) return error("ADMIN_PASSWORD n'est pas configuré sur le serveur", 500);
+  if (!process.env.ADMIN_PASSWORD) {
+    console.error("ADMIN_PASSWORD n'est pas configuré sur le serveur");
+    return error("Service indisponible", 503);
+  }
 
-  const body = (await readJson(req)) as { password?: unknown } | undefined;
+  const raw = await readJson(req);
+  if (raw instanceof Response) return raw;
+  const body = raw as { password?: unknown } | undefined;
   const password = typeof body?.password === "string" ? body.password : "";
-  const role = roleForPassword(password);
-  if (!role) return error("Mot de passe incorrect", 401);
 
-  // Journal : la session (IP, appareil, position approximative) puis l'action « Connexion ».
-  let sid: string | undefined;
+  const store = getStore();
+  const ip = clientIp(req);
+  const since = new Date(Date.now() - LOCK_WINDOW_MS).toISOString();
+  const [byIp, all] = await Promise.all([store.countLoginFailures(since, ip), store.countLoginFailures(since)]);
+  if (byIp >= LOCK_PER_IP || all >= LOCK_GLOBAL) return error("Trop de tentatives, réessayez dans 15 minutes.", 429);
+
+  const role = roleForPassword(password);
+  if (!role) {
+    await store.recordLoginFailure(ip);
+    return error("Mot de passe incorrect", 401);
+  }
+
+  // Journal : la session (IP, appareil, position approximative) puis l'action « Connexion ». Sans
+  // session en base, le jeton serait refusé (requireRole) : on refuse la connexion plutôt.
+  let sid: string;
   try {
-    const store = getStore();
-    const session = await store.createAdminSession({ role, ip: clientIp(req), user_agent: req.headers.get("user-agent")?.slice(0, 500) ?? null, ...geo(req) });
+    const session = await store.createAdminSession({ role, ip, user_agent: req.headers.get("user-agent")?.slice(0, 500) ?? null, ...geo(req) });
     sid = session.id;
     await store.logAdminAction({ session_id: sid, method: "POST", path: "/api/admin/login", action: "Connexion", details: null });
   } catch (e) {
-    console.error("Journal du backoffice indisponible :", e); // la connexion reste possible
+    console.error("Journal du backoffice indisponible :", e);
+    return error("Service indisponible", 503);
   }
 
   const res = NextResponse.json({ ok: true, role });

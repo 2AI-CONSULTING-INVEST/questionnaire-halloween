@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { currentSession } from "@/lib/auth";
 import { getStore } from "@/lib/db";
 import { requireRole } from "@/lib/guard";
 import { error, json, zodError } from "@/lib/http";
 import { decodeCursor, PAGE_MAX, PAGE_SIZE } from "@/lib/paging";
+import { maskParticipant } from "@/lib/redact";
 
 const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(PAGE_MAX).default(PAGE_SIZE),
@@ -18,10 +20,12 @@ const querySchema = z.object({
  * Admin : page de participants au tirage, 100 par page, recherche et tri côté stockage.
  * ?limit=100&cursor=…&q=&sort=pseudo|email|date&dir=asc|desc&deleted=1 → { rows, nextCursor, total } (avec `votes` par personne).
  * ?light=1 → liste complète allégée [{ id, pseudo }] des actifs (attribution des lots, compteur de l'onglet).
+ * En lecture seule, email et téléphone sont masqués (`j***@…`, `07 ** ** ** 67`).
  */
 export async function GET(req: Request) {
   const denied = await requireRole("viewer");
   if (denied) return denied;
+  const viewerOnly = (await currentSession())?.role !== "admin";
   const headers = { "Cache-Control": "no-store" };
   const url = new URL(req.url);
   if (url.searchParams.get("light") === "1") {
@@ -34,5 +38,5 @@ export async function GET(req: Request) {
   const cursor = p.cursor ? decodeCursor(p.cursor) : null;
   if (p.cursor && !cursor) return error("Curseur invalide");
   const page = await getStore().pageParticipants({ q: p.q || undefined, sort: p.sort, dir: p.dir, deleted: p.deleted === "1" }, { limit: p.limit, cursor });
-  return json(page, { headers });
+  return json(viewerOnly ? { ...page, rows: page.rows.map(maskParticipant) } : page, { headers });
 }

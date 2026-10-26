@@ -2,7 +2,7 @@
 
 import { Ban, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { flagLabel, type RiskSettings, type SecuritySummary, type TopEntry } from "@/lib/risk";
+import { DEFAULT_RISK_SETTINGS, flagLabel, type RiskSettings, type SecuritySummary, type TopEntry } from "@/lib/risk";
 import { shortName, type Decoration, type ResponseRow } from "@/lib/schema";
 import { usePage } from "./paged";
 import { RiskMethodology } from "./RiskMethodology";
@@ -55,7 +55,7 @@ function SettingsForm({ settings, canWrite, onSaved }: { settings: RiskSettings;
     }
   }
 
-  const num = (key: "flag_threshold" | "block_threshold") => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [key]: Number(e.target.value) });
+  const num = (key: "flag_threshold" | "block_threshold" | "ip_daily_max") => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [key]: Number(e.target.value) });
   return (
     <form onSubmit={save} className="flex flex-wrap items-end gap-3">
       <label className="flex flex-col gap-1 text-xs font-semibold text-muted dark:text-zinc-400">
@@ -72,6 +72,11 @@ function SettingsForm({ settings, canWrite, onSaved }: { settings: RiskSettings;
       <label className="flex flex-col gap-1 text-xs font-semibold text-muted dark:text-zinc-400">
         Seuil de blocage
         <input type="number" min={0} max={200} step={1} value={form.block_threshold} disabled={!canWrite} onChange={num("block_threshold")} className={`${inputClass} w-28`} />
+      </label>
+      <label className="flex flex-col gap-1 text-xs font-semibold text-muted dark:text-zinc-400" title="Wi-Fi d'un restaurant : plusieurs clients partagent une IP, laissez une marge">
+        Votes validés max. par adresse IP et par jour (0 = sans limite)
+        <input type="number" min={0} max={1000} step={1} value={form.ip_daily_max} disabled={!canWrite} onChange={num("ip_daily_max")} className={`${inputClass} w-28`} />
+        <span className="font-normal">Wi-Fi d&apos;un restaurant&nbsp;: plusieurs clients partagent une IP, laissez une marge.</span>
       </label>
       {canWrite && (
         <Button type="submit" variant="primary" disabled={busy || form.flag_threshold >= form.block_threshold}>
@@ -219,7 +224,7 @@ export function SecurityTab({
                       <tr key={r.id} className="border-b border-line align-top last:border-0 dark:border-zinc-800">
                         <td className="whitespace-nowrap px-5 py-2.5 text-muted dark:text-zinc-400">{fmtDate(r.completed_at ?? r.blocked_at ?? r.created_at)}</td>
                         <td className="px-3 py-2.5">
-                          <RiskBadge score={r.risk_score} flags={r.risk_flags} settings={summary?.settings ?? { mode: "block", flag_threshold: 40, block_threshold: 80 }} />
+                          <RiskBadge score={r.risk_score} flags={r.risk_flags} settings={summary?.settings ?? DEFAULT_RISK_SETTINGS} />
                         </td>
                         <td className="max-w-xs px-3 py-2.5 text-xs text-ink dark:text-zinc-200" title={labels.map((l) => `· ${l}`).join("\n") || undefined}>
                           <p className="line-clamp-3" title={labels.map((l) => `· ${l}`).join("\n") || undefined}>

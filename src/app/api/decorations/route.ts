@@ -29,9 +29,12 @@ export async function POST(req: Request) {
   let imageUrl: string;
 
   if (req.headers.get("content-type")?.includes("application/json")) {
-    const parsed = directSchema.safeParse(await readJson(req));
+    const body = await readJson(req);
+    if (body instanceof Response) return body;
+    const parsed = directSchema.safeParse(body);
     if (!parsed.success) return zodError(parsed.error);
-    if (!store.isOwnFile(parsed.data.image_url)) return error("Fichier inconnu");
+    // F-16 : l'URL doit désigner un fichier de notre stockage, et il doit bel et bien y être (envoi direct terminé).
+    if (!store.isOwnFile(parsed.data.image_url) || !(await store.fileExists(parsed.data.image_url))) return error("Fichier inconnu");
     restaurantName = parsed.data.restaurant_name;
     imageUrl = parsed.data.image_url;
   } else {

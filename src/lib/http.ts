@@ -4,12 +4,16 @@ import type { ZodError } from "zod";
 import type { ConflictError } from "./db";
 import { clientIp, rateLimit } from "./rate-limit";
 
+/** Réponse JSON ; `Cache-Control: no-store` par défaut (réponses admin, cookies) sauf si l'appelant fixe le sien (`/api/results` : cache public). */
 export function json<T>(data: T, init?: number | ResponseInit) {
-  return NextResponse.json(data, typeof init === "number" ? { status: init } : init);
+  const base: ResponseInit = typeof init === "number" ? { status: init } : (init ?? {});
+  const headers = new Headers(base.headers);
+  if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
+  return NextResponse.json(data, { ...base, headers });
 }
 
 export function error(message: string, status = 400, details?: unknown) {
-  return NextResponse.json({ error: message, details }, { status });
+  return NextResponse.json({ error: message, details }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
 export function zodError(e: ZodError) {
@@ -27,7 +31,15 @@ export function limited(req: Request, scope: string, limit = 100) {
   return rateLimit(`${scope}:${ip}`, limit) ? null : error("Trop de requêtes, réessayez dans une minute.", 429);
 }
 
+/**
+ * Corps JSON de la requête, ou une réponse d'erreur à renvoyer telle quelle : 403 si le navigateur
+ * annonce une requête cross-site, 415 sans `Content-Type: application/json` (un site tiers ne peut
+ * alors envoyer qu'une requête « simple » en text/plain, refusée ici, ou passer par une pré-vérification
+ * CORS, qui échoue faute d'en-têtes CORS). Corps illisible : undefined (la validation zod répond 422).
+ */
 export async function readJson(req: Request): Promise<unknown> {
+  if (req.headers.get("sec-fetch-site") === "cross-site") return error("Requête cross-site refusée", 403);
+  if (!req.headers.get("content-type")?.toLowerCase().startsWith("application/json")) return error("Content-Type application/json attendu", 415);
   try {
     return await req.json();
   } catch {

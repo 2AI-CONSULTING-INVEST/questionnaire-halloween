@@ -1,10 +1,11 @@
 import "server-only";
 import { createHmac, randomUUID } from "node:crypto";
 import type { NextResponse } from "next/server";
+import { riskSecret } from "./auth";
 import { BASE_PATH } from "./base-path";
 import type { DeviceStamp } from "./db";
 import { isUuid } from "./http";
-import type { Device } from "./schema";
+import type { Device, DeviceInfo } from "./schema";
 
 /**
  * Identifiant d'appareil du vote quotidien : cookie `hw_voter` (uuid aléatoire), posé par le
@@ -12,7 +13,7 @@ import type { Device } from "./schema";
  * peut pas le lire ; il n'identifie personne, il sert seulement à la règle « un vote par jour ».
  */
 export const VOTER_COOKIE = "hw_voter";
-const TTL_SECONDS = 60 * 60 * 24 * 400;
+const TTL_SECONDS = 60 * 60 * 24 * 60; // durée de l'opération, pas plus
 
 export const voterCookieOptions = {
   httpOnly: true,
@@ -52,13 +53,13 @@ export function setVoterCookie(res: NextResponse, id: string) {
  */
 export function deviceHash(raw: string | undefined): string | null {
   if (!raw) return null;
-  const secret = process.env.RISK_SECRET || process.env.ADMIN_SESSION_SECRET || "dev-only-secret-change-me-dev-only-secret";
-  return createHmac("sha256", secret).update(raw).digest("hex");
+  return createHmac("sha256", riskSecret()).update(raw).digest("hex");
 }
 
-/** Ce qui est enregistré sur la réponse : l'empreinte HMAC et les attributs grossiers (sans le condensé). */
+/** Ce qui est enregistré sur la réponse : l'empreinte HMAC et les attributs grossiers (sans le condensé, ni les signaux de session `localVoteDay` / `startedAt`, qui ne servent qu'au score). */
 export function deviceStamp(device: Device | undefined): DeviceStamp {
   if (!device) return { device_hash: null, device_info: null };
-  const { hash, ...info } = device;
-  return { device_hash: deviceHash(hash), device_info: Object.keys(info).length ? info : null };
+  const info: DeviceInfo = {};
+  for (const k of ["mobile", "platform", "browser", "screen", "touch", "webdriver"] as const) if (device[k] !== undefined) Object.assign(info, { [k]: device[k] });
+  return { device_hash: deviceHash(device.hash), device_info: Object.keys(info).length ? info : null };
 }

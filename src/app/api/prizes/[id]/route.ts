@@ -34,7 +34,9 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/prizes/[id]">)
 
   let patch: PrizePatch;
   if (req.headers.get("content-type")?.includes("application/json")) {
-    const parsed = patchSchema.safeParse(await readJson(req));
+    const body = await readJson(req);
+    if (body instanceof Response) return body;
+    const parsed = patchSchema.safeParse(body);
     if (!parsed.success) return zodError(parsed.error);
     patch = parsed.data;
     if (patch.image_url && !store.isOwnFile(patch.image_url)) return error("Fichier inconnu");

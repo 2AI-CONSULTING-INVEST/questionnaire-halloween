@@ -208,6 +208,12 @@ function RaffleForm({ initial, formatPhone, onConfirm, onBusy }: FormProps) {
           </div>
         </Dialog.Description>
 
+        <p className="mt-3 text-xs text-fg-muted">
+          Ces coordonnées servent uniquement au tirage au sort et ne sont jamais publiées.{" "}
+          <a href={withBase("/confidentialite")} target="_blank" rel="noopener" className="underline underline-offset-2 hover:text-fg">
+            Confidentialité
+          </a>
+        </p>
         <div className="mt-4 grid grid-cols-2 gap-3.5">
           {FIELDS.map((f) => {
             const err = errorOf(f.key);

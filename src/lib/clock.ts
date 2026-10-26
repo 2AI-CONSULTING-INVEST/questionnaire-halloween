@@ -1,6 +1,7 @@
 /**
  * Horloge de test : permet de simuler « le lendemain » (vote quotidien) sans attendre minuit.
- * Activée uniquement si NEXT_PUBLIC_HW_TEST_CLOCK=1 au moment du build (jamais en production) :
+ * Activée uniquement si NEXT_PUBLIC_HW_TEST_CLOCK=1 au moment du build (jamais en production ; côté
+ * serveur, elle est de toute façon ignorée quand VERCEL_ENV vaut « production », le cookie n'est pas lu) :
  *  - serveur : cookie `hw_test_now` lu sur chaque requête ;
  *  - navigateur : clé localStorage `hw-test-now`.
  * Valeur : un instant ISO (horloge figée) ou un décalage en millisecondes « +86400000 » (horloge
@@ -19,7 +20,7 @@ const parse = (v: string | null | undefined) => {
 
 /** Instant courant côté serveur (ms), éventuellement simulé par le cookie de test. */
 export function serverNow(req: Request): number {
-  if (!TEST_CLOCK) return Date.now();
+  if (!TEST_CLOCK || process.env.VERCEL_ENV === "production") return Date.now();
   const raw = req.headers.get("cookie") ?? "";
   const part = raw.split(";").map((p) => p.trim()).find((p) => p.startsWith(`${TEST_CLOCK_COOKIE}=`));
   return parse(part ? decodeURIComponent(part.slice(TEST_CLOCK_COOKIE.length + 1)) : null) ?? Date.now();

@@ -14,6 +14,7 @@ const honest = (over: Partial<RiskInput> = {}): RiskInput => ({
   deviceVotesToday: [],
   ipVotesToday: 0,
   cookieIsNew: false,
+  noDevice: false,
   voterId: COOKIE,
   ip: IP,
   decorationId: DECO,
@@ -23,6 +24,7 @@ const honest = (over: Partial<RiskInput> = {}): RiskInput => ({
   webdriver: false,
   userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1",
   declared: { mobile: true },
+  blockThreshold: BLOCK,
   ...over,
 });
 
@@ -63,11 +65,35 @@ describe("scoreRisk : invariants", () => {
     assert.deepEqual(r.flags, ["device_voted_today", "local_vote_day", "new_cookie_device_voted", "device_same_ip"]);
   });
 
-  it("troisième vote du même appareil le même jour (même IP) → bloqué", () => {
+  it("F-14 : 3e vote même appareil, même IP, lent → bloqué (≥ 80 : seule exception sans signal propre à la requête)", () => {
     const r = scoreRisk(honest({ deviceVotesToday: [vote({ ip: IP }), vote({ ip: IP })] }));
     assert.equal(r.score, 70 + 15);
     assert.ok(r.score >= BLOCK);
-    assert.ok(r.flags.includes("device_voted_twice") && !r.flags.includes("device_voted_today"));
+    assert.ok(r.flags.includes("device_voted_twice") && r.flags.includes("device_same_ip"));
+  });
+  it("F-14 : 3e vote même appareil, autre IP, lent → plafonné 79, signalé", () => {
+    const r = scoreRisk(honest({ deviceVotesToday: [vote({ decorationId: DECO }), vote({ decorationId: DECO })], ipVotesToday: 6 }));
+    assert.equal(r.score, BLOCK - 1, "70 + 20 + 10 = 100 sans plafond");
+    assert.ok(r.score >= FLAG && r.score < BLOCK && !r.flags.includes("device_same_ip"));
+    assert.equal(scoreRisk(honest({ deviceVotesToday: [vote(), vote()], blockThreshold: 60 })).score, 59, "suit le seuil réglé");
+  });
+  it("F-14 : 2e vote même appareil, même IP, lent → 70, signalé", () => {
+    const r = scoreRisk(honest({ deviceVotesToday: [vote({ ip: IP, decorationId: DECO })] }));
+    assert.equal(r.score, 45 + 15 + 10);
+    assert.ok(r.score >= FLAG && r.score < BLOCK);
+  });
+  it("F-14 : appareil identique d'un tiers, 2 votes antérieurs depuis une autre IP → jamais bloqué", () => {
+    const r = scoreRisk(honest({ deviceVotesToday: [vote({ ip: "10.9.9.9", decorationId: DECO }), vote({ ip: "10.9.9.9", decorationId: DECO })], ipVotesToday: 6 }));
+    assert.ok(r.score < BLOCK && r.score >= FLAG, String(r.score));
+  });
+  it("F-14 : 3e vote même appareil + rapide → bloqué (un signal propre à la requête suffit)", () => {
+    const r = scoreRisk(honest({ deviceVotesToday: [vote({ ip: IP }), vote({ ip: IP })], durationMs: 4000 }));
+    assert.equal(r.score, 70 + 15 + 25);
+    assert.ok(r.score >= BLOCK);
+  });
+  it("F-14 : les signaux propres à la requête ne sont jamais plafonnés (cookies effacés + stockage conservé → toujours bloqué ; sans empreinte + rapide + IP → bloqué)", () => {
+    assert.ok(scoreRisk(honest({ deviceVotesToday: [vote({ ip: IP })], cookieIsNew: true, voterId: "55555555-5555-4555-8555-555555555555", localVoteDay: TODAY })).score >= BLOCK);
+    assert.ok(scoreRisk(honest({ noDevice: true, durationMs: 4000, ipVotesToday: 3 })).score >= BLOCK);
   });
 
   it("un attaquant ne peut gonfler pour un tiers que les signaux d'IP, plafonnés à 20 (< seuil de signalement)", () => {
@@ -86,6 +112,16 @@ describe("scoreRisk : chaque signal isolé", () => {
     assert.equal(r.score, score, flag);
     assert.deepEqual(r.flags, [flag]);
   };
+  it("sans empreinte et sans autre signal → 45 (< seuil de blocage : signalé seulement)", () => {
+    only({ noDevice: true }, 45, "no_device");
+    assert.ok(45 >= FLAG && 45 < BLOCK);
+  });
+  it("sans empreinte + rapide (< 6 s) + IP ≥ 3 votes → ≥ 80, bloqué (F-01 : rotation de cookie sans empreinte)", () => {
+    const r = scoreRisk(honest({ noDevice: true, durationMs: 4000, ipVotesToday: 3 }));
+    assert.ok(r.score >= BLOCK, String(r.score));
+    assert.deepEqual(r.flags, ["no_device", "ip_many_votes", "too_fast"]);
+  });
+  it("honnête avec empreinte → 0 (no_device jamais sans raison)", () => assert.equal(scoreRisk(honest({ noDevice: false })).score, 0));
   it("même appareil, 1 vote → 45", () => only({ deviceVotesToday: [vote()] }, 45, "device_voted_today"));
   it("même appareil, ≥ 2 votes → 70 (remplace 45)", () => only({ deviceVotesToday: [vote(), vote(), vote()] }, 70, "device_voted_twice"));
   it("localVoteDay = aujourd'hui, cookie neuf → 50", () => only({ localVoteDay: TODAY, cookieIsNew: true }, 50, "local_vote_day"));
@@ -159,8 +195,12 @@ describe("scoreRisk : chaque signal isolé", () => {
 
 describe("réglages du score", () => {
   it("valeurs par défaut : block, 40, 80 ; seuils bornés 0–200 et flag < block ; clés inconnues refusées", () => {
-    assert.deepEqual(DEFAULT_RISK_SETTINGS, { mode: "block", flag_threshold: 40, block_threshold: 80 });
+    assert.deepEqual(DEFAULT_RISK_SETTINGS, { mode: "block", flag_threshold: 40, block_threshold: 80, ip_daily_max: 60 });
     assert.ok(riskSettingsSchema.safeParse({ mode: "observe", flag_threshold: 0, block_threshold: 200 }).success);
+    assert.equal(riskSettingsSchema.parse({ mode: "observe", flag_threshold: 0, block_threshold: 200 }).ip_daily_max, 60, "réglages enregistrés sans ip_daily_max : défaut");
+    assert.ok(riskSettingsSchema.safeParse({ mode: "block", flag_threshold: 40, block_threshold: 80, ip_daily_max: 0 }).success);
+    assert.ok(!riskSettingsSchema.safeParse({ mode: "block", flag_threshold: 40, block_threshold: 80, ip_daily_max: 1001 }).success);
+    assert.ok(!riskSettingsSchema.safeParse({ mode: "block", flag_threshold: 40, block_threshold: 80, ip_daily_max: -1 }).success);
     assert.ok(!riskSettingsSchema.safeParse({ mode: "block", flag_threshold: 80, block_threshold: 80 }).success);
     assert.ok(!riskSettingsSchema.safeParse({ mode: "block", flag_threshold: 10, block_threshold: 201 }).success);
     assert.ok(!riskSettingsSchema.safeParse({ mode: "block", flag_threshold: 10.5, block_threshold: 80 }).success);
@@ -171,6 +211,6 @@ describe("réglages du score", () => {
     assert.deepEqual(await loadRiskSettings({ getSetting: async () => null }), DEFAULT_RISK_SETTINGS);
     assert.deepEqual(await loadRiskSettings({ getSetting: async () => ({ mode: "observe" }) }), DEFAULT_RISK_SETTINGS);
     const custom = { mode: "observe", flag_threshold: 30, block_threshold: 90 };
-    assert.deepEqual(await loadRiskSettings({ getSetting: async () => custom }), custom);
+    assert.deepEqual(await loadRiskSettings({ getSetting: async () => custom }), { ...custom, ip_daily_max: 60 }); // réglages enregistrés avant le plafond : défaut
   });
 });

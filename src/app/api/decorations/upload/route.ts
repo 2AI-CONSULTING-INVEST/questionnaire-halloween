@@ -18,7 +18,9 @@ const bodySchema = z.object({
 export async function POST(req: Request) {
   const denied = await requireRole("admin", req);
   if (denied) return denied;
-  const parsed = bodySchema.safeParse(await readJson(req));
+  const body = await readJson(req);
+  if (body instanceof Response) return body;
+  const parsed = bodySchema.safeParse(body);
   if (!parsed.success) return zodError(parsed.error);
 
   const id = randomUUID();
@@ -29,6 +31,7 @@ export async function POST(req: Request) {
     const poster = parsed.data.poster ? await store.createUploadTarget(`${id}.poster.jpg`) : null;
     return json({ mode: "direct", media, poster });
   } catch (e) {
-    return error(e instanceof Error ? e.message : "Stockage indisponible", 502);
+    console.error("Stockage indisponible :", e);
+    return error("Stockage indisponible", 502); // message fixe, détail en journal serveur
   }
 }

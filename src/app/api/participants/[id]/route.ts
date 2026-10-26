@@ -13,7 +13,9 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/participants/[
   if (denied) return denied;
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Introuvable", 404);
-  const parsed = patchSchema.safeParse(await readJson(req));
+  const body = await readJson(req);
+  if (body instanceof Response) return body;
+  const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return zodError(parsed.error);
   try {
     await getStore().updateParticipant(id, { pseudo: parsed.data.pseudo, pseudo_key: pseudoKey(parsed.data.pseudo) });

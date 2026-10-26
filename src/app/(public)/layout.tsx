@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { PreloadScene } from "@/components/scene/PreloadScene";
 import { SpookyBackdrop } from "@/components/scene/SpookyBackdrop";
@@ -16,6 +17,11 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
       <PreloadScene />
       <SpookyBackdrop />
       {children}
+      <footer className="relative z-10 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-center text-xs text-fg-muted">
+        <Link href="/confidentialite" className="underline-offset-2 hover:text-fg hover:underline">
+          Confidentialité
+        </Link>
+      </footer>
       <CornerRail />
       <DemoBar />
       <VisitBeacon />

@@ -59,7 +59,7 @@ const server = http.createServer((req, res) => {
   const file = url === "/" ? path.join(here, "og.html") : path.join(out, path.basename(url));
   fs.readFile(file, (err, data) => (err ? res.writeHead(404).end() : res.writeHead(200, { "Content-Type": types[path.extname(file)] ?? "application/octet-stream" }).end(data)));
 });
-await new Promise((r) => server.listen(5183, r));
+await new Promise((r) => server.listen(5183, "127.0.0.1", r)); // jamais sur toutes les interfaces
 const browser = await puppeteer.launch(chrome);
 const page = await browser.newPage();
 await page.setViewport({ width: 1200, height: 630 });

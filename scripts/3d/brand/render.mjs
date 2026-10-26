@@ -21,7 +21,7 @@ const server = http.createServer((req, res) => {
   if (url !== "/" && !file.startsWith(root)) return res.writeHead(403).end();
   fs.readFile(file, (err, data) => (err ? res.writeHead(404).end() : res.writeHead(200, { "Content-Type": types[path.extname(file)] ?? "application/octet-stream" }).end(data)));
 });
-await new Promise((r) => server.listen(5182, r));
+await new Promise((r) => server.listen(5182, "127.0.0.1", r)); // jamais sur toutes les interfaces
 const browser = await puppeteer.launch({ executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: "new", args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1200, height: 1200 });

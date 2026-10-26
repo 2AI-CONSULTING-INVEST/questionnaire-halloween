@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Questionnaire } from "@/components/questionnaire/Questionnaire";
-import { currentRole } from "@/lib/auth";
 import { getStore } from "@/lib/db";
+import { liveSession } from "@/lib/guard";
 
 /**
  * Espace démo : le vrai questionnaire (mêmes restaurants, mêmes photos, même décor 3D), mais
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 };
 
 export default async function DemoPage() {
-  if (!(await currentRole())) redirect("/admin/login");
+  if (!(await liveSession())) redirect("/admin/login");
   const store = getStore();
   const [restaurants, decorations, prizes] = await Promise.all([store.listRestaurants(), store.listDecorations(), store.listPrizes()]);
 

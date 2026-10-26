@@ -26,7 +26,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": types[path.extname(file)] ?? "application/octet-stream" }).end(data);
   });
 });
-await new Promise((r) => server.listen(5180, r));
+await new Promise((r) => server.listen(5180, "127.0.0.1", r)); // jamais sur toutes les interfaces
 const browser = await puppeteer.launch({ executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: "new", args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"] });
 const page = await browser.newPage();
 // Capture à la définition du rendu (pixelRatio 2) : sans ça, l'image sort à moitié de sa définition.
