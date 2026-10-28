@@ -130,8 +130,8 @@ describe("mises en attente (cas suspects)", () => {
     assert.deepEqual([far.outcome, far.priority], ["held", false]);
     assert.equal(decide(facts({ hwKey: "iphone-x", entropy: "weak", city: null }), [attempt({ hwKey: "iphone-x", entropy: "weak", ipNet: "203.0.113.11", city: null })], S).outcome, "counted", "même /24, autre adresse : rien");
   });
-  it("H6 : navigation privée et clé déjà vue (clé faible)", () => {
-    const d = decide(facts({ hwKey: "iphone-x", entropy: "weak", privateMode: true, city: null }), [attempt({ hwKey: "iphone-x", entropy: "weak", city: null })], S);
+  it("H6 : navigation privée et clé déjà vue (clé faible ; B5 désactivé pour isoler la règle)", () => {
+    const d = decide(facts({ hwKey: "iphone-x", entropy: "weak", privateMode: true, city: null }), [attempt({ hwKey: "iphone-x", entropy: "weak", city: null })], settings({ b5_private_block: false }));
     assert.deepEqual([d.outcome, d.reasons], ["held", ["H6"]]);
   });
   it("H7 : récidive d'une clé forte ; jamais pour une clé faible", () => {
@@ -302,5 +302,23 @@ describe("A30 : Brave sur ordinateur", () => {
   it("autre réseau, ou même cookie : rien", () => {
     assert.equal(crossBrowser({ ...brave, ipNet: "192.0.2.9" }, [attempt({ voterId: "cookie-chrome", ipNet: "203.0.113.10" })], S), null);
     assert.equal(crossBrowser(brave, [attempt({ voterId: "cookie-brave", ipNet: "203.0.113.10" })], S), null);
+  });
+});
+
+describe("B5 : navigation privée détectée", () => {
+  const priv = { ...NO_CLUE, voterId: null, storageKeys: [], hwKey: "iphone-x", entropy: "weak" as const, privateMode: true };
+  it("arrivée : reconnue, écran « déjà voté »", () => {
+    assert.equal(recognize(priv, [], S), "private");
+    assert.equal(arrivalVoted(recognize(priv, [], S), "block"), true);
+  });
+  it("validation : refus B5, score 0", () => {
+    const d = decide(facts({ privateMode: true, voterId: "x" }), [], S);
+    assert.deepEqual([d.outcome, d.reasons.includes("B5")], ["blocked", true]);
+  });
+  it("mode observation : rien ne change (compté, issue évitée notée) ; réglage désactivé : rien", () => {
+    const obs = settings({ mode: "observe" });
+    assert.equal(arrivalVoted(recognize(priv, [], obs), "observe"), false);
+    assert.deepEqual([decide(facts({ privateMode: true }), [], obs).outcome, decide(facts({ privateMode: true }), [], obs).observed], ["counted", "blocked"]);
+    assert.equal(decide(facts({ privateMode: true }), [], settings({ b5_private_block: false })).outcome, "counted");
   });
 });

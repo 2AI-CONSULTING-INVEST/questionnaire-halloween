@@ -1,7 +1,7 @@
 # Graph Report - questionnaire-halloween  (2026-10-28)
 
 ## Corpus Check
-- 217 files · ~430,121 words
+- 217 files · ~430,435 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 28 file(s) not represented in the graph (top: .avif 18, .glb 5, .css 2)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `6769c34f`
+- Built from commit: `737c0edb`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -435,7 +435,7 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `getStore` be split into smaller, more focused modules?**
   _Cohesion score 0.1380392156862745 - nodes in this community are weakly interconnected._
 - **Why does `next` connect `getStore` to `login/layout.tsx`, `Empty`, `fraud-server.ts`, `demo.ts`, `package.json`, `not-found.tsx`, `Sécurité`, `AdminDashboard.tsx`, `schema.ts`, `PrizesTab.tsx`, `next`, `withBase`, `engine.ts`, `analytics.ts`, `Card`, `ShareButtons.tsx`?**
-  _High betweenness centrality (0.058) - this node is a cross-community bridge._
+  _High betweenness centrality (0.053) - this node is a cross-community bridge._
 - **Should `admin/ui.tsx` be split into smaller, more focused modules?**
   _Cohesion score 0.12854609929078015 - nodes in this community are weakly interconnected._
 - **Why does `SupabaseStore` connect `SupabaseStore` to `getStore`, `db.ts`, `Store`?**

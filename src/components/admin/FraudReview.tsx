@@ -534,9 +534,9 @@ export function GroupsView({ day, setDay, tick, decoName, canWrite, onChanged }:
 // Tester cet appareil
 // ---------------------------------------------------------------------------
 
-type DeviceTest = { entropy: string | null; declaredEntropy: string | null; privateMode: boolean | null; hwPrefix: string | null; model: string | null; ipClass: string; country: string | null; city: string | null; tokens: number; recognized: "cookie" | "storage" | "hw" | "xdev" | null };
+type DeviceTest = { entropy: string | null; declaredEntropy: string | null; privateMode: boolean | null; hwPrefix: string | null; model: string | null; ipClass: string; country: string | null; city: string | null; tokens: number; recognized: "cookie" | "storage" | "hw" | "xdev" | "private" | null };
 const ENTROPY: Record<string, string> = { strong: "forte", weak: "faible", noisy: "brouillée" };
-const RECOGNIZED: Record<string, string> = { cookie: "oui, par le cookie", storage: "oui, par le stockage de l'appareil", hw: "oui, par la clé matérielle forte", xdev: "oui, même ordinateur depuis un autre navigateur (B4)" };
+const RECOGNIZED: Record<string, string> = { cookie: "oui, par le cookie", storage: "oui, par le stockage de l'appareil", hw: "oui, par la clé matérielle forte", xdev: "oui, même ordinateur depuis un autre navigateur (B4)", private: "oui, navigation privée détectée (B5)" };
 
 /** « Tester cet appareil » : ce que l'appareil actuel enverrait, sans créer de vote (navigation normale et privée). */
 export function DeviceTestPanel() {

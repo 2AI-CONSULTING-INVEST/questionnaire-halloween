@@ -125,6 +125,7 @@ describe("réglages", () => {
       h7_recidivism: true,
       b4_cross_browser: true,
       b4_strict_any_network: false,
+      b5_private_block: true,
       h9_weak_nearby: true,
       h9_minutes: 10,
       c2_min_attempts: 3,

@@ -44,6 +44,12 @@ export const FRAUD_RULES = {
     why: "Un autre cookie, mais la clé stricte (système, processeurs, fuseau, écran tactile, fabricant de la carte graphique et polices installées, sans dimension d'écran) et le réseau IP d'une tentative du jour, à toute heure : le même ordinateur qui revote depuis un deuxième navigateur. Clé stricte depuis un autre réseau (4G, VPN) : attente (H10), ou refus si le réglage « B4 sur tout réseau » est activé. Clé large seule (sans les polices) : attente (H10). Sur téléphone : attente (H10).",
     setting: "b4_cross_browser",
   },
+  B5: {
+    kind: "block",
+    label: "Navigation privée détectée",
+    why: "La navigation privée efface cookie et stockage à chaque fenêtre : décision du propriétaire, elle bloque le vote (écran « déjà voté » à l'arrivée, refus à l'ouverture et à la validation). Détection heuristique : faux positif possible (voir les limites).",
+    setting: "b5_private_block",
+  },
   ip_daily_max: {
     kind: "block",
     label: "Plafond de votes par adresse IP atteint",
@@ -171,7 +177,7 @@ export type RequestFacts = {
   brave?: boolean;
 };
 
-export type Recognition = "cookie" | "storage" | "hw" | "xdev" | null;
+export type Recognition = "cookie" | "storage" | "hw" | "xdev" | "private" | null;
 
 type RecognitionFacts = Pick<RequestFacts, "voterId" | "storageKeys" | "hwKey" | "entropy" | "privateMode" | "ipNet" | "city" | "nowMs" | "xdevKey" | "xdevStrictKey" | "computer" | "brave">;
 type XdevSettings = Pick<RiskSettings, "b4_cross_browser" | "b4_strict_any_network">;
@@ -212,12 +218,14 @@ export function crossBrowser(f: Pick<RequestFacts, "voterId" | "xdevKey" | "xdev
  * pas (deux Android identiques) : la session s'ouvre, la validation la met en attente (H4). Une clé
  * faible (iPhone, iPad) ne reconnaît jamais.
  */
-export function recognize(f: RecognitionFacts, related: RelatedAttempt[], settings: Pick<RiskSettings, "b2_strong_key" | "h9_minutes"> & XdevSettings): Recognition {
+export function recognize(f: RecognitionFacts, related: RelatedAttempt[], settings: Pick<RiskSettings, "b2_strong_key" | "h9_minutes" | "b5_private_block"> & XdevSettings): Recognition {
   if (f.voterId && related.some((a) => a.voterId === f.voterId)) return "cookie";
   if (f.storageKeys.length && related.some((a) => a.storageKey && f.storageKeys.includes(a.storageKey))) return "storage";
   if (settings.b2_strong_key && strongWithClue(f, sameStrong(f, related), settings.h9_minutes)) return "hw";
   // B4 : même ordinateur depuis un autre navigateur, même réseau (sur téléphone : H10 à la validation, jamais ici).
   if (crossBrowser(f, related, settings) === "block") return "xdev";
+  // B5 : navigation privée détectée, bloquée à elle seule (mode observation : sans effet, voir arrivalVoted et decide).
+  if (settings.b5_private_block && f.privateMode === true) return "private";
   return null;
 }
 
@@ -284,6 +292,7 @@ export function decide(f: RequestFacts, related: RelatedAttempt[], settings: Ris
   const strongSeen = sameStrong(f, related);
   const strongClue = strongWithClue(f, strongSeen, settings.h9_minutes);
   if (strongSeen.length && settings.b2_strong_key && strongClue) reasons.push("B2");
+  if (settings.b5_private_block && f.privateMode === true) reasons.push("B5");
   const xdev = crossBrowser(f, related, settings);
   if (xdev === "block") reasons.push("B4");
 

@@ -38,6 +38,7 @@ const SWITCHES: { key: keyof RiskSettings; rule: keyof typeof FRAUD_RULES; label
   { key: "b2_strong_key", rule: "B2", label: "B2 : refuser une clé forte déjà vue aujourd'hui avec un second indice (sinon H4)" },
   { key: "b4_cross_browser", rule: "B4", label: "B4 : refuser le même ordinateur depuis un autre navigateur, même réseau (téléphone : H10, attente)" },
   { key: "b4_strict_any_network", rule: "B4", label: "B4 sur tout réseau : refuser aussi la clé stricte (polices) depuis un autre réseau, 4G ou VPN (sinon H10, attente)" },
+  { key: "b5_private_block", rule: "B5", label: "B5 : refuser la navigation privée détectée (écran « déjà voté »)" },
   { key: "h2_anonymous_ip", rule: "H2", label: "H2 : mettre en attente les IP Tor et hébergeurs" },
   { key: "h3_foreign_country", rule: "H3", label: "H3 : mettre en attente les IP hors de France" },
   { key: "h4_strong_seen", rule: "H4", label: "H4 : clé forte déjà vue, quand B2 est désactivé" },

@@ -211,7 +211,7 @@ async function run() {
   const loop = await vote(android("2.2.2.2"), ANDROID("boucle", { privateMode: true }));
   const loop2 = await vote(android("2.2.2.2"), ANDROID("boucle", { privateMode: true }));
   const loop3 = await vote(android("2.2.2.2"), ANDROID("boucle", { privateMode: true }));
-  ok("2. Android en navigation privée, même IP : 1er compté, les suivants refusés dès l'ouverture (B2)", loop.status === 200 && loop2.stage === "create" && refusal(loop2) && loop3.stage === "create" && refusal(loop3));
+  ok("2. Android en navigation privée, même IP : tous refusés dès l'ouverture (B5, puis B2)", refusal(loop) && loop2.stage === "create" && refusal(loop2) && loop3.stage === "create" && refusal(loop3));
   await setSettings({ b2_strong_key: false });
   const k2 = [1, 2, 3].map(() => android("2.2.2.3"));
   const b1 = await vote(k2[0], ANDROID("boucle-b2off"));
@@ -362,7 +362,7 @@ async function run() {
 
   // 23. après minuit, le vote rouvre pour tous
   const dayAfter = (c) => (c.jar.set(TEST_CLOCK_COOKIE, encodeURIComponent("+172800000")), c); // J+2 : le votant honnête a déjà voté à J+1 (scénario 1)
-  const reopen = await open(dayAfter(android("2.2.2.2")), randomUUID(), ANDROID("boucle", { privateMode: true }));
+  const reopen = await open(dayAfter(android("2.2.2.2")), randomUUID(), ANDROID("boucle"));
   const reopenHonest = await open(dayAfter(honest), randomUUID(), IPHONE("honnete"));
   ok("23. après minuit (horloge de test) : le vote rouvre pour tous, même cookie et même clé forte", reopen.status === 201 && reopenHonest.status === 201, [reopen.status, reopenHonest.status]);
   honest.jar.delete(TEST_CLOCK_COOKIE);
