@@ -1,6 +1,8 @@
 "use client";
 
 import { withBase } from "@/lib/base-path";
+import { syncServerClock } from "@/lib/clock";
+import { rememberToken } from "@/lib/device-memory";
 import { deviceSignals } from "@/lib/fingerprint";
 import { apiFetch, isDemoMode } from "./demo";
 
@@ -37,7 +39,10 @@ export function initSaver(id: string) {
   sessionId = id;
 }
 
-/** Ouvre la session côté serveur (avec les signaux d'appareil). Renvoie l'heure de réouverture si l'appareil a déjà voté aujourd'hui. */
+/**
+ * Ouvre la session côté serveur (avec les signaux d'appareil) et garde le jeton opaque remis par le
+ * serveur (localStorage et IndexedDB). Renvoie l'heure de réouverture si le serveur refuse l'ouverture.
+ */
 export async function createSession(id: string): Promise<{ alreadyVoted: string } | null> {
   sessionId = id;
   try {
@@ -47,8 +52,13 @@ export async function createSession(id: string): Promise<{ alreadyVoted: string 
       body: JSON.stringify({ session_id: id, device: await deviceSignals() }),
       keepalive: true,
     });
+    if (res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { deviceToken?: string };
+      if (body.deviceToken) rememberToken(body.deviceToken);
+    }
     if (res.status === 409) {
-      const body = (await res.json().catch(() => ({}))) as { details?: { code?: string; nextResetAt?: string } };
+      const body = (await res.json().catch(() => ({}))) as { details?: { code?: string; nextResetAt?: string; now?: string } };
+      syncServerClock(body.details?.now);
       if (body.details?.code === "already_voted_today" && body.details.nextResetAt) return { alreadyVoted: body.details.nextResetAt };
     }
   } catch {

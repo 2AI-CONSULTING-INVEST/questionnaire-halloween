@@ -7,6 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import { MediaLightbox } from "@/components/media/MediaLightbox";
 import { groupDecorations, isLocalMedia, mediaKind, shortName, thumbOf, type Decoration, type DecorationGroup } from "@/lib/schema";
 import { prepareMedia, uploadMedia } from "./upload";
+import type { CompressStep } from "./video-compress";
 import { Button, Card, ConfirmDialog, Empty, inputClass } from "./ui";
 import { withBase } from "@/lib/base-path";
 
@@ -15,8 +16,14 @@ type QueueItem = {
   name: string;
   status: "waiting" | "preparing" | "uploading" | "done" | "error";
   progress: number;
+  /** Étape de la compression vidéo en cours (la progression est alors celle de l'encodage). */
+  step?: CompressStep;
   message?: string;
+  /** Poids avant et après compression, ou original conservé. */
+  summary?: string;
 };
+
+const STEP_LABEL: Record<CompressStep, string> = { analyse: "Analyse…", compression: "Compression", verification: "Vérification…" };
 
 export function DecorationsTab({
   decorations,
@@ -71,6 +78,7 @@ function UploadCard({ restaurants, onChanged }: { restaurants: string[]; onChang
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const skip = useRef(new Map<string, AbortController>());
 
   const update = (key: string, patch: Partial<QueueItem>) =>
     setQueue((q) => q.map((it) => (it.key === key ? { ...it, ...patch } : it)));
@@ -87,12 +95,16 @@ function UploadCard({ restaurants, onChanged }: { restaurants: string[]; onChang
     for (const { file, key } of items) {
       try {
         update(key, { status: "preparing" });
-        const media = await prepareMedia(file);
-        update(key, { status: "uploading", message: media.warning });
+        const ctrl = new AbortController();
+        skip.current.set(key, ctrl);
+        const media = await prepareMedia(file, { signal: ctrl.signal, onStep: (step, p) => update(key, { step, progress: p ?? 0 }) }).finally(() =>
+          skip.current.delete(key),
+        );
+        update(key, { status: "uploading", step: undefined, progress: 0, message: media.warning, summary: media.summary });
         await uploadMedia(restaurant, media, (p) => update(key, { progress: p }));
         update(key, { status: "done", progress: 1 });
       } catch (err) {
-        update(key, { status: "error", message: err instanceof Error ? err.message : "Échec de l'envoi" });
+        update(key, { status: "error", step: undefined, message: err instanceof Error ? err.message : "Échec de l'envoi" });
       }
     }
     setBusy(false);
@@ -152,14 +164,24 @@ function UploadCard({ restaurants, onChanged }: { restaurants: string[]; onChang
                 )}
                 <span className="min-w-0 flex-1 truncate text-ink dark:text-zinc-100">{it.name}</span>
                 <span className="shrink-0 text-xs text-muted dark:text-zinc-400">
-                  {{ waiting: "En attente", preparing: "Préparation…", uploading: `${Math.round(it.progress * 100)} %`, done: "Ajouté", error: "Échec" }[it.status]}
+                  {it.step
+                    ? it.step === "compression"
+                      ? `Compression ${Math.round(it.progress * 100)} %`
+                      : STEP_LABEL[it.step]
+                    : { waiting: "En attente", preparing: "Préparation…", uploading: `Envoi ${Math.round(it.progress * 100)} %`, done: "Ajouté", error: "Échec" }[it.status]}
                 </span>
+                {it.step && (
+                  <Button variant="ghost" className="min-h-7 shrink-0 px-2 text-xs" onClick={() => skip.current.get(it.key)?.abort()}>
+                    Passer la compression
+                  </Button>
+                )}
               </div>
-              {it.status === "uploading" && (
+              {(it.status === "uploading" || it.step === "compression") && (
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-zinc-800">
                   <div className="h-full rounded-full bg-brand transition-[width]" style={{ width: `${it.progress * 100}%` }} />
                 </div>
               )}
+              {it.summary && <p className="mt-1.5 text-xs text-muted dark:text-zinc-400">{it.summary}</p>}
               {it.message && (
                 <p className={`mt-1.5 flex gap-1.5 text-xs ${it.status === "error" ? "text-red-600 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden /> {it.message}
@@ -175,7 +197,10 @@ function UploadCard({ restaurants, onChanged }: { restaurants: string[]; onChang
           <strong>Format vertical (téléphone) conseillé</strong> : la plupart des votants sont sur mobile, les médias s&apos;affichent en entier en plein écran.
         </li>
         <li>Photos : tout format courant (même HEIC depuis un iPhone avec Safari). Elles sont redressées, compressées et nettoyées de leurs données GPS.</li>
-        <li>Vidéos : MP4 ou MOV, 50 Mo maximum. Idéal : moins de 30 secondes, 720p, moins de 20 Mo. Une affiche est créée automatiquement.</li>
+        <li>
+          Vidéos : MP4 ou MOV, 120 Mo maximum au départ et 50 Mo une fois prêtes. Une affiche est créée automatiquement. Sur ordinateur, les vidéos H.264 sont
+          recompressées sans perte visible (même définition, même fluidité, même son) avant l&apos;envoi, ce qui peut prendre quelques minutes. Idéal : moins de 30 secondes.
+        </li>
         <li>Le premier média d&apos;un restaurant sert de couverture. Les votes vont au restaurant, quel que soit le média regardé.</li>
       </ul>
     </Card>

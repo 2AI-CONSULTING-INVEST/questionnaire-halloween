@@ -2,29 +2,15 @@ import { NextResponse } from "next/server";
 import { ADMIN_COOKIE, cookieOptions, createToken, roleForPassword } from "@/lib/auth";
 import { getStore } from "@/lib/db";
 import { error, limited, readJson } from "@/lib/http";
+import { readGeo } from "@/lib/ip-geo";
 import { clientIp } from "@/lib/rate-limit";
+import { loginLocked } from "@/lib/second-password";
 
-/** Verrouillage persistant (table `login_failures`) : 10 échecs par IP ou 30 toutes IP en 15 minutes → 429 pendant 15 minutes. */
-const LOCK_WINDOW_MS = 15 * 60_000;
-const LOCK_PER_IP = 10;
-const LOCK_GLOBAL = 30;
 
-/** En-têtes de géolocalisation par IP posés par Vercel (absents en local : valeurs nulles). */
+/** Position approximative déduite de l'IP (en-têtes Vercel, src/lib/ip-geo.ts ; absents en local : valeurs nulles). */
 function geo(req: Request) {
-  const text = (name: string) => {
-    const v = req.headers.get(name);
-    if (!v) return null;
-    try {
-      return decodeURIComponent(v).slice(0, 120);
-    } catch {
-      return v.slice(0, 120); // encodage invalide : valeur brute (la connexion et son journal ne doivent pas en dépendre)
-    }
-  };
-  const num = (name: string) => {
-    const v = Number(req.headers.get(name));
-    return req.headers.get(name) && Number.isFinite(v) ? v : null;
-  };
-  return { city: text("x-vercel-ip-city"), region: text("x-vercel-ip-country-region"), country: text("x-vercel-ip-country"), latitude: num("x-vercel-ip-latitude"), longitude: num("x-vercel-ip-longitude") };
+  const { city, region, country, latitude, longitude } = readGeo(req.headers);
+  return { city, region, country, latitude, longitude };
 }
 
 export async function POST(req: Request) {
@@ -43,9 +29,8 @@ export async function POST(req: Request) {
 
   const store = getStore();
   const ip = clientIp(req);
-  const since = new Date(Date.now() - LOCK_WINDOW_MS).toISOString();
-  const [byIp, all] = await Promise.all([store.countLoginFailures(since, ip), store.countLoginFailures(since)]);
-  if (byIp >= LOCK_PER_IP || all >= LOCK_GLOBAL) return error("Trop de tentatives, réessayez dans 15 minutes.", 429);
+  // Verrouillage persistant (src/lib/second-password.ts) : 10 échecs par IP ou 30 toutes IP en 15 minutes → 429 pendant 15 minutes.
+  if (await loginLocked(store, ip)) return error("Trop de tentatives, réessayez dans 15 minutes.", 429);
 
   const role = roleForPassword(password);
   if (!role) {

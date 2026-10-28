@@ -55,7 +55,8 @@ export default function TermsPage() {
             <li>Le vote est ouvert pendant la période annoncée par l&apos;organisateur, dans les restaurants et sur ses réseaux.</li>
             <li>Un seul vote par appareil et par jour (heure de Paris). Le vote est compté dès sa validation, avant le tirage au sort.</li>
             <li>
-              Les votes répétés, automatisés ou obtenus par un procédé déloyal sont détectés et peuvent être refusés ou exclus du classement, sans préavis.
+              Les votes répétés, automatisés ou obtenus par un procédé déloyal sont détectés et peuvent être refusés ou exclus du classement, sans préavis. Un vote
+              peut aussi être mis en attente de vérification : il ne compte qu&apos;après validation par l&apos;organisateur.
             </li>
             <li>Le classement est publié sur le site. L&apos;organisateur arrête le résultat final à la clôture du vote.</li>
           </ul>

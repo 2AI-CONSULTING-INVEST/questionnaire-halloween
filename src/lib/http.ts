@@ -2,6 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import type { ZodError } from "zod";
 import type { ConflictError } from "./db";
+import { nextParisMidnight } from "./day";
 import { clientIp, rateLimit } from "./rate-limit";
 
 /** Réponse JSON ; `Cache-Control: no-store` par défaut (réponses admin, cookies) sauf si l'appelant fixe le sien (`/api/results` : cache public). */
@@ -18,6 +19,15 @@ export function error(message: string, status = 400, details?: unknown) {
 
 export function zodError(e: ZodError) {
   return error("Données invalides", 422, e.flatten().fieldErrors);
+}
+
+/**
+ * Refus visible d'un vote (ouverture ou validation) : même code et même corps pour tous les motifs
+ * (cookie, stockage, clé hw, score, plafond par IP), pour ne donner aucun indice de contournement.
+ * `now` : heure du serveur, sur laquelle la page cale son compte à rebours.
+ */
+export function alreadyVoted(now: number) {
+  return error("Vous avez déjà voté aujourd'hui", 409, { code: "already_voted_today", nextResetAt: nextParisMidnight(now).toISOString(), now: new Date(now).toISOString() });
 }
 
 /** Conflit d'unicité (pseudo, email, téléphone…) : 409 avec un message par champ, comme zodError. */

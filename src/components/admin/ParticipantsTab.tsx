@@ -7,6 +7,7 @@ import { usePage } from "./paged";
 import { ParticipantDrawer } from "./ParticipantDrawer";
 import { Badge, Button, Card, ConfirmDialog, DownloadLink, Empty, fmtDate, inputClass, PageFooter, primaryLinkButtonClass as exportClass } from "./ui";
 import { withBase } from "@/lib/base-path";
+import { SHOW_GROUP_EVENT } from "./FraudReview";
 
 type SortKey = "pseudo" | "email" | "date";
 type Sort = { key: SortKey; asc: boolean };
@@ -55,7 +56,7 @@ export function ParticipantsTab({
     const id = setTimeout(() => setNeedle(q.trim()), 300);
     return () => clearTimeout(id);
   }, [q]);
-  const page = usePage<Participant & { votes: number }>("/api/admin/participants", { sort: sort.key, dir: sort.asc ? "asc" : "desc", ...(needle ? { q: needle } : {}), ...(deleted ? { deleted: "1" } : {}) }, tick);
+  const page = usePage<Participant & { votes: number; groups?: string[] }>("/api/admin/participants", { sort: sort.key, dir: sort.asc ? "asc" : "desc", ...(needle ? { q: needle } : {}), ...(deleted ? { deleted: "1" } : {}) }, tick);
 
   const prizeOf = useMemo(() => new Map(prizes.filter((p) => p.winner_participant_id).map((p) => [p.winner_participant_id!, p])), [prizes]);
   const freePrizes = useMemo(() => prizes.filter((p) => !p.winner_participant_id), [prizes]);
@@ -63,7 +64,7 @@ export function ParticipantsTab({
 
   return (
     <Card
-      title={deleted ? `Participants supprimés (${page.total.toLocaleString("fr-FR")})` : `Participants au tirage (${total}) · ${winners} gagnant${winners > 1 ? "s" : ""}`}
+      title={deleted ? `Participants supprimés (${page.total.toLocaleString("fr-FR")})` : `Participants au tirage (${total}), ${winners} gagnant${winners > 1 ? "s" : ""}`}
       actions={
         <div className="flex flex-wrap gap-2">
           <select value={deleted ? "deleted" : "active"} onChange={(e) => setDeleted(e.target.value === "deleted")} className={inputClass} aria-label="Participants affichés">
@@ -119,7 +120,7 @@ export function ParticipantsTab({
               </thead>
               <tbody>
                 {page.rows.map((p) => (
-                  <ParticipantRow key={p.id} p={p} votes={p.votes} prize={prizeOf.get(p.id) ?? null} freePrizes={freePrizes} canWrite={canWrite} deleted={deleted} onChanged={onChanged} />
+                  <ParticipantRow key={p.id} p={p} votes={p.votes} groups={p.groups ?? []} prize={prizeOf.get(p.id) ?? null} freePrizes={freePrizes} canWrite={canWrite} deleted={deleted} onChanged={onChanged} />
                 ))}
               </tbody>
             </table>
@@ -134,6 +135,7 @@ export function ParticipantsTab({
 function ParticipantRow({
   p,
   votes,
+  groups,
   prize,
   freePrizes,
   canWrite,
@@ -142,6 +144,8 @@ function ParticipantRow({
 }: {
   p: Participant;
   votes: number;
+  /** Groupes confirmés du moteur anti-fraude reliés à ce participant (badge, lien vers le groupe). */
+  groups: string[];
   prize: Prize | null;
   freePrizes: Prize[];
   canWrite: boolean;
@@ -214,6 +218,15 @@ function ParticipantRow({
               {p.pseudo}
             </button>
             {deleted && <Badge tone="warn">Supprimé</Badge>}
+            {groups.length > 0 && (
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent(SHOW_GROUP_EVENT, { detail: groups[0].slice(0, 10) }))}
+                title={`Relié à ${groups.length > 1 ? `${groups.length} groupes confirmés` : "un groupe confirmé"} par le moteur anti-fraude : voir le groupe (${groups.join(", ")}). L'attribution des lots reste une décision humaine.`}
+              >
+                <Badge tone="danger">Groupe frauduleux</Badge>
+              </button>
+            )}
             {canWrite && !deleted && (
               <Button variant="ghost" className="!min-h-7 !px-1" aria-label={`Modifier le pseudo ${p.pseudo}`} disabled={busy} onClick={() => setEditing(true)}>
                 <Pencil className="h-3.5 w-3.5" />
@@ -249,7 +262,7 @@ function ParticipantRow({
             <Trophy className="h-4 w-4" aria-hidden /> {prize.name}
           </span>
         ) : deleted ? (
-          <span className="text-muted dark:text-zinc-400">—</span>
+          <span className="text-muted dark:text-zinc-400">Aucun</span>
         ) : assigning ? (
           <span className="flex items-center gap-1">
             <select aria-label="Lot à attribuer" value={choice} onChange={(e) => setChoice(e.target.value)} className={`${inputClass} !min-h-8 w-44`}>
@@ -268,7 +281,7 @@ function ParticipantRow({
             </Button>
           </span>
         ) : (
-          <span className="text-muted dark:text-zinc-400">—</span>
+          <span className="text-muted dark:text-zinc-400">Aucun</span>
         )}
       </td>
       <td className="whitespace-nowrap px-5 py-2.5 text-right">

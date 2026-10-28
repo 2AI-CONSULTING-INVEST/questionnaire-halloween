@@ -35,3 +35,17 @@ export function clientNow(): number {
     return Date.now();
   }
 }
+
+let serverOffset = 0;
+
+/**
+ * Heure du serveur reçue dans une réponse (`now` des refus et de vote-status) : les comptes à rebours
+ * s'y calent, pas sur l'horloge du téléphone (qui peut être fausse).
+ */
+export function syncServerClock(serverIso: string | null | undefined) {
+  const t = Date.parse(serverIso ?? "");
+  if (Number.isFinite(t)) serverOffset = t - clientNow();
+}
+
+/** Instant courant (ms) recalé sur l'heure du serveur. */
+export const syncedNow = () => clientNow() + serverOffset;

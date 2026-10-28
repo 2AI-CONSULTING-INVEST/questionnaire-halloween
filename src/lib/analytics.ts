@@ -1,7 +1,7 @@
 import "server-only";
 import { parisDay, parisHour } from "./day";
 import { getStore } from "./db";
-import { groupDecorations, thumbOf, type Decoration, type Participant, type ResponseRow } from "./schema";
+import { groupDecorations, isCounted, thumbOf, type Decoration, type Participant, type ResponseRow } from "./schema";
 
 export type AnalyticsFilter = {
   from?: string;
@@ -75,8 +75,8 @@ const dayOf = (r: ResponseRow) => r.vote_day ?? parisDay(r.completed_at ?? r.cre
 const count = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
 
 export function summarize(started: ResponseRow[], validated: ResponseRow[], decorations: Decoration[], participants: Participant[] = []): Summary {
-  // Les votes exclus du classement par un admin ne comptent nulle part (les bloqués n'ont pas de completed_at).
-  const completed = validated.filter((r) => !r.excluded_at);
+  // Seuls les votes comptés (src/lib/schema.ts, `isCounted`) entrent dans les chiffres : ni en attente, ni exclus, ni bloqués.
+  const completed = validated.filter(isCounted);
   const total = completed.length;
   // Participants au tirage : la table `participants`, restreinte aux réponses du périmètre filtré.
   const linked = new Set(completed.map((r) => r.participant_id).filter((id): id is string => !!id));
@@ -143,8 +143,8 @@ export function summarize(started: ResponseRow[], validated: ResponseRow[], deco
     return {
       date,
       started: mine.length,
-      completed: mine.filter((r) => r.completed_at && !r.excluded_at).length,
-      raffle: mine.filter((r) => r.completed_at && !r.excluded_at && inRaffle(r)).length,
+      completed: mine.filter(isCounted).length,
+      raffle: mine.filter((r) => isCounted(r) && inRaffle(r)).length,
       blocked: mine.filter((r) => r.blocked_at).length,
     };
   });

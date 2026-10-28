@@ -11,7 +11,7 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(PAGE_MAX).default(PAGE_SIZE),
   cursor: z.string().max(600).optional(),
   /** Défaut : validés ; avec `risk=flagged`, tous (les bloqués n'ont pas de completed_at). */
-  status: z.enum(["completed", "incomplete", "blocked", "excluded", "all"]).optional(),
+  status: z.enum(["completed", "held", "incomplete", "blocked", "excluded", "all"]).optional(),
   raffle: z.enum(["1"]).optional(),
   risk: z.enum(["flagged"]).optional(),
   /** Adresse IP complète (v4 ou v6), ou début de l'empreinte en hexadécimal ; autre chose → page vide. */
@@ -20,7 +20,7 @@ const querySchema = z.object({
 
 /**
  * Admin : page de réponses (les plus récentes d'abord), 100 par page, curseur `created_at|id`.
- * ?limit=100&cursor=…&status=completed|incomplete|blocked|excluded|all&raffle=1&risk=flagged&q=
+ * ?limit=100&cursor=…&status=completed|held|incomplete|blocked|excluded|all&raffle=1&risk=flagged&q= (completed : votes comptés)
  * → { rows, nextCursor, total } (en lecture seule : sans IP, navigateur ni appareil)
  */
 export async function GET(req: Request) {

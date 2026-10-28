@@ -17,13 +17,15 @@ import {
   type Decoration,
 } from "@/lib/schema";
 import { HOME, tabTitle } from "@/lib/site";
-import { clientNow } from "@/lib/clock";
+import { clientNow, syncServerClock } from "@/lib/clock";
+import { markVoteDay, readVoteDaySync } from "@/lib/device-memory";
 import { isPastDay, nextParisMidnight, parisDay } from "@/lib/day";
 import { deviceSignals } from "@/lib/fingerprint";
 import { setNextVote } from "@/lib/next-vote";
 import { useSceneState } from "../scene/scene-state";
 import { triggerSwarm } from "../scene/SpookyBackdrop";
 import { AlreadyVoted } from "./AlreadyVoted";
+import { BlockedVoteDialog } from "./BlockedVoteDialog";
 import { Confetti } from "./Confetti";
 import { DecorationGallery, LETTERS } from "./DecorationGallery";
 import { RaffleConfirmDialog, type RaffleErrors, type RaffleValues } from "./RaffleConfirmDialog";
@@ -37,7 +39,7 @@ import { ThanksActions } from "./ThanksActions";
 import { withBase } from "@/lib/base-path";
 
 /** Titre d'onglet de chaque écran (après « CHAMAS | »). */
-const stepTitle = (s: Screen, label: string) => `Étape ${STEP_OF[s]}/${STEP_COUNT} · ${label}`;
+const stepTitle = (s: Screen, label: string) => `Étape ${STEP_OF[s]}/${STEP_COUNT} : ${label}`;
 const STEP_TITLE: Record<Screen, string> = {
   welcome: HOME.title,
   restaurant: stepTitle("restaurant", "Votre Chamas Tacos préféré"),
@@ -64,7 +66,10 @@ const SCREEN_OF_FIELD: Partial<Record<string, Screen>> = {
 };
 
 /** Corps d'une réponse d'erreur de l'API (422 validation, 409 conflit / vote du jour). */
-type ApiError = { error?: string; details?: Record<string, string[]> & { code?: string; nextResetAt?: string } };
+type ApiError = { error?: string; details?: Record<string, string[]> & { code?: string; nextResetAt?: string; now?: string } };
+
+/** Attente maximale de la vérification à l'arrivée : au-delà, la page s'ouvre normalement (le serveur refusera quand même). */
+const ARRIVAL_WAIT_MS = 1500;
 
 const inputClass =
   "w-full border-b-2 border-edge-strong bg-transparent pb-2 text-xl text-fg outline-none transition-colors placeholder:text-placeholder-scene focus:border-brand sm:text-[1.75rem]";
@@ -111,6 +116,12 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
   const [hydrated, setHydrated] = useState(false);
   /** L'appareil a déjà voté aujourd'hui : écran dédié jusqu'à la réouverture (minuit à Paris). */
   const [alreadyVoted, setAlreadyVoted] = useState<{ nextResetAt: string } | null>(null);
+  /** Refus visible du serveur (409) : modale « Votre vote est bloqué », puis écran « déjà voté ». */
+  const [blocked, setBlocked] = useState<{ nextResetAt: string } | null>(null);
+  /** Modale « vote bloqué » ouverte : une réponse tardive de vote-status ne la remplace pas (seul closeBlocked y mène). */
+  const blockedOpen = useRef(false);
+  /** Vérification à l'arrivée en cours : pas de bouton « Commencer le vote » (aucun flash), 1,5 s au plus. */
+  const [arrivalPending, setArrivalPending] = useState(!demoPage);
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** Confirmation du « Non » au tirage (rappel des lots). */
   const [declineOpen, setDeclineOpen] = useState(false);
@@ -158,18 +169,36 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
       if (s.answers.selected_decoration_id && !decorations.some((d) => d.id === s.answers.selected_decoration_id)) {
         s.setAnswer("selected_decoration_id", null);
       }
+      // Repère du jour de vote encore dans le stockage : écran « déjà voté » tout de suite, sans attendre le réseau.
+      const inProgress = s.voteCompleted && !s.raffleDone; // vote du jour en cours sur cet appareil (tirage pas encore rempli) : on laisse finir
+      const markerLock = !demo && !inProgress && !s.voteCompleted && readVoteDaySync() === parisDay(now);
+      if (markerLock) setAlreadyVoted({ nextResetAt: nextParisMidnight(now).toISOString() });
       setHydrated(true);
-      // Le serveur connaît l'appareil (cookie) même si le stockage local a été vidé.
-      void apiFetch("/api/vote-status", { cache: "no-store" })
-        .then((r) => (r.ok ? (r.json() as Promise<{ votedToday: boolean; today: string; nextResetAt: string }>) : null))
+      if (demo) {
+        setArrivalPending(false);
+        return;
+      }
+      // Le serveur reconnaît l'appareil (cookie, jetons du stockage, clé matérielle forte) même si le stockage
+      // local a été vidé. Il reste la seule vérité : réponse lente ou en erreur, la page s'ouvre normalement.
+      const timeout = setTimeout(() => !cancelled && setArrivalPending(false), ARRIVAL_WAIT_MS);
+      void deviceSignals()
+        .then((device) =>
+          apiFetch("/api/vote-status", { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device }) }),
+        )
+        .then((r) => (r.ok ? (r.json() as Promise<{ votedToday: boolean; today: string; nextResetAt: string; now?: string }>) : null))
         .then((status) => {
-          if (cancelled || !status?.votedToday) return;
+          if (cancelled || !status) return;
+          syncServerClock(status.now);
+          if (blockedOpen.current) return; // la fermeture de la modale mène à l'écran « déjà voté »
           const st = useQuestionnaire.getState();
-          // Vote du jour en cours sur cet appareil (tirage pas encore rempli) : on laisse finir.
-          if (st.voteCompleted && st.voteDay === status.today && !st.raffleDone) return;
-          setAlreadyVoted({ nextResetAt: status.nextResetAt });
+          if (status.votedToday && !(st.voteCompleted && st.voteDay === status.today && !st.raffleDone)) setAlreadyVoted({ nextResetAt: status.nextResetAt });
+          else if (!status.votedToday && markerLock) setAlreadyVoted(null); // le serveur ne connaît aucune tentative : il tranche
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          clearTimeout(timeout);
+          if (!cancelled) setArrivalPending(false);
+        });
     });
     return () => {
       cancelled = true;
@@ -180,8 +209,28 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
   const reopenVote = useCallback(() => {
     useQuestionnaire.getState().resetForNewDay();
     setAlreadyVoted(null);
+    blockedOpen.current = false;
+    setBlocked(null);
     setNextVote(null, demo);
   }, [demo]);
+
+  /** Refus visible du serveur : repère du jour posé (tentative), modale « Votre vote est bloqué ». */
+  const showBlocked = useCallback(
+    (nextResetAt: string) => {
+      if (!demo) markVoteDay(parisDay(clientNow()));
+      blockedOpen.current = true;
+      setBlocked({ nextResetAt });
+    },
+    [demo],
+  );
+  /** Fermer la modale mène à l'écran « déjà voté ». */
+  const closeBlocked = useCallback(() => {
+    blockedOpen.current = false;
+    setBlocked((b) => {
+      if (b) setAlreadyVoted({ nextResetAt: b.nextResetAt });
+      return null;
+    });
+  }, []);
 
   // « Recommencer » du bandeau démo (DemoBar) : retour à l'accueil, tout vidé.
   useEffect(() => {
@@ -222,7 +271,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
     if (!hydrated) return;
     const apply = () => {
       const title = alreadyVoted ? ALREADY_VOTED_TITLE : STEP_TITLE[screen];
-      document.title = tabTitle(demo ? `Démo · ${title}` : title);
+      document.title = tabTitle(demo ? `Démo : ${title}` : title);
     };
     apply();
     const id = setTimeout(apply, 1500);
@@ -270,10 +319,10 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
     initSaver(id);
     if (isNew) {
       // Appareil qui a déjà voté aujourd'hui (stockage local vidé, cookie conservé) : pas de session.
-      void createSession(id).then((r) => r && setAlreadyVoted({ nextResetAt: r.alreadyVoted }));
+      void createSession(id).then((r) => r && showBlocked(r.alreadyVoted));
       triggerSwarm(18);
     }
-  }, [start]);
+  }, [start, showBlocked]);
 
   // ----- Soumissions -------------------------------------------------------
 
@@ -310,6 +359,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
       if (res.ok) {
         const body = (await res.json().catch(() => ({}))) as { voteDay?: string };
         discard(VOTE_FIELDS);
+        if (!demo) markVoteDay(body.voteDay ?? parisDay(clientNow()));
         markVoteCompleted(body.voteDay ?? parisDay(clientNow()));
         go(SCREENS.indexOf("raffle"));
         triggerSwarm();
@@ -317,7 +367,8 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
       }
       const body = (await res.json().catch(() => ({}))) as ApiError;
       if (res.status === 409 && body.details?.code === "already_voted_today") {
-        setAlreadyVoted({ nextResetAt: body.details.nextResetAt ?? nextParisMidnight(clientNow()).toISOString() });
+        syncServerClock(body.details.now);
+        showBlocked(body.details.nextResetAt ?? nextParisMidnight(clientNow()).toISOString());
         return;
       }
       showServerError(body);
@@ -326,7 +377,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
     } finally {
       setSubmitting(false);
     }
-  }, [sessionId, voteCompleted, next, markVoteCompleted, go, setError, showServerError]);
+  }, [sessionId, voteCompleted, next, markVoteCompleted, go, setError, showServerError, demo, showBlocked]);
 
   /** Réponse « Non » au tirage : enregistrée directement. */
   const declineRaffle = useCallback(async () => {
@@ -489,13 +540,18 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
             <p className="mt-5 text-lg text-fg-muted sm:text-xl">
               Aidez-nous à élire le restaurant avec la meilleure atmosphère effrayante et créative !
             </p>
-            <button
-              type="button"
-              onClick={begin}
-              className="mt-10 min-h-12 rounded-full bg-brand px-7 text-xl font-bold text-black shadow-[0_0_30px_rgba(250,204,21,0.35)] transition-[filter,box-shadow] hover:brightness-105 hover:shadow-[0_0_44px_rgba(250,204,21,0.5)] active:brightness-95"
-            >
-              {sessionId && index === 0 ? "Reprendre le vote" : "Commencer le vote"}
-            </button>
+            {/* Vérification à l'arrivée en cours : emplacement réservé, sans bouton (aucun flash). */}
+            {arrivalPending ? (
+              <div aria-hidden className="mx-auto mt-10 h-12" />
+            ) : (
+              <button
+                type="button"
+                onClick={begin}
+                className="mt-10 min-h-12 rounded-full bg-brand px-7 text-xl font-bold text-black shadow-[0_0_30px_rgba(250,204,21,0.35)] transition-[filter,box-shadow] hover:brightness-105 hover:shadow-[0_0_44px_rgba(250,204,21,0.5)] active:brightness-95"
+              >
+                {sessionId && index === 0 ? "Reprendre le vote" : "Commencer le vote"}
+              </button>
+            )}
             <p className="mt-4 inline-flex w-full items-center justify-center gap-1.5 text-sm text-fg-muted">
               <Clock className="h-4 w-4" aria-hidden /> Prend moins de 2 minutes
             </p>
@@ -814,9 +870,11 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
   const progress = screen === "welcome" ? 0 : Math.min(1, index / (SCREENS.length - 1));
 
   if (alreadyVoted) return <AlreadyVoted nextResetAt={alreadyVoted.nextResetAt} onReset={reopenVote} />;
+  const blockedDialog = blocked && <BlockedVoteDialog nextResetAt={blocked.nextResetAt} onClose={closeBlocked} onReopen={reopenVote} />;
 
   return (
     <Toast.Provider swipeDirection="right" duration={6000}>
+      {blockedDialog}
       <RaffleDeclineDialog
         open={declineOpen}
         onOpenChange={setDeclineOpen}

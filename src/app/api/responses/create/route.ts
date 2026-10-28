@@ -1,15 +1,21 @@
 import { serverNow } from "@/lib/clock";
-import { nextParisMidnight, parisDay } from "@/lib/day";
+import { parisDay } from "@/lib/day";
 import { getStore, requestMeta } from "@/lib/db";
-import { error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
+import { recognizeDevice, requestSignals } from "@/lib/fraud-server";
+import { alreadyVoted, error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
 import { clientIp } from "@/lib/rate-limit";
+import { loadRiskSettings } from "@/lib/risk";
 import { deviceSchema } from "@/lib/schema";
-import { deviceStamp, ensureVoter, setVoterCookie } from "@/lib/voter";
+import { deviceStamp, deviceToken, ensureVoter, setVoterCookie, storageKeyOf } from "@/lib/voter";
+
+const RECOGNITION_REASON = { cookie: "cookie", storage: "B1", hw: "B2" } as const;
 
 /**
  * Crée une session de réponse (idempotent) et pose le cookie d'appareil `hw_voter`.
- * Un appareil qui a déjà voté aujourd'hui n'ouvre pas de nouvelle session (pas de ligne fantôme).
- * `device` (facultatif) : signaux d'appareil du navigateur, enregistrés pour le score de risque.
+ * Un appareil reconnu comme ayant déjà une tentative aujourd'hui (cookie, jeton du stockage, clé hw
+ * forte : src/lib/fraud-rules.ts, `recognize`) n'ouvre pas de session : refus 409 identique pour tous
+ * les motifs, avec une trace listée dans « Votes frauduleux ». Sinon, la réponse remet à l'appareil
+ * son jeton opaque (`deviceToken`), à garder dans localStorage et IndexedDB.
  */
 export async function POST(req: Request) {
   const blocked = limited(req, "responses", 100);
@@ -26,10 +32,25 @@ export async function POST(req: Request) {
   const store = getStore();
   const voter = ensureVoter(req);
   const now = serverNow(req);
-  if (!voter.isNew && (await store.hasVotedToday(voter.id, parisDay(now)))) {
-    return error("Vous avez déjà voté aujourd'hui", 409, { code: "already_voted_today", nextResetAt: nextParisMidnight(now).toISOString() });
+  const day = parisDay(now);
+  const ip = clientIp(req);
+  const [settings, sig] = await Promise.all([loadRiskSettings(store), requestSignals(req, ip, device.data)]);
+  const { recognized } = await recognizeDevice(store, settings, day, voter.isNew ? null : voter.id, sig, now);
+  const meta = requestMeta(req, ip);
+  const stamp = deviceStamp(device.data);
+
+  // Mode observation : seul le cookie refuse (règle de base) ; B1 et B2 sont notés sur la ligne, sans effet.
+  if (recognized && (recognized === "cookie" || settings.mode === "block")) {
+    await store.recordRefusal({ sessionId, meta, voterId: voter.id, voteDay: day, device: stamp, fraud: sig.stamp, reasons: [RECOGNITION_REASON[recognized]] });
+    const res = alreadyVoted(now);
+    return voter.isNew ? setVoterCookie(res, voter.id) : res;
   }
-  await store.createResponse(sessionId, requestMeta(req, clientIp(req)), voter.id, deviceStamp(device.data));
-  const res = json({ ok: true }, 201);
+  const token = deviceToken(voter.id);
+  await store.createResponse(sessionId, meta, voter.id, stamp, {
+    ...sig.stamp,
+    storage_key: storageKeyOf(token),
+    ...(recognized ? { observed_outcome: "blocked", fraud_reasons: [RECOGNITION_REASON[recognized]] } : {}),
+  });
+  const res = json({ ok: true, deviceToken: token }, 201);
   return voter.isNew ? setVoterCookie(res, voter.id) : res;
 }

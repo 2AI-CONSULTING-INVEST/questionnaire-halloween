@@ -8,9 +8,9 @@ import { usePage } from "./paged";
 import { Button, Card, ConfirmDialog, DownloadLink, Empty, fmtDate, inputClass, PageFooter, RiskBadge, StatusBadge } from "./ui";
 import { withBase } from "@/lib/base-path";
 
-export type ResponsesStatus = "completed" | "incomplete" | "all";
-const STATUS_LABEL: Record<ResponsesStatus, string> = { completed: "Validés", incomplete: "Inachevés", all: "Tous" };
-const TITLE: Record<ResponsesStatus, string> = { completed: "Votes validés", incomplete: "Votes inachevés", all: "Toutes les réponses" };
+export type ResponsesStatus = "completed" | "held" | "incomplete" | "all";
+const STATUS_LABEL: Record<ResponsesStatus, string> = { completed: "Comptés", held: "En attente", incomplete: "Inachevés", all: "Tous" };
+const TITLE: Record<ResponsesStatus, string> = { completed: "Votes comptés", held: "Votes en attente de vérification", incomplete: "Votes inachevés", all: "Toutes les réponses" };
 
 /** Dernière question atteinte par un vote inachevé, déduite des champs remplis. */
 const lastStep = (r: ResponseRow) => (r.comment ? "Q3 Commentaire" : r.selected_decoration_id ? "Q2 Vote" : r.selected_restaurant ? "Q1 Préféré" : "Accueil");
@@ -108,14 +108,14 @@ export function ResponsesTab({
                     <td className="px-3 py-2.5">
                       <RiskBadge score={r.risk_score} flags={r.risk_flags} settings={settings} />
                     </td>
-                    <td className="px-3 py-2.5 text-ink dark:text-zinc-100">{r.selected_restaurant?.replace(/^CHAMAS TACOS\s*-\s*/i, "") ?? "—"}</td>
+                    <td className="px-3 py-2.5 text-ink dark:text-zinc-100">{r.selected_restaurant?.replace(/^CHAMAS TACOS\s*-\s*/i, "") ?? "Non renseigné"}</td>
                     <td className="px-3 py-2.5 font-medium text-ink dark:text-zinc-100">
-                      {r.selected_decoration_id ? (decoName.get(r.selected_decoration_id) ?? "(supprimée)").replace(/^CHAMAS TACOS\s*-\s*/i, "") : "—"}
+                      {r.selected_decoration_id ? (decoName.get(r.selected_decoration_id) ?? "(supprimée)").replace(/^CHAMAS TACOS\s*-\s*/i, "") : "Non renseignée"}
                     </td>
                     <td className="max-w-xs px-3 py-2.5 text-ink dark:text-zinc-200">
-                      <p className="line-clamp-3 break-words">{r.comment || "—"}</p>
+                      <p className="line-clamp-3 break-words">{r.comment || "Aucun"}</p>
                     </td>
-                    <td className="px-3 py-2.5 text-muted dark:text-zinc-400">{r.wants_raffle ? "Oui" : r.wants_raffle === false ? "Non" : "—"}</td>
+                    <td className="px-3 py-2.5 text-muted dark:text-zinc-400">{r.wants_raffle ? "Oui" : r.wants_raffle === false ? "Non" : "Non renseigné"}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-muted dark:text-zinc-400">{fmtDate(r.updated_at)}</td>
                     <td className="px-5 py-2.5 text-right">
                       {canWrite && (

@@ -3,20 +3,21 @@ import { getStore } from "@/lib/db";
 import { allResponsesRows, participantsRows, toCsv, toXlsx } from "@/lib/export";
 import { requireRole } from "@/lib/guard";
 import { error } from "@/lib/http";
-import type { ResponseRow } from "@/lib/schema";
+import { isCounted, voteStatus, type ResponseRow } from "@/lib/schema";
 
 /**
  * Admin : export des données.
  *   ?scope=all|participants   (toutes les réponses / participants au tirage ; « raffle » = participants)
  *   ?deleted=1                (participants : les supprimés, à part, avec la colonne « Supprimé le »)
  *   ?raffle=1                 (réponses : uniquement celles reliées à un inscrit au tirage)
- *   ?status=completed|incomplete|all  (réponses : filtre de l'onglet Réponses ; défaut : toutes)
+ *   ?status=completed|held|incomplete|all  (réponses : filtre de l'onglet Réponses ; completed = votes comptés ; défaut : toutes)
  *   ?format=xlsx|csv
  * Rôle « lecture seule » : l'export des participants est refusé (403) et celui des réponses sort sans
  * les colonnes personnelles (email, téléphone, prénom, nom, adresse IP, navigateur).
  */
 const STATUS_FILTER: Record<string, (r: ResponseRow) => boolean> = {
-  completed: (r) => !!r.completed_at,
+  completed: isCounted,
+  held: (r) => voteStatus(r) === "held",
   incomplete: (r) => !r.completed_at && !r.blocked_at,
 };
 const PERSONAL_COLUMNS = new Set(["Email", "Téléphone", "Prénom", "Nom", "Adresse IP", "Navigateur"]);

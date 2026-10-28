@@ -93,7 +93,7 @@ export function Empty({ children }: { children: ReactNode }) {
 }
 
 export const fmtDate = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—";
+  iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "Aucune date";
 
 export const fmtPct = (v: number) => `${(Math.round(v * 1000) / 10).toLocaleString("fr-FR")} %`;
 
@@ -135,17 +135,19 @@ export function RiskBadge({ score, flags, settings }: { score: number; flags: st
   );
 }
 
-/** Appareil d'une réponse, lisible : « iOS · Safari 17 · 390×844@3 · mobile ». */
+/** Appareil d'une réponse, lisible : « Android, SM-A546B Android 14, Chrome 156, 393×851@2.75, mobile ». */
 export function deviceLabel(info: ResponseRow["device_info"]) {
-  if (!info) return "—";
-  return [info.platform, info.browser, info.screen?.replace("x", "×"), info.mobile === undefined ? null : info.mobile ? "mobile" : "ordinateur"].filter(Boolean).join(" · ") || "—";
+  if (!info) return "Inconnu";
+  const model = info.model ? `${info.model}${info.osVersion ? ` Android ${info.osVersion}` : ""}` : null;
+  return [info.platform, model, info.browser, info.screen?.replace("x", "×"), info.mobile === undefined ? null : info.mobile ? "mobile" : "ordinateur"].filter(Boolean).join(", ") || "Inconnu";
 }
 
-/** Statut d'une réponse : validée, bloquée par le score, exclue du classement, ou inachevée. */
-export function StatusBadge({ row }: { row: Pick<ResponseRow, "completed_at" | "blocked_at" | "excluded_at"> }) {
-  if (row.excluded_at) return <Badge tone="warn">Exclu</Badge>;
+/** Statut d'une réponse : comptée, en attente, bloquée, exclue (à la main ou automatiquement), ou inachevée. */
+export function StatusBadge({ row }: { row: Pick<ResponseRow, "completed_at" | "blocked_at" | "excluded_at" | "held_at" | "exclusion_source"> }) {
+  if (row.excluded_at) return <Badge tone="warn">{row.exclusion_source === "auto" ? "Exclu (auto)" : "Exclu"}</Badge>;
   if (row.blocked_at) return <Badge tone="danger">Bloqué</Badge>;
-  if (row.completed_at) return <Badge tone="ok">Validé</Badge>;
+  if (row.held_at) return <Badge tone="warn">En attente</Badge>;
+  if (row.completed_at) return <Badge tone="ok">Compté</Badge>;
   return <Badge tone="neutral">Inachevé</Badge>;
 }
 

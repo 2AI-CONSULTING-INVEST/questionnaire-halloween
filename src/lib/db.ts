@@ -7,44 +7,82 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { parisDay } from "./day";
 import { isUuid } from "./http";
 import { afterCursor, compareKeys, encodeCursor, escapeLike, searchKind, type Cursor, type Page } from "./paging";
-import type { DeviceVote } from "./risk";
-import { pseudoKey, type AdminAction, type AdminSession, type Decoration, type DeviceInfo, type LoginFailure, type Participant, type ParticipantInput, type Prize, type Restaurant, type ResponsePatch, type ResponseRow, type Visit } from "./schema";
+import type { GraphChange } from "./fraud-graph";
+import { isCookieRefusal, isCounted, provesFraud, pseudoKey, type AdminAction, type AdminSession, type Decoration, type DeviceInfo, type LoginFailure, type Participant, type ParticipantInput, type Prize, type Restaurant, type ResponsePatch, type ResponseRow, type Visit } from "./schema";
 import { isDuplicateVisit, visitorKey } from "./visits";
+import type { Click } from "./clicks";
 
 export type Meta = { ip: string | null; userAgent: string | null };
 export type UpdateResult = "ok" | "completed";
-/** « already_voted_today » : cet appareil a déjà une réponse validée ce jour-là. */
-export type CompleteResult = UpdateResult | "already_voted_today";
+/**
+ * « already_voted_today » : cet appareil a déjà une réponse validée ce jour-là. « strong_conflict » :
+ * une validation parallèle de la même clé forte a déjà un vote compté (index unique) ; rien n'est écrit.
+ */
+export type CompleteResult = UpdateResult | "already_voted_today" | "strong_conflict";
 export type ListFilter = { completedOnly?: boolean; from?: string; to?: string; day?: string; participantId?: string };
 /** Empreinte (HMAC) et attributs grossiers de l'appareil, enregistrés sur la réponse. */
 export type DeviceStamp = { device_hash: string | null; device_info: DeviceInfo | null };
+/** Signaux anti-fraude enregistrés sur une ligne (ouverture, validation, refus) : HMAC et valeurs déduites de l'IP. */
+export type FraudStamp = Partial<
+  Pick<ResponseRow, "hw_key" | "hw_entropy" | "private_mode" | "storage_key" | "seen_storage" | "ip_net" | "ip_class" | "ip_country" | "ip_timezone" | "ip_city" | "ip_latitude" | "ip_longitude">
+>;
 /**
- * Appareil, jour (Europe/Paris) et score de risque enregistrés à la validation du vote.
- * `blocked` : refus par score, la ligne garde `completed_at` null et reçoit `blocked_at`.
+ * Appareil, jour (Europe/Paris), score de risque et décision enregistrés à la validation du vote.
+ * `blocked` : refus visible, la ligne garde `completed_at` null et reçoit `blocked_at`. `held` : vote
+ * enregistré (`completed_at`) mais en attente (`held_at`), jamais compté sans décision humaine.
  */
-export type VoteStamp = { voterId: string | null; voteDay: string; device: DeviceStamp; riskScore: number; riskFlags: string[]; blocked: boolean };
-/** Votes validés aujourd'hui : même empreinte (détail) et même IP (nombre), pour `scoreRisk`. */
-export type RiskContext = { deviceVotes: DeviceVote[]; ipVotes: number };
-export type ResponseStatus = "completed" | "incomplete" | "blocked" | "excluded" | "all";
+export type VoteStamp = {
+  voterId: string | null;
+  voteDay: string;
+  device: DeviceStamp;
+  fraud: FraudStamp;
+  riskScore: number;
+  riskFlags: string[];
+  outcome: "counted" | "held" | "blocked";
+  priority: boolean;
+  reasons: string[];
+  observed: "held" | "blocked" | null;
+};
+/**
+ * Refus visible : une trace, listée dans « Votes frauduleux ». `stage` : ouverture (défaut) ou validation
+ * (nouvelle ligne, la session refusée reste telle quelle).
+ */
+export type RefusalInput = { sessionId: string; meta: Meta; voterId: string | null; voteDay: string; device: DeviceStamp; fraud: FraudStamp; reasons: string[]; stage?: "create" | "complete" };
+/**
+ * Plafonds de traces de refus par jour, par clé matérielle forte et par IP : au-delà, plus aucune trace
+ * n'est écrite (un script qui insiste ne remplit pas la base ; le refus, lui, reste identique). Les refus
+ * par le cookie ne comptent pas dans le plafond par IP (un Wi-Fi partagé où chacun rouvre son onglet).
+ */
+export const REFUSAL_TRACES_MAX = { hw: 50, ip: 200 } as const;
+/** Clés qui relient une requête aux tentatives du jour (cookie, clé hw, jetons du stockage). */
+export type AttemptKeys = { voterId: string | null; hwKey: string | null; storageKeys: string[] };
+/** Décision d'un admin sur des votes : faire compter (double validation) ou exclure. */
+export type HumanAction = "validate" | "invalidate";
+export type HumanResult = { done: string[]; refused: { id: string; reason: "incomplete" | "conflict" | "missing" }[] };
+/** `completed` = votes comptés (validés, ni en attente ni exclus) ; `held` = en attente de vérification. */
+export type ResponseStatus = "completed" | "held" | "incomplete" | "blocked" | "excluded" | "all";
 /** Filtre des listes paginées de réponses ; `flaggedFrom` : score ≥ seuil ou bloquée ; `q` : IP ou début d'empreinte. */
 export type ResponseFilter = { status: ResponseStatus; raffle?: boolean; flaggedFrom?: number; q?: string };
 export type ParticipantSort = "pseudo" | "email" | "date";
 /** `deleted` : participants supprimés (suppression douce) au lieu des actifs. */
 export type ParticipantFilter = { q?: string; sort: ParticipantSort; dir: "asc" | "desc"; deleted?: boolean };
 export type VisitInput = Omit<Visit, "id" | "created_at">;
+export type ClickInput = Omit<Click, "id" | "created_at">;
 export type VisitStatus = "counted" | "rejected" | "all";
 export type PageQuery = { limit: number; cursor: Cursor | null };
-export type ParticipantWithVotes = Participant & { votes: number };
+/** `votes` : votes comptés, un par jour au plus ; `groups` : groupes confirmés du moteur reliés à ce participant. */
+export type ParticipantWithVotes = Participant & { votes: number; groups: string[] };
 /** Choix du tirage ; `participant_id` absent = inchangé. */
 export type RaffleLink = { wants_raffle: boolean; participant_id?: string | null };
 export type PrizeInput = Pick<Prize, "name" | "description" | "image_url" | "display_order">;
 export type PrizePatch = Partial<Pick<Prize, "name" | "description" | "image_url" | "display_order" | "winner_participant_id">>;
 export type AdminSessionInput = Omit<AdminSession, "id" | "created_at" | "last_seen_at" | "revoked_at">;
 /** Conservation (jours), mêmes valeurs que supabase/purge.sql : au-delà, `purge()` efface ou supprime. */
-export const RETENTION_DAYS = { responses: 30, visits: 90, admin_sessions: 180, login_failures: 30 } as const;
+export const RETENTION_DAYS = { responses: 30, visits: 90, clicks: 90, admin_sessions: 180, login_failures: 30 } as const;
 /** Résumé des visites : fenêtre de rétention (90 jours) et nombre de lignes relues borné. */
 const VISITS_MAX = 50_000;
 const visitsSince = () => new Date(Date.now() - RETENTION_DAYS.visits * 86_400_000).toISOString();
+const clicksSince = () => new Date(Date.now() - RETENTION_DAYS.clicks * 86_400_000).toISOString();
 export type AdminActionInput = Pick<AdminAction, "session_id" | "method" | "path" | "action" | "details">;
 
 /**
@@ -84,7 +122,7 @@ type Coordinates = Pick<ParticipantInput, "pseudo_key" | "email" | "phone_number
 
 export interface Store {
   readonly kind: "supabase" | "local";
-  createResponse(sessionId: string, meta: Meta, voterId: string | null, device: DeviceStamp): Promise<UpdateResult>;
+  createResponse(sessionId: string, meta: Meta, voterId: string | null, device: DeviceStamp, fraud?: FraudStamp): Promise<UpdateResult>;
   /** Auto-save ; « missing » si la session n'a jamais été ouverte (plus aucune ligne créée ici). */
   updateResponse(sessionId: string, patch: ResponsePatch): Promise<UpdateResult | "missing">;
   /** Valide le vote d'une session ouverte ; refuse si l'appareil a déjà voté ce jour-là (index unique côté base). */
@@ -97,12 +135,39 @@ export interface Store {
   /** Page de réponses (les plus récentes d'abord), filtre appliqué côté stockage, total filtré. */
   pageResponses(filter: ResponseFilter, page: PageQuery): Promise<Page<ResponseRow>>;
   countResponses(filter: ResponseFilter): Promise<number>;
-  /** Vrai si cet appareil a une réponse validée ce jour-là. */
+  /** Vrai si cet appareil (cookie) a une tentative validée ce jour-là (comptée, en attente ou exclue). */
   hasVotedToday(voterId: string, day: string): Promise<boolean>;
-  /** Signaux serveur du score de risque : votes validés ce jour-là par la même empreinte et depuis la même IP. */
-  riskContext(deviceHash: string | null, ip: string | null, day: string): Promise<RiskContext>;
-  /** Exclusion manuelle du classement (réversible) : `excluded_at` posé ou effacé. */
-  setExcluded(id: string, excluded: boolean): Promise<void>;
+  /** Votes validés ce jour-là depuis cette IP (plafond `ip_daily_max`) ; IP inconnue : votes sans IP, comptés ensemble. */
+  ipVotesToday(ip: string | null, day: string): Promise<number>;
+  /** Tentatives validées du jour reliées à la requête par le cookie, la clé hw ou un jeton du stockage. */
+  relatedAttempts(day: string, keys: AttemptKeys): Promise<ResponseRow[]>;
+  /**
+   * Récidive (H7) : cette clé hw appartenait, un jour précédent, à un groupe confirmé qui contenait une
+   * vraie fraude (exclusion, ou refus pour une autre raison que le cookie : schema.ts, `provesFraud`).
+   */
+  hwConfirmedBefore(hwKey: string, day: string): Promise<boolean>;
+  /** Vrai si l'un de ces groupes confirmés contient une vraie fraude (même définition). */
+  fraudInGroups(groupIds: string[]): Promise<boolean>;
+  /**
+   * Trace d'un refus, dédoublonnée (une par minute, par cookie et par étape) et plafonnée par jour
+   * (REFUSAL_TRACES_MAX par clé forte, et par IP hors refus par le cookie) ; le limiteur de débit (100 requêtes par minute et par
+   * IP) borne le reste : un script ne remplit pas la base.
+   */
+  recordRefusal(r: RefusalInput): Promise<void>;
+  /** Toutes les tentatives d'un jour : validées (comptées, en attente, exclues) et bloquées. */
+  dayAttempts(day: string): Promise<ResponseRow[]>;
+  /**
+   * Écritures du moteur de groupes : exclusion automatique, levée (Recalculer) et identifiant de groupe,
+   * jamais sur une décision humaine. Non transactionnel mais idempotent : chaque écriture fixe un état
+   * cible, et le passage suivant recalcule les écarts depuis la base, ce qui répare un échec partiel.
+   */
+  applyGraphChanges(changes: GraphChange[]): Promise<void>;
+  /** Décision d'un admin (le moteur ne touchera plus ces lignes). */
+  decideResponses(ids: string[], action: HumanAction): Promise<HumanResult>;
+  /** Met en attente un vote compté (récidive d'un participant, H7), jamais une décision humaine. */
+  holdResponse(id: string, reasons: string[]): Promise<void>;
+  /** Lignes à revoir : bloquées, en attente ou exclues automatiquement (onglet Sécurité, 5 000 au plus). */
+  listReviewRows(): Promise<ResponseRow[]>;
   /** Réglages (table `settings`, valeur JSON) : null si absent. */
   getSetting(key: string): Promise<unknown>;
   setSetting(key: string, value: unknown): Promise<void>;
@@ -131,6 +196,11 @@ export interface Store {
   recordVisit(v: VisitInput): Promise<"counted" | "duplicate" | "rejected">;
   pageVisits(status: VisitStatus, page: PageQuery): Promise<Page<Visit>>;
   listVisits(): Promise<Visit[]>;
+
+  /** Clics de partage, d'arrivée par lien partagé et d'abonnement (src/lib/clicks.ts). */
+  recordClick(c: ClickInput): Promise<void>;
+  /** Clics de la fenêtre de rétention (90 jours), du plus ancien au plus récent. */
+  listClicks(): Promise<Click[]>;
 
   listPrizes(): Promise<Prize[]>;
   getPrize(id: string): Promise<Prize | null>;
@@ -231,7 +301,8 @@ interface PgFilter {
 
 function applyResponseFilter(query: PgFilter, f: ResponseFilter): PgFilter {
   let q = query;
-  if (f.status === "completed") q = q.not("completed_at", "is", null);
+  if (f.status === "completed") q = q.not("completed_at", "is", null).is("held_at", null).is("excluded_at", null);
+  else if (f.status === "held") q = q.not("completed_at", "is", null).not("held_at", "is", null).is("excluded_at", null);
   else if (f.status === "incomplete") q = q.is("completed_at", null).is("blocked_at", null);
   else if (f.status === "blocked") q = q.not("blocked_at", "is", null);
   else if (f.status === "excluded") q = q.not("excluded_at", "is", null);
@@ -259,6 +330,78 @@ function pageLocal<T extends { id: string }>(rows: T[], value: (row: T) => strin
   return slicePage(after.slice(0, page.limit + 1), page.limit, value, sorted.length);
 }
 
+/** Index unique « une clé forte, un vote compté par jour » (supabase/schema.sql). */
+const STRONG_INDEX = "responses_hw_counted_unique";
+const HEX64 = /^[0-9a-f]{64}$/;
+
+/** Ce qui est déduit de l'IP, effacé avec elle après 30 jours (supabase/purge.sql). */
+const IP_DERIVED_NULL = { ip_net: null, ip_class: null, ip_country: null, ip_timezone: null, ip_city: null, ip_latitude: null, ip_longitude: null };
+
+/** Colonnes de la décision de validation (refus, attente ou vote compté). */
+function voteColumns(vote: VoteStamp, now: string) {
+  const decision =
+    vote.outcome === "blocked" ? { blocked_at: now, block_stage: "complete" as const }
+    : vote.outcome === "held" ? { completed_at: now, held_at: now, held_priority: vote.priority }
+    : { completed_at: now };
+  return { risk_score: vote.riskScore, risk_flags: vote.riskFlags, fraud_reasons: vote.reasons, observed_outcome: vote.observed, ...decision };
+}
+
+/** Identifiant de groupe du moteur (« jour:préfixe ») : seule forme acceptée dans un filtre. */
+const GROUP_ID = /^[\w:-]{1,40}$/;
+
+/** Ligne de trace d'un refus (ouverture ou validation). */
+function refusalRow(r: RefusalInput) {
+  const now = new Date().toISOString();
+  return {
+    session_id: r.sessionId,
+    ip_address: r.meta.ip,
+    user_agent: r.meta.userAgent,
+    voter_id: r.voterId,
+    vote_day: r.voteDay,
+    ...r.device,
+    ...r.fraud,
+    blocked_at: now,
+    block_stage: r.stage ?? ("create" as const),
+    fraud_reasons: r.reasons,
+  };
+}
+
+/**
+ * Colonnes d'une décision humaine. Faire compter : un vote en attente ou exclu redevient compté ; un
+ * vote bloqué à la validation devient validé (null si la ligne n'a pas de vote complet, ex. refus à l'ouverture).
+ */
+function humanPatch(row: ResponseRow, action: HumanAction): Partial<ResponseRow> | null {
+  const now = new Date().toISOString();
+  if (action === "invalidate") return { excluded_at: row.excluded_at ?? now, exclusion_source: "admin", human_decision: "excluded" };
+  if (row.blocked_at) {
+    if (!row.selected_decoration_id || !row.selected_restaurant) return null;
+    return { completed_at: row.blocked_at, blocked_at: null, held_at: null, excluded_at: null, exclusion_source: null, human_decision: "validated" };
+  }
+  if (!row.completed_at) return null;
+  return { held_at: null, excluded_at: null, exclusion_source: null, human_decision: "validated" };
+}
+
+/** Votes comptés par participant, un par jour au plus (règlement : un vote par personne et par jour). */
+export function countedVotesByParticipant(rows: Pick<ResponseRow, "participant_id" | "vote_day" | "completed_at" | "held_at" | "excluded_at">[]) {
+  const days = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (!r.participant_id || !isCounted(r)) continue;
+    (days.get(r.participant_id) ?? days.set(r.participant_id, new Set()).get(r.participant_id)!).add(r.vote_day ?? r.completed_at!.slice(0, 10));
+  }
+  return new Map([...days].map(([id, set]) => [id, set.size]));
+}
+
+/** Groupes confirmés (moteur anti-fraude) reliés à chaque participant. */
+function groupsByParticipant(rows: Pick<ResponseRow, "participant_id" | "group_id">[]) {
+  const out = new Map<string, string[]>();
+  for (const r of rows) {
+    if (!r.participant_id || !r.group_id) continue;
+    const list = out.get(r.participant_id) ?? out.set(r.participant_id, []).get(r.participant_id)!;
+    if (!list.includes(r.group_id)) list.push(r.group_id);
+  }
+  return out;
+}
+
 class SupabaseStore implements Store {
   readonly kind = "supabase" as const;
   constructor(
@@ -281,11 +424,11 @@ class SupabaseStore implements Store {
     if (e) throw pgError(e);
   }
 
-  async createResponse(sessionId: string, meta: Meta, voterId: string | null, device: DeviceStamp) {
+  async createResponse(sessionId: string, meta: Meta, voterId: string | null, device: DeviceStamp, fraud: FraudStamp = {}) {
     const res = await this.sb
       .from("responses")
       .upsert(
-        { session_id: sessionId, ip_address: meta.ip, user_agent: meta.userAgent, voter_id: voterId, ...device },
+        { session_id: sessionId, ip_address: meta.ip, user_agent: meta.userAgent, voter_id: voterId, ...device, ...fraud },
         { onConflict: "session_id", ignoreDuplicates: true },
       );
     this.check(res);
@@ -307,18 +450,11 @@ class SupabaseStore implements Store {
   }
 
   async completeResponse(sessionId: string, data: ResponsePatch, vote: VoteStamp) {
-    // Une seule écriture : les champs du vote, l'appareil, le jour, le score et la validation (ou le
-    // refus par score : blocked_at, completed_at reste null). L'index unique partiel (voter_id, vote_day)
-    // refuse un second vote le même jour, même en requêtes parallèles.
+    // Une seule écriture : les champs du vote, l'appareil, le jour, le score et la décision (refus :
+    // blocked_at, completed_at reste null ; attente : completed_at et held_at). Les index uniques partiels
+    // refusent un second vote du même cookie le même jour, et un second vote compté de la même clé forte.
     const now = new Date().toISOString();
-    const stamp = {
-      voter_id: vote.voterId,
-      vote_day: vote.voteDay,
-      ...vote.device,
-      risk_score: vote.riskScore,
-      risk_flags: vote.riskFlags,
-      ...(vote.blocked ? { blocked_at: now } : { completed_at: now }),
-    };
+    const stamp = { voter_id: vote.voterId, vote_day: vote.voteDay, ...vote.device, ...vote.fraud, ...voteColumns(vote, now) };
     const res = await this.sb
       .from("responses")
       .update({ ...data, ...stamp })
@@ -326,7 +462,9 @@ class SupabaseStore implements Store {
       .is("completed_at", null)
       .is("blocked_at", null) // une ligne refusée par le score ne se valide jamais
       .select("id");
-    if (violatedConstraint(res.error) !== null) return "already_voted_today" as const;
+    const violated = violatedConstraint(res.error);
+    if (violated === STRONG_INDEX) return "strong_conflict" as const;
+    if (violated !== null) return "already_voted_today" as const;
     const updated = this.check(res);
     if (updated && updated.length > 0) return "ok" as const;
 
@@ -398,24 +536,123 @@ class SupabaseStore implements Store {
     return (data?.length ?? 0) > 0;
   }
 
-  async riskContext(deviceHash: string | null, ip: string | null, day: string): Promise<RiskContext> {
-    const [dev, byIp] = await Promise.all([
-      deviceHash ? this.sb.from("responses").select("voter_id, ip_address, selected_decoration_id").eq("vote_day", day).not("completed_at", "is", null).eq("device_hash", deviceHash).limit(20) : null,
-      // IP inconnue (en-tête absent ou mal formé) : les votes sans IP comptent ensemble, brouiller son IP ne rapporte rien.
-      ip
-        ? this.sb.from("responses").select("id", { count: "exact", head: true }).eq("vote_day", day).not("completed_at", "is", null).eq("ip_address", ip)
-        : this.sb.from("responses").select("id", { count: "exact", head: true }).eq("vote_day", day).not("completed_at", "is", null).is("ip_address", null),
-    ]);
-    const deviceVotes = dev ? (this.check(dev) as { voter_id: string | null; ip_address: string | null; selected_decoration_id: string | null }[]) : [];
-    this.check(byIp);
-    return {
-      deviceVotes: deviceVotes.map((v) => ({ voterId: v.voter_id, ip: v.ip_address, decorationId: v.selected_decoration_id })),
-      ipVotes: byIp.count ?? 0,
-    };
+  async ipVotesToday(ip: string | null, day: string) {
+    const base = this.sb.from("responses").select("id", { count: "exact", head: true }).eq("vote_day", day).not("completed_at", "is", null);
+    // IP inconnue (en-tête absent ou mal formé) : les votes sans IP comptent ensemble, brouiller son IP ne rapporte rien.
+    const res = await (ip ? base.eq("ip_address", ip) : base.is("ip_address", null));
+    this.check(res);
+    return res.count ?? 0;
   }
 
-  async setExcluded(id: string, excluded: boolean) {
-    this.check(await this.sb.from("responses").update({ excluded_at: excluded ? new Date().toISOString() : null }).eq("id", id));
+  async relatedAttempts(day: string, keys: AttemptKeys) {
+    // Valeurs sûres dans le filtre PostgREST : uuid (cookie lu par readVoter) et HMAC hexadécimaux.
+    const or = [
+      keys.voterId && isUuid(keys.voterId) && `voter_id.eq.${keys.voterId}`,
+      keys.hwKey && HEX64.test(keys.hwKey) && `hw_key.eq.${keys.hwKey}`,
+      keys.storageKeys.filter((k) => HEX64.test(k)).length && `storage_key.in.(${keys.storageKeys.filter((k) => HEX64.test(k)).join(",")})`,
+    ].filter(Boolean);
+    if (!or.length) return [];
+    return this.check(await this.sb.from("responses").select("*").eq("vote_day", day).not("completed_at", "is", null).or(or.join(",")).limit(500)) as ResponseRow[];
+  }
+
+  async hwConfirmedBefore(hwKey: string, day: string) {
+    if (!HEX64.test(hwKey)) return false;
+    const data = this.check(await this.sb.from("responses").select("group_id").eq("hw_key", hwKey).lt("vote_day", day).not("group_id", "is", null).limit(200)) as { group_id: string }[];
+    return this.fraudInGroups([...new Set((data ?? []).map((r) => r.group_id))]);
+  }
+
+  async fraudInGroups(groupIds: string[]) {
+    const ids = groupIds.filter((id) => GROUP_ID.test(id));
+    if (!ids.length) return false;
+    const data = this.check(
+      await this.sb.from("responses").select("blocked_at,excluded_at,fraud_reasons").in("group_id", ids).or("excluded_at.not.is.null,blocked_at.not.is.null").limit(1000),
+    ) as Pick<ResponseRow, "blocked_at" | "excluded_at" | "fraud_reasons">[];
+    return (data ?? []).some(provesFraud);
+  }
+
+  async recordRefusal(r: RefusalInput) {
+    const stage = r.stage ?? "create";
+    const since = new Date(Date.now() - 60_000).toISOString();
+    const traces = () => this.sb.from("responses").select("id", { count: "exact", head: true }).eq("vote_day", r.voteDay).not("blocked_at", "is", null);
+    const strong = r.fraud.hw_entropy === "strong" && r.fraud.hw_key && HEX64.test(r.fraud.hw_key) ? r.fraud.hw_key : null;
+    const [dup, byHw, byIp] = await Promise.all([
+      r.voterId && isUuid(r.voterId) ? this.sb.from("responses").select("id").eq("vote_day", r.voteDay).eq("block_stage", stage).gte("created_at", since).eq("voter_id", r.voterId).limit(1) : null,
+      strong ? traces().eq("hw_key", strong) : null,
+      r.meta.ip ? traces().eq("ip_address", r.meta.ip).not("fraud_reasons", "cs", JSON.stringify(["cookie"])) : null,
+    ]);
+    if (dup && this.check(dup)?.length) return;
+    for (const [res, max] of [[byHw, REFUSAL_TRACES_MAX.hw], [byIp, REFUSAL_TRACES_MAX.ip]] as const) {
+      if (!res) continue;
+      this.check(res);
+      if ((res.count ?? 0) >= max) return;
+    }
+    this.check(await this.sb.from("responses").upsert(refusalRow(r), { onConflict: "session_id", ignoreDuplicates: true }));
+  }
+
+  async dayAttempts(day: string) {
+    const rows: ResponseRow[] = [];
+    const page = 1000;
+    for (let offset = 0; ; offset += page) {
+      const data = this.check(
+        await this.sb.from("responses").select("*").eq("vote_day", day).or("completed_at.not.is.null,blocked_at.not.is.null").order("created_at", { ascending: true }).range(offset, offset + page - 1),
+      ) as ResponseRow[];
+      rows.push(...data);
+      if (data.length < page) break;
+    }
+    return rows;
+  }
+
+  async applyGraphChanges(changes: GraphChange[]) {
+    const now = new Date().toISOString();
+    for (const c of changes) {
+      const patch = c.exclude ? { group_id: c.groupId, excluded_at: now, exclusion_source: "auto" } : c.restore ? { group_id: c.groupId, excluded_at: null, exclusion_source: null } : { group_id: c.groupId };
+      let q = this.sb.from("responses").update(patch).eq("id", c.id).is("human_decision", null);
+      if (c.exclude) q = q.is("excluded_at", null);
+      if (c.restore) q = q.eq("exclusion_source", "auto"); // seule une exclusion du moteur se lève
+      this.check(await q);
+    }
+  }
+
+  async listReviewRows() {
+    const rows: ResponseRow[] = [];
+    const page = 1000;
+    for (let offset = 0; offset < 5000; offset += page) {
+      const data = this.check(
+        await this.sb.from("responses").select("*").or("blocked_at.not.is.null,held_at.not.is.null,exclusion_source.eq.auto").order("created_at", { ascending: false }).range(offset, offset + page - 1),
+      ) as ResponseRow[];
+      rows.push(...data);
+      if (data.length < page) break;
+    }
+    return rows;
+  }
+
+  async holdResponse(id: string, reasons: string[]) {
+    this.check(
+      await this.sb.from("responses").update({ held_at: new Date().toISOString(), fraud_reasons: reasons }).eq("id", id).not("completed_at", "is", null).is("held_at", null).is("excluded_at", null).is("human_decision", null),
+    );
+  }
+
+  async decideResponses(ids: string[], action: HumanAction): Promise<HumanResult> {
+    const out: HumanResult = { done: [], refused: [] };
+    for (const id of ids) {
+      const row = await this.getResponse(id);
+      if (!row) {
+        out.refused.push({ id, reason: "missing" });
+        continue;
+      }
+      const patch = humanPatch(row, action);
+      if (!patch) {
+        out.refused.push({ id, reason: "incomplete" });
+        continue;
+      }
+      const res = await this.sb.from("responses").update(patch).eq("id", row.id);
+      if (violatedConstraint(res.error) !== null) out.refused.push({ id, reason: "conflict" });
+      else {
+        this.check(res);
+        out.done.push(id);
+      }
+    }
+    return out;
   }
 
   async getSetting(key: string) {
@@ -533,12 +770,16 @@ class SupabaseStore implements Store {
     // Votes validés par personne, pour la page affichée seulement.
     // shortcut: au plus 1000 lignes de votes lues (≥ 10 votes pour chacun des 100 participants), à paginer si le concours dure des mois.
     const ids = out.rows.map((p) => p.id);
-    const votes = new Map<string, number>();
+    let votes = new Map<string, number>();
+    let groups = new Map<string, string[]>();
     if (ids.length) {
-      const linked = this.check(await this.sb.from("responses").select("participant_id").in("participant_id", ids).not("completed_at", "is", null)) as { participant_id: string }[];
-      for (const r of linked) votes.set(r.participant_id, (votes.get(r.participant_id) ?? 0) + 1);
+      const linked = this.check(
+        await this.sb.from("responses").select("participant_id, vote_day, completed_at, held_at, excluded_at, group_id").in("participant_id", ids).not("completed_at", "is", null),
+      ) as Pick<ResponseRow, "participant_id" | "vote_day" | "completed_at" | "held_at" | "excluded_at" | "group_id">[];
+      votes = countedVotesByParticipant(linked);
+      groups = groupsByParticipant(linked);
     }
-    return { ...out, rows: out.rows.map((p) => ({ ...p, votes: votes.get(p.id) ?? 0 })) };
+    return { ...out, rows: out.rows.map((p) => ({ ...p, votes: votes.get(p.id) ?? 0, groups: groups.get(p.id) ?? [] })) };
   }
 
   async updateParticipant(id: string, patch: Pick<Participant, "pseudo" | "pseudo_key">) {
@@ -606,6 +847,21 @@ class SupabaseStore implements Store {
     return rows;
   }
 
+  async recordClick(c: ClickInput) {
+    this.check(await this.sb.from("clicks").insert(c));
+  }
+
+  async listClicks() {
+    const rows: Click[] = [];
+    const page = 1000;
+    for (let offset = 0; offset < VISITS_MAX; offset += page) {
+      const data = this.check(await this.sb.from("clicks").select("*").gte("created_at", clicksSince()).order("created_at", { ascending: true }).range(offset, offset + page - 1)) as Click[];
+      rows.push(...data);
+      if (data.length < page) break;
+    }
+    return rows;
+  }
+
   async listPrizes() {
     return this.check(await this.sb.from("prizes").select("*").order("display_order").order("created_at")) as Prize[];
   }
@@ -663,11 +919,12 @@ class SupabaseStore implements Store {
     this.check(
       await this.sb
         .from("responses")
-        .update({ ip_address: null, user_agent: null, device_info: null })
+        .update({ ip_address: null, user_agent: null, device_info: null, ...IP_DERIVED_NULL })
         .lt("created_at", before(RETENTION_DAYS.responses))
-        .or("ip_address.not.is.null,user_agent.not.is.null,device_info.not.is.null"),
+        .or("ip_address.not.is.null,user_agent.not.is.null,device_info.not.is.null,ip_net.not.is.null,ip_class.not.is.null,ip_country.not.is.null,ip_timezone.not.is.null,ip_city.not.is.null,ip_latitude.not.is.null,ip_longitude.not.is.null"),
     );
     this.check(await this.sb.from("visits").delete().lt("created_at", before(RETENTION_DAYS.visits)));
+    this.check(await this.sb.from("clicks").delete().lt("created_at", before(RETENTION_DAYS.clicks)));
     this.check(await this.sb.from("admin_sessions").delete().lt("created_at", before(RETENTION_DAYS.admin_sessions))); // actions en cascade
     this.check(await this.sb.from("login_failures").delete().lt("created_at", before(RETENTION_DAYS.login_failures)));
   }
@@ -785,7 +1042,7 @@ class SupabaseStore implements Store {
 }
 
 // ---------------------------------------------------------------------------
-// Stockage local JSON — développement uniquement (système de fichiers en
+// Stockage local JSON, développement uniquement (système de fichiers en
 // lecture seule sur Vercel).
 // ---------------------------------------------------------------------------
 
@@ -799,6 +1056,7 @@ export type LocalData = {
   admin_actions: AdminAction[];
   settings: Record<string, unknown>;
   visits: Visit[];
+  clicks: Click[];
   login_failures: LoginFailure[];
 };
 
@@ -829,6 +1087,7 @@ function seed(): LocalData {
     admin_actions: [],
     settings: {},
     visits: [],
+    clicks: [],
     login_failures: [],
   };
 }
@@ -865,6 +1124,10 @@ export function migrateLocal(d: LocalData): boolean {
     d.login_failures = [];
     changed = true;
   }
+  if (!d.clicks) {
+    d.clicks = [];
+    changed = true;
+  }
   for (const p of d.participants) {
     if (p.deleted_at === undefined) {
       p.deleted_at = null;
@@ -889,6 +1152,11 @@ export function migrateLocal(d: LocalData): boolean {
       Object.assign(r, { device_hash: null, device_info: null, risk_score: 0, risk_flags: null, blocked_at: null, excluded_at: null });
       changed = true;
     }
+    // Exclusions antérieures à la migration du 2026-10-28 : faites à la main (les autres colonnes manquantes se lisent null).
+    if (r.excluded_at && r.exclusion_source === undefined) {
+      Object.assign(r, { exclusion_source: "admin", human_decision: "excluded" });
+      changed = true;
+    }
   }
   return changed;
 }
@@ -896,8 +1164,9 @@ export function migrateLocal(d: LocalData): boolean {
 /** Purge locale (mêmes règles que `SupabaseStore.purge` et supabase/purge.sql), à l'instant `now` (ms). */
 export function purgeLocal(d: LocalData, now: number) {
   const before = (days: number) => new Date(now - days * 86_400_000).toISOString();
-  for (const r of d.responses) if (r.created_at < before(RETENTION_DAYS.responses)) Object.assign(r, { ip_address: null, user_agent: null, device_info: null });
+  for (const r of d.responses) if (r.created_at < before(RETENTION_DAYS.responses)) Object.assign(r, { ip_address: null, user_agent: null, device_info: null, ...IP_DERIVED_NULL });
   d.visits = d.visits.filter((v) => v.created_at >= before(RETENTION_DAYS.visits));
+  d.clicks = d.clicks.filter((c) => c.created_at >= before(RETENTION_DAYS.clicks));
   const expired = new Set(d.admin_sessions.filter((s) => s.created_at < before(RETENTION_DAYS.admin_sessions)).map((s) => s.id));
   d.admin_sessions = d.admin_sessions.filter((s) => !expired.has(s.id));
   d.admin_actions = d.admin_actions.filter((a) => !expired.has(a.session_id));
@@ -977,9 +1246,9 @@ class LocalStore implements Store {
     };
   }
 
-  createResponse(sessionId: string, meta: Meta, voterId: string | null, device: DeviceStamp) {
+  createResponse(sessionId: string, meta: Meta, voterId: string | null, device: DeviceStamp, fraud: FraudStamp = {}) {
     return this.mutate((d) => {
-      if (!d.responses.some((r) => r.session_id === sessionId)) d.responses.push(this.blank(sessionId, meta, voterId, device));
+      if (!d.responses.some((r) => r.session_id === sessionId)) d.responses.push({ ...this.blank(sessionId, meta, voterId, device), ...fraud });
       return "ok" as const;
     });
   }
@@ -999,14 +1268,19 @@ class LocalStore implements Store {
     return this.mutate((d) => {
       const row = d.responses.find((r) => r.session_id === sessionId);
       if (row?.completed_at) return "completed" as const;
-      if (row?.blocked_at) return "already_voted_today" as const; // refus par score : définitif
-      if (vote.voterId && d.responses.some((r) => r.completed_at && r.voter_id === vote.voterId && r.vote_day === vote.voteDay)) {
+      if (row?.blocked_at) return "already_voted_today" as const; // refus : définitif pour la session
+      if (vote.voterId && vote.outcome !== "blocked" && d.responses.some((r) => r.completed_at && r.voter_id === vote.voterId && r.vote_day === vote.voteDay)) {
         return "already_voted_today" as const;
       }
       if (!row) throw new Error("Session introuvable"); // la route a vérifié la ligne juste avant
+      // Même garantie que l'index unique de la clé forte, dans la file d'écriture (atomique).
+      const key = vote.fraud.hw_key;
+      // Comme l'index : un vote du mode observation (issue évitée notée) n'y est pas soumis.
+      if (vote.outcome === "counted" && !vote.observed && key && vote.fraud.hw_entropy === "strong") {
+        if (d.responses.some((r) => r !== row && r.hw_key === key && r.hw_entropy === "strong" && r.vote_day === vote.voteDay && isCounted(r) && !r.human_decision && !r.observed_outcome)) return "strong_conflict" as const;
+      }
       const now = new Date().toISOString();
-      const stamp = vote.blocked ? { blocked_at: now } : { completed_at: now };
-      Object.assign(row, data, { voter_id: vote.voterId, vote_day: vote.voteDay, ...vote.device, risk_score: vote.riskScore, risk_flags: vote.riskFlags, ...stamp, updated_at: now });
+      Object.assign(row, data, { voter_id: vote.voterId, vote_day: vote.voteDay, ...vote.device, ...vote.fraud, ...voteColumns(vote, now), updated_at: now });
       return "ok" as const;
     });
   }
@@ -1044,7 +1318,8 @@ class LocalStore implements Store {
 
   private matchesFilter(r: ResponseRow, f: ResponseFilter) {
     const status =
-      f.status === "completed" ? !!r.completed_at
+      f.status === "completed" ? isCounted(r)
+      : f.status === "held" ? !!r.completed_at && !!r.held_at && !r.excluded_at
       : f.status === "incomplete" ? !r.completed_at && !r.blocked_at
       : f.status === "blocked" ? !!r.blocked_at
       : f.status === "excluded" ? !!r.excluded_at
@@ -1070,19 +1345,100 @@ class LocalStore implements Store {
     return d.responses.some((r) => r.completed_at && r.voter_id === voterId && r.vote_day === day);
   }
 
-  async riskContext(deviceHash: string | null, ip: string | null, day: string): Promise<RiskContext> {
+  async ipVotesToday(ip: string | null, day: string) {
     const d = await this.read();
-    const today = d.responses.filter((r) => r.completed_at && r.vote_day === day);
-    return {
-      deviceVotes: deviceHash ? today.filter((r) => r.device_hash === deviceHash).map((r) => ({ voterId: r.voter_id, ip: r.ip_address, decorationId: r.selected_decoration_id })) : [],
-      ipVotes: today.filter((r) => r.ip_address === ip).length, // ip null : votes sans IP, comptés ensemble
-    };
+    return d.responses.filter((r) => r.completed_at && r.vote_day === day && r.ip_address === ip).length; // ip null : votes sans IP, comptés ensemble
   }
 
-  async setExcluded(id: string, excluded: boolean) {
+  async relatedAttempts(day: string, keys: AttemptKeys) {
+    const d = await this.read();
+    return d.responses.filter(
+      (r) =>
+        r.completed_at &&
+        r.vote_day === day &&
+        ((keys.voterId && r.voter_id === keys.voterId) || (keys.hwKey && r.hw_key === keys.hwKey) || (r.storage_key && keys.storageKeys.includes(r.storage_key))),
+    );
+  }
+
+  async hwConfirmedBefore(hwKey: string, day: string) {
+    const d = await this.read();
+    return this.fraudInGroups([...new Set(d.responses.filter((r) => r.hw_key === hwKey && !!r.vote_day && r.vote_day < day && !!r.group_id).map((r) => r.group_id!))]);
+  }
+
+  async fraudInGroups(groupIds: string[]) {
+    if (!groupIds.length) return false;
+    const d = await this.read();
+    return d.responses.some((r) => !!r.group_id && groupIds.includes(r.group_id) && provesFraud(r));
+  }
+
+  async recordRefusal(r: RefusalInput) {
+    await this.mutate((d) => {
+      const since = new Date(Date.now() - 60_000).toISOString();
+      const stage = r.stage ?? "create";
+      const dup = d.responses.some((x) => x.vote_day === r.voteDay && x.block_stage === stage && x.created_at >= since && !!r.voterId && x.voter_id === r.voterId);
+      if (dup || d.responses.some((x) => x.session_id === r.sessionId)) return;
+      const traces = d.responses.filter((x) => x.vote_day === r.voteDay && x.blocked_at);
+      const strong = r.fraud.hw_entropy === "strong" ? r.fraud.hw_key : null;
+      if (strong && traces.filter((x) => x.hw_key === strong).length >= REFUSAL_TRACES_MAX.hw) return;
+      if (r.meta.ip && traces.filter((x) => x.ip_address === r.meta.ip && !isCookieRefusal(x)).length >= REFUSAL_TRACES_MAX.ip) return;
+      d.responses.push({ ...this.blank(r.sessionId, r.meta, r.voterId, r.device), ...refusalRow(r) } as ResponseRow);
+    });
+  }
+
+  async dayAttempts(day: string) {
+    const d = await this.read();
+    return d.responses.filter((r) => r.vote_day === day && (r.completed_at || r.blocked_at)).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
+
+  async applyGraphChanges(changes: GraphChange[]) {
+    await this.mutate((d) => {
+      const now = new Date().toISOString();
+      for (const c of changes) {
+        const row = d.responses.find((r) => r.id === c.id);
+        if (!row || row.human_decision) continue;
+        row.group_id = c.groupId;
+        if (c.exclude && !row.excluded_at) Object.assign(row, { excluded_at: now, exclusion_source: "auto" });
+        if (c.restore && row.exclusion_source === "auto") Object.assign(row, { excluded_at: null, exclusion_source: null }); // seule une exclusion du moteur se lève
+        row.updated_at = now;
+      }
+    });
+  }
+
+  async listReviewRows() {
+    const d = await this.read();
+    return d.responses.filter((r) => r.blocked_at || r.held_at || r.exclusion_source === "auto").sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 5000);
+  }
+
+  async holdResponse(id: string, reasons: string[]) {
     await this.mutate((d) => {
       const row = d.responses.find((r) => r.id === id);
-      if (row) Object.assign(row, { excluded_at: excluded ? new Date().toISOString() : null, updated_at: new Date().toISOString() });
+      if (row && isCounted(row) && !row.human_decision) Object.assign(row, { held_at: new Date().toISOString(), fraud_reasons: reasons, updated_at: new Date().toISOString() });
+    });
+  }
+
+  async decideResponses(ids: string[], action: HumanAction): Promise<HumanResult> {
+    return this.mutate((d) => {
+      const out: HumanResult = { done: [], refused: [] };
+      for (const id of ids) {
+        const row = d.responses.find((r) => r.id === id);
+        if (!row) {
+          out.refused.push({ id, reason: "missing" });
+          continue;
+        }
+        const patch = humanPatch(row, action);
+        if (!patch) {
+          out.refused.push({ id, reason: "incomplete" });
+          continue;
+        }
+        // Même règle que l'index unique (cookie, jour) : un vote bloqué ne devient pas un second vote du même cookie.
+        if (row.blocked_at && action === "validate" && d.responses.some((r) => r !== row && r.completed_at && r.voter_id === row.voter_id && r.vote_day === row.vote_day)) {
+          out.refused.push({ id, reason: "conflict" });
+          continue;
+        }
+        Object.assign(row, patch, { updated_at: new Date().toISOString() });
+        out.done.push(id);
+      }
+      return out;
     });
   }
 
@@ -1138,8 +1494,9 @@ class LocalStore implements Store {
     const col = PARTICIPANT_SORT_COLUMN[filter.sort];
     const found = d.participants.filter((p) => !!p.deleted_at === !!filter.deleted && (!needle || p.pseudo_key.includes(needle) || p.email.includes(needle) || p.phone_number.includes(needle)));
     const out = pageLocal(found, (p) => String(p[col]), filter.dir, page);
-    const votes = (id: string) => d.responses.filter((r) => r.completed_at && r.participant_id === id).length;
-    return { ...out, rows: out.rows.map((p) => ({ ...p, votes: votes(p.id) })) };
+    const votes = countedVotesByParticipant(d.responses);
+    const groups = groupsByParticipant(d.responses);
+    return { ...out, rows: out.rows.map((p) => ({ ...p, votes: votes.get(p.id) ?? 0, groups: groups.get(p.id) ?? [] })) };
   }
 
   async updateParticipant(id: string, patch: Pick<Participant, "pseudo" | "pseudo_key">) {
@@ -1196,6 +1553,18 @@ class LocalStore implements Store {
     const d = await this.read();
     const since = visitsSince();
     return d.visits.filter((v) => v.created_at >= since).sort((a, b) => a.created_at.localeCompare(b.created_at)).slice(0, VISITS_MAX);
+  }
+
+  recordClick(c: ClickInput) {
+    return this.mutate((d) => {
+      d.clicks.push({ id: randomUUID(), created_at: new Date().toISOString(), ...c });
+    });
+  }
+
+  async listClicks() {
+    const d = await this.read();
+    const since = clicksSince();
+    return d.clicks.filter((c) => c.created_at >= since).sort((a, b) => a.created_at.localeCompare(b.created_at));
   }
 
   async listPrizes() {

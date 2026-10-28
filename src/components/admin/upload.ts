@@ -2,12 +2,15 @@
 
 import { MEDIA_LIMITS } from "@/lib/schema";
 import { withBase } from "@/lib/base-path";
+import { canCompressHere, decide } from "@/lib/video-plan";
+import type { CompressStep } from "./video-compress";
 
 /**
  * Préparation des médias dans le navigateur, avant l'envoi :
  * - photos : redressées (EXIF), réduites à 2048 px, ré-encodées en JPEG — ce qui retire aussi
  *   les métadonnées (position GPS du téléphone) et convertit le HEIC quand le navigateur le lit ;
- * - vidéos : vérifiées (lisibles par le navigateur, 50 Mo max) et dotées d'une affiche JPEG.
+ * - vidéos : vérifiées (lisibles par le navigateur), dotées d'une affiche JPEG, puis compressées sans perte
+ *   visible quand c'est possible (voir lib/video-plan.ts) ; 50 Mo max une fois prêtes.
  * Les fichiers partent ensuite directement vers le stockage, avec une barre de progression.
  */
 
@@ -17,14 +20,23 @@ export type PreparedMedia = {
   type: string;
   poster?: Blob;
   warning?: string;
+  /** Résultat de la compression vidéo : poids avant et après, ou original conservé. */
+  summary?: string;
+};
+
+export type PrepareOptions = {
+  /** Étape de la compression vidéo, avec sa progression (0 à 1) quand elle est connue. */
+  onStep?: (step: CompressStep, progress?: number) => void;
+  /** Passe la compression : l'original part. */
+  signal?: AbortSignal;
 };
 
 const MB = 1024 * 1024;
 const fmtMb = (bytes: number) => `${(bytes / MB).toFixed(bytes < 10 * MB ? 1 : 0).replace(".", ",")} Mo`;
 
-export async function prepareMedia(file: File): Promise<PreparedMedia> {
+export async function prepareMedia(file: File, opts: PrepareOptions = {}): Promise<PreparedMedia> {
   const name = file.name.toLowerCase();
-  if (file.type.startsWith("video/") || /\.(mp4|mov|m4v|webm)$/.test(name)) return prepareVideo(file);
+  if (file.type.startsWith("video/") || /\.(mp4|mov|m4v|webm)$/.test(name)) return prepareVideo(file, opts);
   if (file.type.startsWith("image/") || /\.(jpe?g|png|webp|avif|heic|heif)$/.test(name)) return prepareImage(file);
   throw new Error("Format non pris en charge (photo ou vidéo uniquement).");
 }
@@ -114,10 +126,26 @@ async function looksHevc(file: File) {
   return false;
 }
 
-async function prepareVideo(file: File): Promise<PreparedMedia> {
-  if (file.size > MEDIA_LIMITS.videoBytes) {
-    throw new Error(`Vidéo trop lourde (${fmtMb(file.size)}, 50 Mo max). Raccourcissez-la ou exportez-la en 720p.`);
+/** Définition affichée (rotation comprise) et lecture possible, mesurées par un élément vidéo. */
+async function measureVideo(blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const video = document.createElement("video");
+  video.muted = true;
+  video.preload = "auto";
+  video.src = url;
+  try {
+    await once(video, "loadeddata", 20_000);
+    return { displayWidth: video.videoWidth, displayHeight: video.videoHeight, playable: video.videoWidth > 0 };
+  } catch {
+    return { displayWidth: 0, displayHeight: 0, playable: false };
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(url);
   }
+}
+
+async function prepareVideo(file: File, opts: PrepareOptions): Promise<PreparedMedia> {
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
   video.muted = true;
@@ -125,6 +153,7 @@ async function prepareVideo(file: File): Promise<PreparedMedia> {
   video.preload = "auto";
   video.src = url;
   let poster: Blob;
+  let display = { width: 0, height: 0 };
   try {
     // iOS ne précharge rien sans lecture : une lecture muette déclenche le chargement.
     const loaded = once(video, "loadeddata", 20_000);
@@ -138,6 +167,7 @@ async function prepareVideo(file: File): Promise<PreparedMedia> {
       /* pas de saut possible : on garde l'image courante */
     }
     if (!video.videoWidth) throw new Error("empty");
+    display = { width: video.videoWidth, height: video.videoHeight };
     poster = await canvasToBlob(drawScaled(video, video.videoWidth, video.videoHeight, 1280), "image/jpeg", 0.82);
   } catch {
     throw new Error(
@@ -149,19 +179,43 @@ async function prepareVideo(file: File): Promise<PreparedMedia> {
     URL.revokeObjectURL(url);
   }
 
+  // Compression : l'original reste le plan B à chaque étape.
+  let out: Blob = file;
+  let kept: string | null = null;
+  const guard = canCompressHere(file.size, navigator.userAgent, navigator.maxTouchPoints);
+  const encoded = guard.ok
+    ? await (await import("./video-compress")).encodeVideo(file, opts.onStep ?? (() => undefined), opts.signal)
+    : guard;
+  if (encoded.ok) {
+    const verdict = decide(
+      { probe: encoded.source, bytes: file.size, displayWidth: display.width, displayHeight: display.height, playable: true },
+      { probe: encoded.output, bytes: encoded.file.size, ...(await measureVideo(encoded.file)) },
+    );
+    if (verdict.keep === "output") out = encoded.file;
+    else kept = verdict.reason;
+  } else kept = encoded.reason;
+  const summary =
+    kept === null
+      ? `Avant ${fmtMb(file.size)}, après ${fmtMb(out.size)}, gain ${Math.round((1 - out.size / file.size) * 100)} % : qualité, résolution et fluidité conservées.`
+      : `Original conservé (${kept}) : ${fmtMb(file.size)}.`;
+  if (out.size > MEDIA_LIMITS.videoBytes) {
+    throw new Error(`Vidéo trop lourde (${fmtMb(out.size)}, 50 Mo max). Raccourcissez-la : 30 secondes conseillées.`);
+  }
+
   const warnings: string[] = [];
   if (await looksHevc(file)) {
     warnings.push("Vidéo en HEVC : lisible sur les téléphones récents, mais pas sur certains ordinateurs. L'idéal est le H.264 (« Le plus compatible » sur iPhone).");
   }
-  if (file.size > 20 * MB) {
-    warnings.push(`Vidéo lourde (${fmtMb(file.size)}) : chaque lecture consomme du forfait des votants et du quota Supabase. Visez moins de 20 Mo (30 s en 720p).`);
+  if (out.size > 20 * MB) {
+    warnings.push(`Vidéo lourde (${fmtMb(out.size)}) : chaque lecture consomme du forfait des votants et du quota Supabase. Visez moins de 20 Mo (30 s en 720p).`);
   }
   return {
     kind: "video",
-    file,
-    type: file.type === "video/webm" ? "video/webm" : "video/mp4", // .mov (iPhone) servi comme MP4
+    file: out,
+    type: out !== file || file.type !== "video/webm" ? "video/mp4" : "video/webm", // .mov (iPhone) servi comme MP4
     poster,
     warning: warnings.join(" ") || undefined,
+    summary,
   };
 }
 

@@ -2,7 +2,7 @@ import "server-only";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { flagLabel } from "./risk";
-import { formatFrPhone, type Decoration, type Participant, type Prize, type ResponseRow } from "./schema";
+import { formatFrPhone, isCounted, voteStatus, type Decoration, type Participant, type Prize, type ResponseRow } from "./schema";
 
 type Row = Record<string, string | number>;
 
@@ -19,7 +19,7 @@ export function allResponsesRows(rows: ResponseRow[], decorations: Decoration[],
   const pseudo = new Map(participants.map((p) => [p.id, p.pseudo]));
   return rows.map((r) => ({
     "ID": r.id,
-    "Statut": r.completed_at ? "Vote validé" : r.blocked_at ? "Bloqué" : "Incomplet",
+    "Statut": { counted: "Vote compté", held: "En attente", blocked: "Bloqué", excluded: "Exclu", incomplete: "Incomplet" }[voteStatus(r)],
     "Q1 - Chamas Tacos préféré": safe(r.selected_restaurant),
     "Q2 - Meilleure décoration": safe(r.selected_decoration_id ? decoName.get(r.selected_decoration_id) ?? "(supprimée)" : ""),
     "Q3 - Commentaire": safe(r.comment),
@@ -33,14 +33,16 @@ export function allResponsesRows(rows: ResponseRow[], decorations: Decoration[],
     "Score de risque": r.risk_score ?? 0,
     "Signaux": safe((r.risk_flags ?? []).map(flagLabel).join(" ; ")),
     "Bloqué": r.blocked_at ? "Oui" : "",
-    "Exclu": r.excluded_at ? "Oui" : "",
+    "Exclu": r.excluded_at ? (r.exclusion_source === "auto" ? "Oui (automatique)" : "Oui") : "",
   }));
 }
 
 /** Participants au tirage : une ligne par personne, avec le nombre de votes reliés et le lot gagné. */
 export function participantsRows(participants: Participant[], responses: ResponseRow[], prizes: Prize[]): Row[] {
-  const votes = new Map<string, number>();
-  for (const r of responses) if (r.completed_at && r.participant_id) votes.set(r.participant_id, (votes.get(r.participant_id) ?? 0) + 1);
+  // Votes comptés, un par jour au plus (même règle que le backoffice).
+  const days = new Map<string, Set<string>>();
+  for (const r of responses) if (isCounted(r) && r.participant_id) (days.get(r.participant_id) ?? days.set(r.participant_id, new Set()).get(r.participant_id)!).add(r.vote_day ?? r.completed_at!.slice(0, 10));
+  const votes = new Map([...days].map(([id, set]) => [id, set.size]));
   const won = new Map(prizes.filter((p) => p.winner_participant_id).map((p) => [p.winner_participant_id!, p.name]));
   return participants.map((p) => ({
     "Pseudo": safe(p.pseudo),

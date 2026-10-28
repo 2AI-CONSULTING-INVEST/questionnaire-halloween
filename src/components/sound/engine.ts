@@ -35,12 +35,15 @@ export type SoundEvent =
   /** Travelling d'un lieu à l'autre (`dur` secondes), vers la crypte ou dehors. */
   | { type: "travel"; dur: number; indoor: boolean };
 
-export type SoundPrefs = { volume: number; muted: boolean };
+/** `videoVolume` : volume réglé pendant une vidéo, retenu pour les suivantes (absent tant que personne n'y a touché). */
+export type SoundPrefs = { volume: number; muted: boolean; videoVolume?: number };
 
 const PREFS_KEY = "chamas-sound";
 const DEFAULT_PREFS: SoundPrefs = { volume: 0.5, muted: false };
 /** Courbe du volume (quadratique) : le réglage par défaut (0,5) donne un gain maître de 0,15, le maximum 0,6. */
 const MASTER_MAX = 0.3;
+/** Volume minimal des vidéos (70 % du maximum) tant que le votant n'a pas choisi le sien pendant une vidéo. */
+const VIDEO_MIN_VOLUME = 0.7;
 const BUS = { music: 0.5, amb: 0.75, sfx: 0.8 };
 const TRACKS = ["/son/geoff-harvey-diabolus.mp3", "/son/soundore-background-horror.mp3"];
 /**
@@ -70,7 +73,8 @@ function loadPrefs() {
   prefsLoaded = true;
   try {
     const raw = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "null") as Partial<SoundPrefs> | null;
-    if (raw && typeof raw.volume === "number" && raw.volume >= 0 && raw.volume <= 1) prefs = { volume: raw.volume, muted: !!raw.muted };
+    const valid = (v: unknown): v is number => typeof v === "number" && v >= 0 && v <= 1;
+    if (raw && valid(raw.volume)) prefs = { volume: raw.volume, muted: !!raw.muted, ...(valid(raw.videoVolume) && { videoVolume: raw.videoVolume }) };
   } catch {
     /* stockage indisponible : réglages par défaut */
   }
@@ -754,9 +758,42 @@ export function unlockSound() {
 
 export const isSoundStarted = () => started;
 
+/** Volume des vidéos (0 à 1) : celui choisi pendant une vidéo, sinon celui du site relevé à 70 % au moins. */
+export function getVideoVolume() {
+  const p = getSoundPrefs();
+  return p.videoVolume ?? Math.max(p.volume, VIDEO_MIN_VOLUME);
+}
+/** Une vidéo est en cours : le réglage du volume agit alors sur elle, pas sur la musique du site. */
+export const isVideoPlaying = () => held > 0;
+/** Volume affiché par le panneau du son : celui de la vidéo pendant sa lecture, sinon celui du site. */
+export const getShownVolume = () => (held > 0 ? getVideoVolume() : getSoundPrefs().volume);
+
 export function setSoundVolume(volume: number) {
-  setPrefs({ ...getSoundPrefs(), volume: Math.min(1, Math.max(0, volume)) });
+  const v = Math.min(1, Math.max(0, volume));
+  if (held > 0) return setPrefs({ ...getSoundPrefs(), videoVolume: v }); // retenu pour les vidéos suivantes
+  setPrefs({ ...getSoundPrefs(), volume: v });
   if (eng) ramp(eng.master.gain, masterLevel(), 0.2);
+}
+
+/**
+ * Branche un lecteur vidéo sur le volume des vidéos : appliqué tout de suite, suivi s'il change,
+ * et retenu si le votant le règle sur le lecteur lui-même (commandes de la visionneuse).
+ * Sans effet sur iPhone / iPad, où le volume d'une vidéo ne se règle que par les boutons de l'appareil.
+ */
+export function bindVideoVolume(el: HTMLVideoElement) {
+  const apply = () => {
+    el.volume = getVideoVolume();
+  };
+  const onChange = () => {
+    if (Math.abs(el.volume - getVideoVolume()) > 0.01) setPrefs({ ...getSoundPrefs(), videoVolume: el.volume });
+  };
+  apply();
+  listeners.add(apply);
+  el.addEventListener("volumechange", onChange);
+  return () => {
+    listeners.delete(apply);
+    el.removeEventListener("volumechange", onChange);
+  };
 }
 
 export function setSoundMuted(muted: boolean) {
@@ -767,8 +804,10 @@ export function setSoundMuted(muted: boolean) {
 
 /** Une vidéo démarre (`true`) ou s'arrête (`false`) : musique, ambiance et effets s'effacent, puis reviennent. */
 export function holdSound(on: boolean) {
+  const was = held > 0;
   held = Math.max(0, held + (on ? 1 : -1));
   if (eng) ramp(eng.master.gain, masterLevel(), on ? 0.3 : 1.5);
+  if (was !== held > 0) listeners.forEach((fn) => fn()); // le panneau du son passe du volume du site à celui de la vidéo
 }
 
 export function setSoundPlace(p: Place) {

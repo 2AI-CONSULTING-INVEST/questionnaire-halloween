@@ -1,11 +1,29 @@
 import { formatFrPhone, type Participant, type ResponseRow, type Visit } from "./schema";
 
+/** Champs anti-fraude masqués pour le rôle « lecture seule » : clé matérielle, stockage, réseau et tout ce qui est déduit de l'IP. */
+const VIEWER_HIDDEN = [
+  "hw_key",
+  "hw_entropy",
+  "private_mode",
+  "storage_key",
+  "seen_storage",
+  "ip_net",
+  "ip_class",
+  "ip_country",
+  "ip_timezone",
+  "ip_city",
+  "ip_latitude",
+  "ip_longitude",
+] as const satisfies readonly (keyof ResponseRow)[];
+
 /**
- * Ce que le rôle « lecture seule » ne voit pas : adresse IP, navigateur, empreinte et attributs
- * d'appareil des réponses ; email et téléphone des participants masqués dans les listes.
+ * Ce que le rôle « lecture seule » ne voit pas : adresse IP, navigateur, empreinte, attributs d'appareil
+ * et signaux anti-fraude des réponses ; email et téléphone des participants masqués dans les listes.
  */
 export function redactForViewer<T extends Pick<ResponseRow, "ip_address" | "user_agent" | "device_hash" | "device_info">>(row: T): T {
-  return { ...row, ip_address: null, user_agent: null, device_hash: null, device_info: null };
+  const out: Record<string, unknown> = { ...row, ip_address: null, user_agent: null, device_hash: null, device_info: null };
+  for (const k of VIEWER_HIDDEN) if (k in out) out[k] = null;
+  return out as T;
 }
 
 /** `jeanne@example.com` → `j***@example.com`. */

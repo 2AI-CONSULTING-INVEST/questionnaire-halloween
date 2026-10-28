@@ -6,13 +6,15 @@
  *
  *   NEXT_PUBLIC_SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY= ADMIN_PASSWORD=test-admin-9c2e-0123 \
  *   ADMIN_READONLY_PASSWORD=test-viewer-4b7a ADMIN_SESSION_SECRET=<32+ caractères> \
- *   node node_modules/next/dist/bin/next start -p 3200
+ *   TOR_EXIT_LIST=185.220.101.10,185.220.101.11 node node_modules/next/dist/bin/next start -p 3200
+ * après un build avec l'horloge de test (scénarios du lendemain) :
+ *   NEXT_PUBLIC_HW_TEST_CLOCK=1 NEXT_PUBLIC_SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY= node node_modules/next/dist/bin/next build
  *   node tests/e2e/antifraude.mjs            (HW_BASE, ADMIN_PASSWORD, ADMIN_READONLY_PASSWORD surchargeables)
  *
  * Le fichier .data/db.json est sauvegardé, remplacé par un jeu de données vide, puis restauré.
  */
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -23,6 +25,10 @@ const DATA = path.join(process.cwd(), ".data", "db.json");
 const BACKUP = `${DATA}.e2e-backup`;
 
 const RESTAURANT = "CHAMAS TACOS - LILLE FIVES";
+/** Sorties Tor fictives, déclarées au serveur de test par TOR_EXIT_LIST ; horloge de test (cookie, build NEXT_PUBLIC_HW_TEST_CLOCK=1). */
+const TOR_IP = "185.220.101.10";
+const TOR_IP2 = "185.220.101.11";
+const TEST_CLOCK_COOKIE = "hw_test_now";
 const DECO_A = randomUUID();
 const DECO_B = randomUUID();
 
@@ -45,14 +51,14 @@ function seedData() {
   };
 }
 
-/** Client HTTP avec son pot à cookies et son adresse IP (X-Forwarded-For). */
-function client(ip) {
+/** Client HTTP avec son pot à cookies, son adresse IP (X-Forwarded-For) et ses en-têtes (agent utilisateur, position Vercel…). */
+function client(ip, base = {}) {
   const jar = new Map();
   return {
     ip,
     jar,
     async req(p, init = {}) {
-      const headers = { "X-Forwarded-For": ip, "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148 Safari/604.1", ...(init.headers ?? {}) };
+      const headers = { "X-Forwarded-For": ip, "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148 Safari/604.1", ...base, ...(init.headers ?? {}) };
       if (jar.size) headers.Cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
       if (init.body !== undefined && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
       const res = await fetch(`${BASE}${p}`, { ...init, headers, body: init.body === undefined ? undefined : JSON.stringify(init.body), redirect: "manual" });
@@ -78,7 +84,7 @@ const VOTE = (deco = DECO_A) => ({ selected_restaurant: RESTAURANT, selected_dec
 
 let passed = 0;
 function ok(label, cond, detail) {
-  assert.ok(cond, `${label}${detail ? ` — ${JSON.stringify(detail)}` : ""}`);
+  assert.ok(cond, `${label}${detail ? ` : ${JSON.stringify(detail)}` : ""}`);
   passed += 1;
   console.log(`  ✔ ${label}`);
 }
@@ -156,130 +162,292 @@ async function run() {
   const hex = await admin.req("/api/admin/responses?status=all&q=ff");
   ok("recherche hexa trop courte (2 caractères) → 422 (regex de la route)", hex.status === 422);
 
-  // ----- Scénarios de vote : sessions ouvertes d'abord, validées 6 s plus tard (signal de rapidité) ---
+  // ----- Anti-fraude (refonte du 2026-10-28) : les 30 scénarios du cahier des charges --------------
+  // Réglages par défaut de la méthodologie. Chaque vote laisse 2,1 s entre l'ouverture et la validation
+  // (pas de signal « way_too_fast »). Chaque scénario a ses clés et ses adresses IP.
   console.log("\nAnti-fraude");
-  const honest = client("1.1.1.1");
-  const honestSession = randomUUID();
-  const wiped = client("1.1.1.1"); // même appareil, cookies effacés, stockage local conservé
-  const wipedSession = randomUUID();
-  const x = client("2.2.2.2");
-  const y = client("2.2.2.2");
-  const [xs, ys] = [randomUUID(), randomUUID()];
-  const z = [client("3.3.3.3"), client("3.3.3.3"), client("3.3.3.3")];
-  const zs = z.map(() => randomUUID());
-  const o = [client("4.4.4.4"), client("4.4.4.4"), client("4.4.4.4")];
-  const os = o.map(() => randomUUID());
-
-  const open = async (c, id, device) => {
-    const r = await c.req("/api/responses/create", { method: "POST", body: { session_id: id, device } });
-    assert.equal(r.status, 201, "ouverture de session");
+  const DEFAULTS = { mode: "block", flag_threshold: 40, block_threshold: 80, ip_daily_max: 60 };
+  const setSettings = async (over = {}) => {
+    const r = await admin.req("/api/admin/settings", { method: "PATCH", body: { ...DEFAULTS, ...over } });
+    assert.equal(r.status, 200, `réglages ${JSON.stringify(over)}`);
   };
-  await open(honest, honestSession, DEVICE("a"));
-  await open(wiped, wipedSession, DEVICE("a"));
-  await open(x, xs, DEVICE("b"));
-  await open(y, ys, DEVICE("c"));
-  for (let i = 0; i < 3; i++) await open(z[i], zs[i], DEVICE("d"));
-  const z5 = client("3.3.3.4"); // même appareil, autre connexion
-  const zs5 = randomUUID();
-  await open(z5, zs5, DEVICE("d"));
-  for (let i = 0; i < 3; i++) await open(o[i], os[i], DEVICE("e"));
-  ok("cookie hw_voter posé à l'ouverture", honest.jar.has("hw_voter"));
-
-  const malformed = await honest.req(`/api/responses/${honestSession}/complete`, { method: "POST", body: { ...VOTE(), device: { hash: "zz", foo: 1 } } });
-  ok("signaux d'appareil invalides (zod strict) → 422", malformed.status === 422);
-
-  console.log("  … attente 6,5 s (durée d'ouverture → validation)");
-  await sleep(6500);
+  await setSettings();
+  const sha = (seed) => createHash("sha256").update(seed).digest("hex");
+  const UA_ANDROID = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36";
+  const ANDROID = (key, extra = {}) => ({ hash: sha(`h-${key}`), hw: sha(`hw-${key}`), hwEntropy: "strong", model: "Pixel 8", osVersion: "14", mobile: true, platform: "Android", browser: "Chrome 156", screen: "393x851@2.75", touch: true, webdriver: false, ...extra });
+  const IPHONE = (key, extra = {}) => ({ hash: sha(`h-${key}`), hw: sha(`hw-${key}`), hwEntropy: "weak", mobile: true, platform: "iPhone", browser: "Safari 17", screen: "390x844@3", touch: true, webdriver: false, ...extra });
+  const android = (ip, headers = {}) => client(ip, { "User-Agent": UA_ANDROID, ...headers });
+  const iphone = (ip, headers = {}) => client(ip, headers);
+  const open = async (c, id, device) => c.req("/api/responses/create", { method: "POST", body: { session_id: id, device } });
   const complete = (c, id, device, deco) => c.req(`/api/responses/${id}/complete`, { method: "POST", body: { ...VOTE(deco), device } });
   const score = async (sessionId) => (await admin.req(`/api/responses/${sessionId}`)).body;
+  /** Un vote complet : ouverture, 2,1 s, validation. Refus à l'ouverture : { stage: "create" }. */
+  const vote = async (c, device, { deco, wait = 2100 } = {}) => {
+    const sid = randomUUID();
+    const o = await open(c, sid, device);
+    if (o.status !== 201) return { stage: "create", status: o.status, body: o.body, sid };
+    await sleep(wait);
+    const r = await complete(c, sid, device, deco);
+    return { stage: "complete", status: r.status, body: r.body, sid, token: o.body.deviceToken };
+  };
+  const publicTotal = async () => (await anon.req("/api/results")).body.total;
+  const settle = () => sleep(400); // le moteur de groupes tourne après la réponse (after)
+  const statusOf = (row) => (row.blocked_at ? "blocked" : !row.completed_at ? "incomplete" : row.excluded_at ? "excluded" : row.held_at ? "held" : "counted");
+  const refusal = (r) => r.status === 409 && r.body.details?.code === "already_voted_today" && typeof r.body.details.nextResetAt === "string";
+  const shape = (r) => JSON.stringify({ status: r.status, error: r.body.error, keys: Object.keys(r.body.details ?? {}).sort(), code: r.body.details?.code });
 
-  const h = await complete(honest, honestSession, DEVICE("a"));
-  ok("vote honnête → 200", h.status === 200 && h.body.voteDay === today, h.body);
+  // 1. votant honnête, un vote par jour pendant deux jours
+  const honest = iphone("1.1.1.1");
+  const af_v1 = await vote(honest, IPHONE("honnete"));
+  const honestSession = af_v1.sid;
+  ok("1. votant honnête, 1er jour : compté", af_v1.status === 200 && statusOf(await score(af_v1.sid)) === "counted" && af_v1.body.voteDay === today, af_v1.body);
+  honest.jar.set(TEST_CLOCK_COOKIE, encodeURIComponent("+86400000"));
+  const af_v1b = await vote(honest, IPHONE("honnete"));
+  ok("1. votant honnête, lendemain (horloge de test) : compté", af_v1b.status === 200 && statusOf(await score(af_v1b.sid)) === "counted" && af_v1b.body.voteDay !== today, af_v1b.body);
+  honest.jar.delete(TEST_CLOCK_COOKIE);
   const hRow = await score(honestSession);
-  ok("vote honnête : score 0, aucun signal", hRow.risk_score === 0 && hRow.completed_at && !hRow.blocked_at);
 
-  const again = await honest.req("/api/responses/create", { method: "POST", body: { session_id: randomUUID(), device: DEVICE("a") } });
-  ok("même cookie, même jour : nouvelle session refusée (409 already_voted_today)", again.status === 409 && again.body.details?.code === "already_voted_today");
-  const again2 = await complete(honest, randomUUID(), DEVICE("a"));
-  ok("même cookie, même jour : validation refusée (409)", again2.status === 409 && again2.body.details?.code === "already_voted_today");
+  // 2. navigation privée en boucle, Android (clé forte), même IP
+  const loop = await vote(android("2.2.2.2"), ANDROID("boucle", { privateMode: true }));
+  const loop2 = await vote(android("2.2.2.2"), ANDROID("boucle", { privateMode: true }));
+  const loop3 = await vote(android("2.2.2.2"), ANDROID("boucle", { privateMode: true }));
+  ok("2. Android en navigation privée, même IP : 1er compté, les suivants refusés dès l'ouverture (B2)", loop.status === 200 && loop2.stage === "create" && refusal(loop2) && loop3.stage === "create" && refusal(loop3));
+  await setSettings({ b2_strong_key: false });
+  const k2 = [1, 2, 3].map(() => android("2.2.2.3"));
+  const b1 = await vote(k2[0], ANDROID("boucle-b2off"));
+  const b2 = await vote(k2[1], ANDROID("boucle-b2off"));
+  const b2row = await score(b2.sid);
+  const b3 = await vote(k2[2], ANDROID("boucle-b2off"));
+  await settle();
+  const [af_r1, af_r2, r3] = [await score(b1.sid), await score(b2.sid), await score(b3.sid)];
+  ok("2. B2 désactivé : 2e en attente (H4), le 3e confirme le groupe (C2), 2e et 3e exclus, le 1er reste compté", statusOf(b2row) === "held" && b2row.fraud_reasons.includes("H4") && statusOf(af_r1) === "counted" && statusOf(af_r2) === "excluded" && statusOf(r3) === "excluded" && r3.exclusion_source === "auto" && !!af_r1.group_id, [statusOf(b2row), statusOf(af_r1), statusOf(af_r2), statusOf(r3)]);
+  await setSettings();
 
-  const w = await complete(wiped, wipedSession, DEVICE("a", { localVoteDay: today }));
-  ok("cookies effacés + stockage local « voté aujourd'hui » + même empreinte → 409 identique à « déjà voté »", w.status === 409 && w.body.details?.code === "already_voted_today" && typeof w.body.details.nextResetAt === "string");
-  const wRow = await score(wipedSession);
-  ok("la ligne est bloquée (blocked_at), sans completed_at, score ≥ 80", wRow.blocked_at && !wRow.completed_at && wRow.risk_score >= 80 && wRow.risk_flags.includes("local_vote_day"), wRow);
-  // D-01 : un refus par score est définitif pour la journée, même en rejouant sans les signaux (ici sans localVoteDay : score < 80 sinon).
-  const replayBefore = (await anon.req("/api/results")).body.total;
-  const replay = await complete(wiped, wipedSession, DEVICE("a"));
-  const wRow2 = await score(wipedSession);
-  ok("D-01 : rejeu de complete sur la ligne refusée, même cookie, signaux allégés → 409, toujours sans completed_at, score inchangé, total public inchangé", replay.status === 409 && replay.body.details?.code === "already_voted_today" && !wRow2.completed_at && wRow2.blocked_at === wRow.blocked_at && wRow2.risk_score === wRow.risk_score && (await anon.req("/api/results")).body.total === replayBefore, [replay.status, wRow2.risk_score]);
-  const flagged = await admin.req("/api/admin/responses?risk=flagged");
-  ok("visible dans /api/admin/responses?risk=flagged", flagged.body.rows.some((r) => r.session_id === wipedSession && r.blocked_at));
-  ok("l'empreinte stockée est un HMAC (64 hexa), différent du condensé client", /^[0-9a-f]{64}$/.test(wRow.device_hash) && wRow.device_hash !== DEVICE("a").hash && wRow.device_info?.platform === "iPhone");
+  // 3. même scénario, une IP différente à chaque vote (la faille F1)
+  const f1 = [];
+  for (let i = 0; i < 4; i++) f1.push(await vote(android(`33.3.${i}.${i + 1}`), ANDROID("rotation-ip", { privateMode: true }))); // 3.3.x.x : plage d'hébergeur
+  ok("3. IP différente à chaque vote : au plus 1 compté (F1 fermée)", f1.filter((r) => r.status === 200).length === 1 && f1.slice(1).every(refusal));
 
-  const [rx, ry] = [await complete(x, xs, DEVICE("b")), await complete(y, ys, DEVICE("c"))];
-  const [sx, sy] = [await score(xs), await score(ys)];
-  ok("deux empreintes différentes, même IP → 200 et 200, score ≤ 10", rx.status === 200 && ry.status === 200 && sx.risk_score <= 10 && sy.risk_score <= 10, [sx.risk_score, sy.risk_score]);
+  // 4. sortie Tor (TOR_EXIT_LIST du serveur de test)
+  const tor = await vote(iphone(TOR_IP), IPHONE("tor"));
+  const torRow = await score(tor.sid);
+  ok("4. IP de sortie Tor : en attente (H2), réponse identique à celle d'un vote compté", tor.status === 200 && Object.keys(tor.body).sort().join() === Object.keys(af_v1.body).sort().join() && statusOf(torRow) === "held" && torRow.fraud_reasons.includes("H2") && torRow.ip_class === "tor", torRow.fraud_reasons);
 
-  const z1 = await complete(z[0], zs[0], DEVICE("d"));
-  const z2 = await complete(z[1], zs[1], DEVICE("d"));
-  const s2 = await score(zs[1]);
-  ok("même empreinte, même IP, cookie neuf : 2e vote → 200 signalé (40 ≤ score < 80)", z1.status === 200 && z2.status === 200 && s2.risk_score >= 40 && s2.risk_score < 80, s2.risk_score);
-  const z3 = await complete(z[2], zs[2], DEVICE("d"));
-  const s3 = await score(zs[2]);
-  ok("F-14 : 3e vote même appareil, même IP, lent → 409 bloqué, score ≥ 80 (seule exception sans signal propre à la requête)", z3.status === 409 && s3.blocked_at && s3.risk_score >= 80 && s3.risk_flags.includes("device_voted_twice") && s3.risk_flags.includes("device_same_ip"), s3.risk_score);
-  const r5 = await complete(z5, zs5, DEVICE("d"));
-  const s5 = await score(zs5);
-  ok("F-14 : 3e vote même appareil, IP différente, lent → 200 signalé, plafonné à 79", r5.status === 200 && s5.completed_at && !s5.blocked_at && s5.risk_score === 79 && !s5.risk_flags.includes("device_same_ip"), s5.risk_score);
-  const z4 = client("3.3.3.3");
-  const zs4 = randomUUID();
-  await open(z4, zs4, DEVICE("d"));
-  const r4 = await complete(z4, zs4, DEVICE("d"));
-  const s4 = await score(zs4);
-  ok("4e vote même appareil, validé aussitôt (signal propre à la requête) → 409, bloqué, score ≥ 80", r4.status === 409 && s4.blocked_at && s4.risk_score >= 80 && s4.risk_flags.includes("way_too_fast"), s4.risk_score);
+  // 5. pays différent de FR (en-tête Vercel)
+  const dz = await vote(iphone("5.5.5.5", { "x-vercel-ip-country": "DZ" }), IPHONE("etranger"));
+  const dzRow = await score(dz.sid);
+  ok("5. pays de l'IP différent de FR : en attente (H3)", dz.status === 200 && statusOf(dzRow) === "held" && dzRow.fraud_reasons.includes("H3") && dzRow.ip_country === "DZ");
 
-  // ----- Réglages : droits, journal, mode observation -------------------------------------------
-  console.log("\nRéglages");
-  const observe = { mode: "observe", flag_threshold: 40, block_threshold: 80 };
-  const noAuth = await anon.req("/api/admin/settings", { method: "PATCH", body: observe });
-  ok("PATCH /api/admin/settings sans cookie → 401", noAuth.status === 401);
-  const ro = await viewer.req("/api/admin/settings", { method: "PATCH", body: observe });
-  ok("PATCH /api/admin/settings en lecture seule → 403", ro.status === 403);
-  const invalid = await admin.req("/api/admin/settings", { method: "PATCH", body: { mode: "block", flag_threshold: 90, block_threshold: 80 } });
-  ok("seuils incohérents (flag ≥ block) → 422", invalid.status === 422);
-  const saved = await admin.req("/api/admin/settings", { method: "PATCH", body: observe });
-  ok("PATCH /api/admin/settings admin → 200", saved.status === 200 && saved.body.settings.mode === "observe");
-  const journal = await admin.req("/api/admin/sessions");
-  ok("modification journalisée dans /api/admin/sessions", journal.body.actions.some((a) => a.path === "/api/admin/settings" && a.method === "PATCH" && a.details?.mode === "observe"));
+  // 6. quatre iPhone identiques, quatre IP mobiles différentes, même décoration (QR code en restaurant)
+  const qr = await Promise.all([1, 2, 3, 4].map((i) => vote(iphone(`6.6.6.${i}`), IPHONE("qr-code"))));
+  await settle();
+  ok("6. quatre iPhone identiques, quatre réseaux mobiles : les quatre comptés", qr.every((r) => r.status === 200) && (await Promise.all(qr.map((r) => score(r.sid)))).every((x) => statusOf(x) === "counted"));
+
+  // 7. deux iPhone identiques sur le même Wi-Fi
+  const w1 = await vote(iphone("7.7.7.7"), IPHONE("wifi"));
+  const w2 = await vote(iphone("7.7.7.7"), IPHONE("wifi"));
+  await settle();
+  const [wr1, wr2] = [await score(w1.sid), await score(w2.sid)];
+  ok("7. deux iPhone identiques sur le même Wi-Fi : un compté, un en attente (H5), jamais bloqué ni exclu", w1.status === 200 && w2.status === 200 && statusOf(wr1) === "counted" && statusOf(wr2) === "held" && wr2.fraud_reasons.includes("H5"));
+
+  // 8. deux Android identiques (même modèle), IP et ville différentes : aucun second indice
+  const af_t1 = await vote(android("8.8.1.1", { "x-vercel-ip-city": "Lille" }), ANDROID("jumeaux"));
+  const af_t2 = await vote(android("8.8.2.2", { "x-vercel-ip-city": "Roubaix" }), ANDROID("jumeaux"));
+  const t2row = await score(af_t2.sid);
+  ok("8. même modèle Android, IP et ville différentes : 201 à l'ouverture, en attente (H4) à la validation, jamais refusé", af_t1.status === 200 && af_t2.stage === "complete" && af_t2.status === 200 && statusOf(t2row) === "held" && t2row.fraud_reasons.includes("H4") && !t2row.fraud_reasons.includes("B2"), [af_t2.stage, t2row.fraud_reasons]);
+  const pendingList = (await admin.req("/api/admin/fraud/review?kind=pending&limit=100")).body;
+  ok("8. le vote en attente est visible dans « Votes suspects en attente »", pendingList.items.some((v) => v.id === t2row.id));
+  await setSettings({ b2_strong_key: false });
+  const af_u1 = await vote(android("8.8.3.3"), ANDROID("jumeaux-b2off"));
+  const af_u2 = await vote(android("8.9.4.4"), ANDROID("jumeaux-b2off")); // 8.8.4.4 : hébergeur (H2 fausserait le motif)
+  await settle();
+  ok("8. B2 désactivé : un compté, un en attente, jamais exclu", statusOf(await score(af_u1.sid)) === "counted" && statusOf(await score(af_u2.sid)) === "held");
+  await setSettings();
+
+  // 9. même participant depuis deux appareils le même jour
+  const pA = iphone("9.9.1.1");
+  const pB = android("9.9.2.2");
+  const af_pa = await vote(pA, IPHONE("participant-a"));
+  const pb = await vote(pB, ANDROID("participant-b"));
+  const coords = { wants_raffle: true, pseudo: "Double Vote", phone_number: "06 11 22 33 44", email: "double.vote+1@gmail.com" };
+  await pA.req(`/api/responses/${af_pa.sid}/raffle`, { method: "POST", body: coords });
+  const linked = await pB.req(`/api/responses/${pb.sid}/raffle`, { method: "POST", body: coords });
+  await settle();
+  const pList = (await admin.req("/api/admin/participants?q=double")).body;
+  ok("9. même participant, deux appareils : le second vote est exclu après l'inscription, le participant compte 1 vote", linked.status === 200 && statusOf(await score(af_pa.sid)) === "counted" && statusOf(await score(pb.sid)) === "excluded" && pList.rows[0]?.votes === 1 && pList.rows[0]?.groups.length === 1, pList.rows[0]);
+
+  // 10. jeton retrouvé dans le stockage alors que le cookie est absent
+  const tk = await vote(iphone("10.0.0.1"), IPHONE("jeton-1"));
+  const tkAgain = await open(iphone("10.0.0.1"), randomUUID(), IPHONE("jeton-2", { tokens: [tk.token] }));
+  ok("10. jeton du stockage d'une tentative du jour, cookie absent : 409 (B1)", typeof tk.token === "string" && refusal(tkAgain));
+
+  // 11. après coup, B2 désactivé : 1 compté, 2 en attente, la 3e confirme, 2 et 3 exclues, total public juste
+  await setSettings({ b2_strong_key: false });
+  const before11 = await publicTotal();
+  const a11 = [];
+  for (let i = 0; i < 3; i++) a11.push(await vote(android(`11.0.${i}.1`), ANDROID("apres-coup")));
+  await settle();
+  const s11 = await Promise.all(a11.map((r) => score(r.sid)));
+  ok("11. après coup : la 1re reste comptée, 2e et 3e exclues, le total public augmente de 1", s11.map(statusOf).join() === "counted,excluded,excluded" && (await publicTotal()) === before11 + 1, s11.map(statusOf));
+  await setSettings();
+
+  // 12. décision humaine prioritaire sur Recalculer
+  const held12 = await vote(iphone(TOR_IP), IPHONE("humain-valide"));
+  const ok12 = await admin.req("/api/admin/fraud/decide", { method: "POST", body: { ids: [(await score(held12.sid)).id], action: "validate", password: VIEWER } });
+  const excl12 = await admin.req("/api/admin/fraud/decide", { method: "POST", body: { ids: [s11[0].id], action: "invalidate" } });
+  await admin.req("/api/admin/fraud/recompute", { method: "POST", body: { day: today } });
+  const [h12, e12] = [await score(held12.sid), await score(a11[0].sid)];
+  ok("12. un vote validé à la main reste compté après Recalculer, un vote exclu à la main reste exclu", ok12.status === 200 && excl12.status === 200 && statusOf(h12) === "counted" && h12.human_decision === "validated" && statusOf(e12) === "excluded" && e12.human_decision === "excluded");
+
+  // 13. cinq validations parallèles du même Android, cookies différents
+  const par = [1, 2, 3, 4, 5].map((i) => ({ c: android(`13.0.0.${i}`), sid: randomUUID() }));
+  const opened = await Promise.all(par.map((p) => open(p.c, p.sid, ANDROID("parallele"))));
+  await sleep(2100);
+  const parRes = await Promise.all(par.map((p) => complete(p.c, p.sid, ANDROID("parallele"))));
+  await settle();
+  const parRows = await Promise.all(par.map((p) => score(p.sid)));
+  ok("13. cinq validations parallèles, même Android : au plus 1 compté, aucune erreur 500", opened.every((o) => o.status === 201) && parRes.every((r) => r.status === 200 || r.status === 409) && parRows.filter((r) => statusOf(r) === "counted").length <= 1, parRes.map((r) => r.status));
+
+  // 14. mode observation
+  await setSettings({ mode: "observe" });
+  const ob1 = await vote(android("14.0.0.1"), ANDROID("observation"));
+  const ob2 = await vote(android("14.0.0.2"), ANDROID("observation"));
+  const ob3 = await vote(iphone(TOR_IP), IPHONE("observation-tor"));
+  const [obr2, obr3] = [await score(ob2.sid), await score(ob3.sid)];
+  ok("14. mode observation : rien n'est retenu ni bloqué, les décisions évitées sont visibles", ob1.status === 200 && ob2.status === 200 && ob3.status === 200 && statusOf(obr2) === "counted" && obr3.observed_outcome === "held" && statusOf(obr3) === "counted", [obr2.observed_outcome, obr3.observed_outcome]);
+  await setSettings();
+
+  // 15. rôle lecture seule
+  const roRow = (await viewer.req(`/api/responses/${tor.sid}`)).body;
+  const roDecide = await viewer.req("/api/admin/fraud/decide", { method: "POST", body: { ids: [torRow.id], action: "invalidate" } });
+  const roRecompute = await viewer.req("/api/admin/fraud/recompute", { method: "POST", body: { day: today } });
+  const roList = (await viewer.req("/api/admin/fraud/review?kind=pending")).body;
+  ok("15. lecture seule : nouveaux champs masqués, aucune action possible", roRow.hw_key === null && roRow.ip_class === null && roRow.ip_city === null && roDecide.status === 403 && roRecompute.status === 403 && roList.items.every((v) => v.ip === null && v.hwPrefix === null));
+
+  // 16. lendemain d'un groupe confirmé : récidive de l'Android, iPhone identique compté
+  const anonIp = [1, 2].map(() => vote(iphone(TOR_IP2), IPHONE("groupe-iphone", { privateMode: true })));
+  await Promise.all(anonIp);
+  await settle();
+  const tomorrow = (c) => (c.jar.set(TEST_CLOCK_COOKIE, encodeURIComponent("+86400000")), c);
+  const rec = await vote(tomorrow(android("16.0.0.1")), ANDROID("apres-coup"));
+  const twin = await vote(tomorrow(iphone("16.0.0.2")), IPHONE("groupe-iphone"));
+  const [recRow, twinRow] = [await score(rec.sid), await score(twin.sid)];
+  ok("16. lendemain : l'Android du groupe passe en attente (H7), l'iPhone identique est compté", statusOf(recRow) === "held" && recRow.fraud_reasons.includes("H7") && statusOf(twinRow) === "counted", [recRow.fraud_reasons, statusOf(twinRow)]);
+
+  // 17. iCloud Private Relay
+  const relay = await vote(iphone("172.225.116.162"), IPHONE("relay"));
+  const relayRow = await score(relay.sid);
+  ok("17. adresse d'iCloud Private Relay : comptée", relay.status === 200 && statusOf(relayRow) === "counted" && relayRow.ip_class === "relay");
+
+  // 18. refus visible : même code et même corps pour tous les motifs
+  const byCookie = await open(honest, randomUUID(), IPHONE("honnete"));
+  const byIpCap = await (async () => {
+    await setSettings({ ip_daily_max: 1 });
+    const r = await vote(iphone("18.0.0.1"), IPHONE("cap-1"));
+    const s = await vote(iphone("18.0.0.1"), IPHONE("cap-2"));
+    await setSettings();
+    return r.status === 200 ? s : r;
+  })();
+  ok("18. refus visibles (cookie, stockage, clé forte, plafond par IP) : même code, même forme, nextResetAt", [byCookie, tkAgain, loop2, byIpCap].every(refusal) && new Set([byCookie, tkAgain, loop2, byIpCap].map(shape)).size === 1, [byCookie, tkAgain, loop2, byIpCap].map(shape));
+
+  // 19 à 21. verrouillage à l'arrivée (vote-status en POST, même reconnaissance que create et complete)
+  const arrival = async (c, device) => (await c.req("/api/vote-status", { method: "POST", body: { device } })).body;
+  const s19 = await arrival(honest, IPHONE("honnete"));
+  ok("19. arrivée avec le cookie d'une tentative du jour : votedToday, l'ouverture est refusée", s19.votedToday === true && refusal(byCookie) && typeof s19.nextResetAt === "string" && !("reason" in s19));
+  ok("20. arrivée sans cookie ni jeton, même Android (clé forte) en navigation privée (second indice) : votedToday", (await arrival(android("21.20.0.1"), ANDROID("boucle", { privateMode: true }))).votedToday === true);
+  ok("21. arrivée sans cookie ni jeton, iPhone identique : votedToday faux", (await arrival(iphone("21.0.0.1"), IPHONE("wifi"))).votedToday === false);
+
+  // 22. vote-status jamais appelé (lent ou en erreur côté page) : create refuse quand même
+  ok("22. sans passer par vote-status, l'ouverture refuse quand même", refusal(await open(android("22.0.0.1"), randomUUID(), ANDROID("boucle", { privateMode: true }))));
+
+  // 23. après minuit, le vote rouvre pour tous
+  const dayAfter = (c) => (c.jar.set(TEST_CLOCK_COOKIE, encodeURIComponent("+172800000")), c); // J+2 : le votant honnête a déjà voté à J+1 (scénario 1)
+  const reopen = await open(dayAfter(android("2.2.2.2")), randomUUID(), ANDROID("boucle", { privateMode: true }));
+  const reopenHonest = await open(dayAfter(honest), randomUUID(), IPHONE("honnete"));
+  ok("23. après minuit (horloge de test) : le vote rouvre pour tous, même cookie et même clé forte", reopen.status === 201 && reopenHonest.status === 201, [reopen.status, reopenHonest.status]);
+  honest.jar.delete(TEST_CLOCK_COOKIE);
+
+  // 24. vote compté, puis nouvelle tentative 1 minute après, même Android sans cookie
+  const c24 = await vote(android("24.0.0.1"), ANDROID("une-minute"));
+  const r24 = await open(android("24.0.0.1"), randomUUID(), ANDROID("une-minute")); // même Wi-Fi : second indice
+  const list24 = (await admin.req("/api/admin/fraud/review?kind=fraud&limit=100")).body;
+  const key24 = (await score(c24.sid)).hw_key.slice(0, 8);
+  ok("24. nouvelle tentative du même Android sans cookie, même réseau : refusée, listée dans « Votes frauduleux »", c24.status === 200 && refusal(r24) && list24.items.some((p) => p.firstView.hwPrefix === key24 && p.firstView.stage === "create"));
+
+  // 25. iPhone identique, même ville, même décoration, peu après : attente, priorité haute, notification
+  const city = { "x-vercel-ip-city": "Lille", "x-vercel-ip-country": "FR" };
+  await vote(iphone("25.0.0.1", city), IPHONE("meme-ville"));
+  const near = await vote(iphone("25.0.0.2", city), IPHONE("meme-ville"));
+  const nearRow = await score(near.sid);
+  const notif = (await admin.req("/api/admin/fraud/notifications")).body;
+  ok("25. même ville, même décoration, peu après : en attente, priorité haute (H9), non compté, notification créée", statusOf(nearRow) === "held" && nearRow.held_priority === true && nearRow.fraud_reasons.includes("H9") && notif.latest.some((i) => i.view.id === nearRow.id) && notif.highPriority >= 1);
+
+  // 26. en-têtes de position absents ou invalides
+  const badGeo = await vote(iphone("26.0.0.1", { "x-vercel-ip-latitude": "abc", "x-vercel-ip-country": "france" }), IPHONE("entetes"));
+  ok("26. en-têtes de position invalides : aucun effet, vote compté", badGeo.status === 200 && statusOf(await score(badGeo.sid)) === "counted");
+
+  // 27. cinq tentatives bloquées du même Android : une seule ligne, dépli dans l'ordre
+  // 27.0.0.0/16 est classé hébergeur (le vote serait en attente, H2) : 27.1.x.x est une plage ordinaire.
+  const c27 = await vote(android("27.1.0.1"), ANDROID("cinq-blocages"));
+  for (let i = 0; i < 5; i++) await open(android(`27.1.1.${i}`), randomUUID(), ANDROID("cinq-blocages", { privateMode: true })); // navigation privée : nouveau cookie à chaque fois, second indice
+  const row27 = await score(c27.sid);
+  const list27 = (await admin.req("/api/admin/fraud/review?kind=fraud&limit=100")).body;
+  const p27 = list27.items.filter((p) => p.firstView.hwPrefix === row27.hw_key.slice(0, 8));
+  const d27 = p27.length === 1 ? (await admin.req(`/api/admin/fraud/person?key=${encodeURIComponent(p27[0].key)}`)).body : null;
+  ok("27. cinq tentatives bloquées du même Android : une seule ligne (son premier blocage, 5 tentatives), le vote compté rappelé en tête, les quatre autres dans l'ordre", c27.status === 200 && p27.length === 1 && p27[0].count === 5 && d27?.counted?.id === row27.id && d27.attempts.length === 4 && d27.attempts.every((a, i, all) => i === 0 || all[i - 1].at <= a.at), [p27.map((p) => p.count), d27?.attempts.length]);
+
+  // 28. double validation
+  const h28 = await vote(iphone(TOR_IP), IPHONE("double-validation"));
+  const id28 = (await score(h28.sid)).id;
+  const before28 = await publicTotal();
+  const noPw = await admin.req("/api/admin/fraud/decide", { method: "POST", body: { ids: [id28], action: "validate" } });
+  const badPw = await admin.req("/api/admin/fraud/decide", { method: "POST", body: { ids: [id28], action: "validate", password: "mauvais-mot-de-passe" } });
+  const asViewer = await viewer.req("/api/admin/fraud/decide", { method: "POST", body: { ids: [id28], action: "validate", password: VIEWER } });
+  const af_failures = (await admin.req("/api/admin/sessions")).body.failures.last24h;
+  const good = await admin.req("/api/admin/fraud/decide", { method: "POST", body: { ids: [id28], action: "validate", password: VIEWER } });
+  ok("28. double validation : sans mot de passe ou mauvais → refusé et compté ; lecture seule → 403 ; bon mot de passe → compté, total public mis à jour", noPw.status === 403 && badPw.status === 403 && asViewer.status === 403 && af_failures >= 2 && good.status === 200 && statusOf(await score(h28.sid)) === "counted" && (await publicTotal()) === before28 + 1, [noPw.status, badPw.status, asViewer.status, good.status, af_failures]);
+  const journal28 = (await admin.req("/api/admin/sessions")).body.actions.find((a) => a.path === "/api/admin/fraud/decide" && a.details?.action === "validate");
+  ok("28. action journalisée avec les votes concernés, mot de passe masqué", !!journal28 && JSON.stringify(journal28.details).includes(id28) && !JSON.stringify(journal28.details).includes(VIEWER));
+
+  // 29. vote au seuil de signalement (« trop rapide », 25 points, seuil réglé à 25)
+  await setSettings({ flag_threshold: 25, block_threshold: 80 });
+  const af_fast = await vote(iphone("29.0.0.1"), IPHONE("seuil"), { wait: 2100 });
+  const af_fastRow = await score(af_fast.sid);
+  ok("29. vote au seuil de signalement : en attente (H8), non compté", af_fast.status === 200 && statusOf(af_fastRow) === "held" && af_fastRow.fraud_reasons.includes("H8"), af_fastRow.risk_flags);
+  await setSettings();
+
+  // 30. Brave honnête
+  const brave = await vote(client("30.0.0.1", { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36", "sec-ch-ua": '"Brave";v="156", "Chromium";v="156", "Not=A?Brand";v="24"' }), { ...ANDROID("brave"), hwEntropy: "noisy", mobile: false, platform: "Windows", browser: "Brave 156", screen: "1366x768@1.5" });
+  const braveRow = await score(brave.sid);
+  ok("30. Brave honnête : aucun signal browser_mismatch, compté", brave.status === 200 && !(braveRow.risk_flags ?? []).includes("browser_mismatch") && statusOf(braveRow) === "counted", braveRow.risk_flags);
+
+  // Compteurs de l'onglet Sécurité (lecture seule : IP masquées)
   const sec = await viewer.req("/api/admin/security");
-  ok("GET /api/admin/security (lecture seule) : réglages, KPI du jour et totaux, top IP masqué x.x.x.*", sec.status === 200 && sec.body.settings.mode === "observe" && sec.body.today.blocked >= 2 && sec.body.total.validated >= 4 && sec.body.topIps.some((e) => e.key === "3.3.3.*" && e.votes === 2)); // IP masquée en lecture seule (F-04)
-  const secAnon = await anon.req("/api/admin/security");
-  ok("GET /api/admin/security sans cookie → 401", secAnon.status === 401);
+  ok("onglet Sécurité : compteurs comptés, en attente, bloqués, exclus (auto et à la main)", sec.status === 200 && sec.body.today.counted > 0 && sec.body.today.held > 0 && sec.body.today.blocked > 0 && sec.body.today.autoExcluded > 0 && sec.body.today.adminExcluded > 0 && sec.body.pending > 0);
+  ok("GET /api/admin/security sans cookie → 401", (await anon.req("/api/admin/security")).status === 401);
 
-  const o1 = await complete(o[0], os[0], DEVICE("e"));
-  const o2 = await complete(o[1], os[1], DEVICE("e"));
-  const o3 = await complete(o[2], os[2], DEVICE("e"));
-  const so3 = await score(os[2]);
-  ok("mode observe : même scénario, 3e vote → 200, signalé (score ≥ seuil de signalement), jamais bloqué", o1.status === 200 && o2.status === 200 && o3.status === 200 && so3.completed_at && !so3.blocked_at && so3.risk_score >= 80, so3.risk_score);
-  const back = await admin.req("/api/admin/settings", { method: "PATCH", body: { mode: "block", flag_threshold: 40, block_threshold: 80 } });
-  ok("retour en mode block", back.status === 200);
-
-  // ----- Exclusion manuelle : /api/results décrémente, réintégration -----------------------------
-  console.log("\nExclusion");
-  const before = (await anon.req("/api/results")).body.total;
+  // Exclusion et réintégration (réintégrer fait compter : double validation)
+  const beforeEx = await publicTotal();
   const exc = await admin.req(`/api/responses/${hRow.id}`, { method: "PATCH", body: { excluded: true } });
-  const after = (await anon.req("/api/results")).body.total;
-  ok("exclusion → /api/results décrémente", exc.status === 200 && after === before - 1, { before, after });
-  const excRo = await viewer.req(`/api/responses/${hRow.id}`, { method: "PATCH", body: { excluded: false } });
-  ok("exclusion refusée en lecture seule (403)", excRo.status === 403);
-  const summary = (await admin.req("/api/analytics/summary")).body;
-  ok("tableau de bord : total votes = résultats publics, inachevés = 230", summary.kpis.totalVotes === after && summary.kpis.incomplete === N && summary.kpis.blocked === 3);
-  await admin.req(`/api/responses/${hRow.id}`, { method: "PATCH", body: { excluded: false } });
-  ok("réintégration → total rétabli", (await anon.req("/api/results")).body.total === before);
-  const excluded = await admin.req("/api/admin/responses?status=excluded");
-  ok("filtre « exclus » vide après réintégration", excluded.body.total === 0);
+  ok("exclusion → /api/results décrémente", exc.status === 200 && (await publicTotal()) === beforeEx - 1);
+  const noPwBack = await admin.req(`/api/responses/${hRow.id}`, { method: "PATCH", body: { excluded: false } });
+  const back = await admin.req(`/api/responses/${hRow.id}`, { method: "PATCH", body: { excluded: false, password: VIEWER } });
+  ok("réintégration sans mot de passe refusée, avec le mot de passe de lecture seule → total rétabli", noPwBack.status === 403 && back.status === 200 && (await publicTotal()) === beforeEx);
+  ok("exclusion refusée en lecture seule (403)", (await viewer.req(`/api/responses/${hRow.id}`, { method: "PATCH", body: { excluded: true } })).status === 403);
+
+  // Variables reprises par les sections suivantes (participants, sécurité du lot 1).
+  const x = iphone("2.2.9.9");
+  const xv = await vote(x, IPHONE("participant-x"));
+  const xs = xv.sid;
+  const wipedSession = tor.sid; // ligne d'iPhone relue par les contrôles F-21
 
   // ----- Participants : recherche et tri côté serveur --------------------------------------------
   console.log("\nParticipants");
+  // Comptes relatifs : les scénarios anti-fraude ont déjà inscrit un participant (scénario 9).
+  const lightBefore = (await viewer.req("/api/admin/participants?light=1")).body.length;
+  const summaryBefore = (await admin.req("/api/analytics/summary")).body;
+  const kpiBefore = summaryBefore.kpis.raffleParticipants;
+  const raffleBefore = summaryBefore.byDecoration.reduce((a, d) => a + d.raffle, 0);
   const raffle = await honest.req(`/api/responses/${honestSession}/raffle`, { method: "POST", body: { wants_raffle: true, pseudo: "Élodie Fantôme", phone_number: "06 12 34 56 78", email: "elodie@example.com" } });
   ok("inscription au tirage", raffle.status === 200, raffle.body);
   const dupMail = await x.req(`/api/responses/${xs}/raffle`, { method: "POST", body: { wants_raffle: true, pseudo: "Quelquun", phone_number: "06 00 00 00 01", email: "elodie@example.com" } });
@@ -299,7 +467,7 @@ async function run() {
   const nobody = await viewer.req("/api/participants/00000000-0000-4000-8000-000000000000/votes");
   ok("votes d'un participant inconnu → 200 et liste vide", nobody.status === 200 && nobody.body.votes.length === 0);
   const light = await viewer.req("/api/admin/participants?light=1");
-  ok("liste légère { id, pseudo }", Array.isArray(light.body) && light.body.length === 1 && Object.keys(light.body[0]).sort().join() === "id,pseudo");
+  ok("liste légère { id, pseudo }", Array.isArray(light.body) && light.body.length === lightBefore + 1 && light.body.some((p) => p.id === pid) && light.body.every((p) => Object.keys(p).sort().join() === "id,pseudo"));
   const csv = await viewer.req("/api/responses/export?scope=all&format=csv&status=completed");
   ok("export CSV : colonnes anti-fraude, filtre du statut", csv.status === 200 && csv.body.includes("Score de risque") && csv.body.includes("Exclu") && !csv.body.includes("Incomplet"));
 
@@ -310,7 +478,7 @@ async function run() {
   const activeList = await admin.req("/api/admin/participants?q=elodie");
   ok("absent de la liste active", activeList.body.total === 0 && activeList.body.rows.length === 0);
   const lightAfter = await admin.req("/api/admin/participants?light=1");
-  ok("absent de la liste légère", lightAfter.body.length === 0);
+  ok("absent de la liste légère", lightAfter.body.length === lightBefore && !lightAfter.body.some((p) => p.id === pid));
   const publicPage = await anon.req("/participants");
   ok("absent de la page publique (/participants rend 200 sans le pseudo)", publicPage.status === 200 && typeof publicPage.body === "string" && !publicPage.body.includes("Élodie Fantôme"));
   const deletedList = await admin.req("/api/admin/participants?deleted=1");
@@ -318,7 +486,7 @@ async function run() {
   const votesAfter = await viewer.req(`/api/participants/${pid}/votes`);
   ok("ses votes restent consultables (participant_id conservé)", votesAfter.body.votes.length === 1 && votesAfter.body.votes[0].participant_id === pid);
   const summaryDel = (await admin.req("/api/analytics/summary")).body;
-  ok("KPI participants du tableau de bord : 0 (supprimé exclu)", summaryDel.kpis.raffleParticipants === 0);
+  ok("KPI participants du tableau de bord : inchangé (supprimé exclu)", summaryDel.kpis.raffleParticipants === kpiBefore);
   const again3 = await x.req(`/api/responses/${xs}/raffle`, { method: "POST", body: { wants_raffle: true, pseudo: "Élodie Bis", phone_number: "06 12 34 56 78", email: "elodie@example.com" } });
   ok("réinscription avec le même email et téléphone → 200, nouvelle ligne", again3.status === 200 && again3.body.alreadyRegistered === false, again3.body);
   const restoreKo = await admin.req(`/api/participants/${pid}/restore`, { method: "POST" });
@@ -345,7 +513,7 @@ async function run() {
   const full = (await viewer.req("/api/analytics/summary")).body;
   ok("summary : byDecorationDaily, favoriteVsVote, byHour (24), dailyTable", Array.isArray(full.byDecorationDaily) && Array.isArray(full.favoriteVsVote) && full.byHour.length === 24 && Array.isArray(full.dailyTable) && full.dailyTable.length >= 1);
   ok("summary : votes du jour par restaurant et par heure cohérents avec le total", full.byDecorationDaily.reduce((a, d) => a + Object.values(d.votes).reduce((x, y) => x + y, 0), 0) === full.kpis.totalVotes && full.byHour.reduce((a, h) => a + h.votes, 0) === full.kpis.totalVotes);
-  ok("summary : byDecoration porte commentaires et inscrits au tirage", typeof full.byDecoration[0].comments === "number" && full.byDecoration.reduce((a, d) => a + d.raffle, 0) === 1);
+  ok("summary : byDecoration porte commentaires et inscrits au tirage", typeof full.byDecoration[0].comments === "number" && full.byDecoration.reduce((a, d) => a + d.raffle, 0) === raffleBefore + 1);
   const pub = (await anon.req("/api/results")).body;
   ok("/api/results n'expose rien de nouveau (total, results[id, restaurant_name, image_url, votes, share], updatedAt)", Object.keys(pub).sort().join() === "results,total,updatedAt" && pub.results.every((r) => Object.keys(r).sort().join() === "id,image_url,restaurant_name,share,votes"));
 
@@ -401,6 +569,7 @@ async function run() {
   const owner = client("5.5.6.1");
   const ownerSession = randomUUID();
   await open(owner, ownerSession, DEVICE("7"));
+  const ownerOpenedAt = Date.now();
   const thief = client("5.5.6.2");
   await open(thief, randomUUID(), DEVICE("8"));
   const t1 = await thief.req(`/api/responses/${ownerSession}/complete`, { method: "POST", body: VOTE() });
@@ -427,6 +596,7 @@ async function run() {
   ok("create en text/plain → 415 ; visit cross-site → 403", xcreate.status === 415 && xvisit.status === 403);
   const beaconSave = await owner.req(`/api/responses/${ownerSession}/update`, { method: "POST", body: { comment: "via beacon" } });
   ok("auto-sauvegarde (POST sendBeacon, Blob JSON) → 200", beaconSave.status === 200);
+  await sleep(Math.max(0, 6100 - (Date.now() - ownerOpenedAt))); // une vraie personne met plus de 6 s (ni way_too_fast ni too_fast)
   const h2 = await complete(owner, ownerSession, DEVICE("7"));
   ok("parcours honnête create → update → complete → 200, +1 vote", h2.status === 200 && (await anon.req("/api/results")).body.total === totalBefore + 1, h2.body);
   const setCookie = await fetch(`${BASE}/api/responses/create`, { method: "POST", headers: { "Content-Type": "application/json", "X-Forwarded-For": "5.5.7.1" }, body: JSON.stringify({ session_id: randomUUID() }) });
@@ -576,6 +746,8 @@ async function run() {
   const visV = (await viewer.req("/api/admin/visits?status=all&limit=50")).body;
   const visA = (await admin.req("/api/admin/visits?status=all&limit=50")).body;
   ok("visites en viewer sans IP, UA, empreinte ni appareil ; en admin inchangé", visV.rows.length > 0 && visV.rows.every((v) => v.ip === null && v.user_agent === null && v.device_hash === null && v.device_info === null) && visA.rows.some((v) => v.ip && v.user_agent));
+  const y = iphone("2.2.9.8");
+  const ys = (await vote(y, IPHONE("participant-y"))).sid;
   const marc = await y.req(`/api/responses/${ys}/raffle`, { method: "POST", body: { wants_raffle: true, pseudo: "Marc Zombie", first_name: "Marc", last_name: "Zombie", phone_number: "06 98 76 54 32", email: "marc@example.com" } });
   assert.equal(marc.status, 200, "inscription de Marc");
   const marcV = (await viewer.req("/api/admin/participants?q=marc")).body.rows[0];
@@ -619,6 +791,11 @@ async function run() {
 
   // ----- F-05 : verrouillage persistant de la connexion (en dernier : bloque toute connexion 15 min) ---
   console.log("\nConnexion admin (F-05)");
+  // Les échecs de double validation (scénario 28) comptent dans le verrou global (30 en 15 min) : remis à
+  // zéro dans le fichier de test pour que ce scénario parte de zéro.
+  const dataNow = JSON.parse(readFileSync(DATA, "utf8"));
+  dataNow.login_failures = [];
+  writeFileSync(DATA, JSON.stringify(dataNow, null, 2));
   const octet = () => 20 + Math.floor(Math.random() * 200);
   const ips = [1, 2, 3].map(() => `6.${octet()}.${octet()}.${octet()}`);
   for (const ip of ips) {

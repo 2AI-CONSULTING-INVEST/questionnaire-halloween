@@ -3,6 +3,7 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { ArrowRight, Check } from "lucide-react";
 import { useSyncExternalStore } from "react";
+import { trackClick } from "@/components/track-click";
 import { SOCIAL_LINKS } from "@/lib/site";
 
 type Network = keyof typeof SOCIAL_LINKS;
@@ -101,7 +102,10 @@ export function SocialCards({ className = "", delay = 0 }: { className?: string;
   // Côté serveur, personne n'est abonné ; l'état de l'appareil s'applique après l'hydratation.
   const followed = parseFollowed(useSyncExternalStore(subscribe, readRaw, () => ""));
 
-  const follow = (network: Network) => writeFollowed({ ...parseFollowed(readRaw()), [network]: true });
+  const follow = (network: Network) => {
+    trackClick({ kind: "follow", target: network });
+    writeFollowed({ ...parseFollowed(readRaw()), [network]: true });
+  };
 
   return (
     <div className={`flex w-full max-w-[400px] flex-col gap-3 ${className}`}>

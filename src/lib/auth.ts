@@ -34,16 +34,37 @@ function safeEqual(a: string, b: string) {
 
 export const PASSWORD_MIN = 16;
 
-/** Vérifie un mot de passe et renvoie le rôle associé. En production, les mots de passe font au moins 16 caractères (erreur explicite sinon, comme `secret()`). */
+/**
+ * Mot de passe de lecture seule utilisable, sinon null : absent, ou trop court en production. Un compte
+ * lecture seule mal configuré est inactif (connexion refusée, double validation en 503, message dans les
+ * journaux du serveur) ; il ne bloque jamais la connexion de l'admin.
+ */
+export function readonlyPassword(): string | null {
+  const viewer = process.env.ADMIN_READONLY_PASSWORD;
+  if (!viewer) return null;
+  if (process.env.NODE_ENV === "production" && viewer.length < PASSWORD_MIN) {
+    console.error(`ADMIN_READONLY_PASSWORD fait moins de ${PASSWORD_MIN} caractères : compte lecture seule et double validation désactivés.`);
+    return null;
+  }
+  return viewer;
+}
+
+/** Vérifie un mot de passe et renvoie le rôle associé. En production, le mot de passe admin fait au moins 16 caractères (erreur explicite sinon, comme `secret()`). */
 export function roleForPassword(password: string): Role | null {
   const admin = process.env.ADMIN_PASSWORD;
-  const viewer = process.env.ADMIN_READONLY_PASSWORD;
-  if (process.env.NODE_ENV === "production" && ((admin && admin.length < PASSWORD_MIN) || (viewer && viewer.length < PASSWORD_MIN))) {
-    throw new Error(`ADMIN_PASSWORD et ADMIN_READONLY_PASSWORD doivent faire au moins ${PASSWORD_MIN} caractères.`);
+  if (process.env.NODE_ENV === "production" && admin && admin.length < PASSWORD_MIN) {
+    throw new Error(`ADMIN_PASSWORD doit faire au moins ${PASSWORD_MIN} caractères.`);
   }
   if (admin && safeEqual(password, admin)) return "admin";
+  const viewer = readonlyPassword();
   if (viewer && safeEqual(password, viewer)) return "viewer";
   return null;
+}
+
+/** Double validation (faire compter un vote) : le mot de passe de lecture seule, comparé à temps constant. */
+export function isSecondPassword(password: string): boolean {
+  const viewer = readonlyPassword();
+  return !!viewer && safeEqual(password, viewer);
 }
 
 export type Session = { role: Role; sid: string };

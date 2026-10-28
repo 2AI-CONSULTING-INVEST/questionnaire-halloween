@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { Check, ChevronLeft, ChevronRight, Expand, Film, Play } from "lucide-react";
 import { RadioGroup } from "radix-ui";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { holdSound } from "@/components/sound/engine";
+import { bindVideoVolume, holdSound } from "@/components/sound/engine";
 import { MediaLightbox } from "@/components/media/MediaLightbox";
 import { isLocalMedia, mediaKind, shortName, thumbOf, type DecorationGroup } from "@/lib/schema";
 import { KeyBadge } from "./ui";
@@ -18,7 +18,8 @@ export const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
  * la visionneuse plein écran (qui enchaîne les restaurants), d'où l'on peut aussi voter.
  * Une fois un choix fait, les autres cartes sont grisées ; toucher la coche verte annule le choix.
  * Si le média affiché du restaurant choisi est une vidéo, elle se lance dans la carte, avec son :
- * le son du site s'efface pendant ce temps (voir `holdSound`).
+ * le son du site s'efface pendant ce temps (voir `holdSound`). Elle est jouée une fois, sans boucle :
+ * à la fin, l'affiche revient et un appui sur la carte la relance.
  */
 export function DecorationGallery({
   groups,
@@ -131,13 +132,20 @@ function DecorationCard({
   const [videoFailed, setVideoFailed] = useState<string | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
   const current = items[index];
-  const playing = selected && !paused && mediaKind(current.image_url) === "video" && videoFailed !== current.image_url;
+  // Fin de lecture, liée au choix et au média affichés : tout changement de l'un ou l'autre l'efface.
+  const endKey = `${selected}:${current.id}`;
+  const [endedKey, setEndedKey] = useState<string | null>(null);
+  if (endedKey !== null && endedKey !== endKey) setEndedKey(null); // revenir plus tard au même média le relance
+  const ended = endedKey === endKey;
+  const playing = selected && !paused && !ended && mediaKind(current.image_url) === "video" && videoFailed !== current.image_url;
   const play = () => {
     void video.current?.play().then(
       () => setNeedsTap(false),
       () => setNeedsTap(true), // lecture avec son refusée sans geste direct (iOS) : bouton « lire »
     );
   };
+  // Avant la lecture : le volume des vidéos (70 % au moins, ou celui choisi pendant une vidéo) est posé sur le lecteur.
+  useEffect(() => (playing && video.current ? bindVideoVolume(video.current) : undefined), [playing, current.id]);
   useEffect(() => {
     if (!playing) return;
     const el = video.current;
@@ -157,7 +165,7 @@ function DecorationCard({
     onPointerDown: (e: React.PointerEvent) => {
       if (count > 1) drag.current = { x: e.clientX, y: e.clientY, dx: 0, active: false };
     },
-    onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
+    onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
       const d = drag.current;
       if (!d) return;
       const dx = e.clientX - d.x;
@@ -178,7 +186,7 @@ function DecorationCard({
         setOffset(d.dx);
       }
     },
-    onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => {
+    onPointerUp: (e: React.PointerEvent<HTMLElement>) => {
       const d = drag.current;
       drag.current = null;
       if (!d?.active) return;
@@ -247,8 +255,8 @@ function DecorationCard({
                       src={item.image_url}
                       poster={src}
                       playsInline
-                      loop
-                      preload="auto"
+                      preload="metadata"
+                      onEnded={() => setEndedKey(endKey)}
                       onError={() => setVideoFailed(item.image_url)}
                       className="absolute inset-0 h-full w-full object-cover"
                     />
@@ -292,6 +300,15 @@ function DecorationCard({
             onClick={play}
             aria-label={`Lire la vidéo (${group.restaurant_name})`}
             className="pointer-events-auto absolute inset-0"
+          />
+        )}
+        {selected && ended && (
+          <button
+            type="button"
+            {...swipe}
+            onClick={() => setEndedKey(null)}
+            aria-label={`Revoir la vidéo (${group.restaurant_name})`}
+            className="pointer-events-auto absolute inset-0 touch-pan-y"
           />
         )}
         {selected && (

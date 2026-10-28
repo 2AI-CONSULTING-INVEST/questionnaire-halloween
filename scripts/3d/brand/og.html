@@ -12,19 +12,29 @@
   .content { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; }
   .l1 { font-size: 92px; font-weight: 900; letter-spacing: 0.04em; color: #ffffff; text-transform: uppercase; line-height: 1; }
   .l2 { font-size: 40px; font-weight: 800; letter-spacing: 0.22em; color: #f5a623; text-transform: uppercase; line-height: 1; }
+  /* Variante « left » (résultats) : texte en casse normale, aligné à gauche dans une marge de 80 px,
+     au-dessus de l'enseigne du décor ; un voile sombre à gauche porte le contraste, la crypte reste visible à droite. */
+  .scrim { display: none; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(8, 6, 12, 0.78) 0%, rgba(8, 6, 12, 0.45) 50%, rgba(8, 6, 12, 0) 78%); }
+  .card.left .bg { filter: brightness(0.9); }
+  .card.left .scrim { display: block; }
+  .card.left .content { align-items: flex-start; justify-content: flex-start; padding: 88px 80px; gap: 22px; text-align: left; }
+  .card.left .l1 { font-size: 96px; font-weight: 900; letter-spacing: -0.01em; text-transform: none; }
+  .card.left .l2 { font-size: 48px; font-weight: 800; letter-spacing: 0; text-transform: none; }
 </style>
 </head>
 <body>
-<div class="card">
+<div class="card" id="card">
   <img class="bg" id="bg" alt="" />
+  <div class="scrim"></div>
   <div class="content">
     <div class="l1" id="l1"></div>
     <div class="l2" id="l2"></div>
   </div>
 </div>
 <script>
-  // Rempli par og.mjs : window.fill({ bg, l1, l2 }).
+  // Rempli par og.mjs : window.fill({ bg, l1, l2, layout }).
   window.fill = async (o) => {
+    if (o.layout) document.getElementById("card").classList.add(o.layout);
     document.getElementById("l1").textContent = o.l1;
     document.getElementById("l2").textContent = o.l2;
     const bg = document.getElementById("bg");

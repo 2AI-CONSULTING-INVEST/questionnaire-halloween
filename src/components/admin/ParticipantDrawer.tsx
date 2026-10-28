@@ -5,13 +5,14 @@ import { Dialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import { DEFAULT_RISK_SETTINGS, type RiskSettings } from "@/lib/risk";
-import { formatFrPhone, shortName, type Participant, type Prize, type ResponseRow } from "@/lib/schema";
+import { formatFrPhone, isCounted, shortName, type Participant, type Prize, type ResponseRow } from "@/lib/schema";
 import { Badge, Button, deviceLabel, Empty, fmtDate, RiskBadge, StatusBadge } from "./ui";
 
 type Vote = ResponseRow & { decoration: string | null };
 
 /** Bordure gauche d'une carte de vote selon son statut. */
-const edge = (v: Vote) => (v.excluded_at ? "border-l-amber-400" : v.blocked_at ? "border-l-red-500" : v.completed_at ? "border-l-emerald-500" : "border-l-zinc-300 dark:border-l-zinc-600");
+const edge = (v: Vote) =>
+  v.excluded_at || v.held_at ? "border-l-amber-400" : v.blocked_at ? "border-l-red-500" : v.completed_at ? "border-l-emerald-500" : "border-l-zinc-300 dark:border-l-zinc-600";
 
 function Row({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
   return (
@@ -43,6 +44,8 @@ function Votes({ id }: { id: string }) {
   }, [id]);
   const settings = data?.settings ?? DEFAULT_RISK_SETTINGS;
   const count = data?.votes.length ?? 0;
+  // Votes comptés (ni en attente, ni exclus, ni bloqués), un par jour au plus : ce qui compte pour le tirage.
+  const counted = new Set((data?.votes ?? []).filter(isCounted).map((v) => v.vote_day ?? v.completed_at?.slice(0, 10))).size;
 
   return (
     <section className="mt-6">
@@ -50,7 +53,7 @@ function Votes({ id }: { id: string }) {
         Votes
         {data && (
           <span className="text-xs font-medium text-muted dark:text-zinc-400">
-            {count} au total · un par jour au plus
+            {count} au total, {counted} compté{counted > 1 ? "s" : ""} (un par jour au plus)
           </span>
         )}
       </h3>
@@ -70,11 +73,11 @@ function Votes({ id }: { id: string }) {
                 <RiskBadge score={v.risk_score} flags={(v.risk_flags as string[] | null) ?? null} settings={settings} />
               </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <Row icon={<Store className="h-3.5 w-3.5" />} label="Q2 · A voté pour">
-                  <span className="font-semibold">{v.decoration ? shortName(v.decoration) : "—"}</span>
+                <Row icon={<Store className="h-3.5 w-3.5" />} label="Q2 : a voté pour">
+                  <span className="font-semibold">{v.decoration ? shortName(v.decoration) : "Non renseignée"}</span>
                 </Row>
-                <Row icon={<Store className="h-3.5 w-3.5" />} label="Q1 · Restaurant préféré">
-                  {v.selected_restaurant ? shortName(v.selected_restaurant) : "—"}
+                <Row icon={<Store className="h-3.5 w-3.5" />} label="Q1 : restaurant préféré">
+                  {v.selected_restaurant ? shortName(v.selected_restaurant) : "Non renseigné"}
                 </Row>
               </div>
               {v.comment && (

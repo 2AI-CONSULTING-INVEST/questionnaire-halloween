@@ -118,11 +118,11 @@ export function OverviewTab({
 
       {/* KPI */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <Kpi label="Total votes" value={k ? nf(k.totalVotes) : "—"} />
-        <Kpi label="Taux de complétion" value={k ? `${Math.round(k.completionRate * 100)} %` : "—"} sub={k ? `${nf(k.started)} questionnaires commencés` : null} />
+        <Kpi label="Total votes" value={k ? nf(k.totalVotes) : "Chargement…"} />
+        <Kpi label="Taux de complétion" value={k ? `${Math.round(k.completionRate * 100)} %` : "Chargement…"} sub={k ? `${nf(k.started)} questionnaires commencés` : null} />
         <Kpi
           label="Inachevés"
-          value={k ? nf(k.incomplete) : "—"}
+          value={k ? nf(k.incomplete) : "Chargement…"}
           sub={k ? `commencés − validés − bloqués (${nf(k.blocked)} bloqué${k.blocked > 1 ? "s" : ""})` : null}
           action={
             <button type="button" onClick={onShowIncomplete} className="mt-2 text-xs font-semibold text-muted underline underline-offset-2 hover:text-ink dark:text-zinc-400 dark:hover:text-zinc-100">
@@ -130,11 +130,11 @@ export function OverviewTab({
             </button>
           }
         />
-        <Kpi label="Participants tirage" value={k ? nf(k.raffleParticipants) : "—"} />
+        <Kpi label="Participants tirage" value={k ? nf(k.raffleParticipants) : "Chargement…"} />
         <div className="col-span-2 rounded-xl border border-line bg-white p-4 shadow-sm lg:col-span-1 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted dark:text-zinc-400">Top 3</p>
           {top.length === 0 ? (
-            <p className="mt-2 text-sm text-muted">—</p>
+            <p className="mt-2 text-sm text-muted">Aucun vote</p>
           ) : (
             <ol className="mt-2 flex flex-col gap-1 text-sm">
               {top.map((d, i) => (
@@ -154,7 +154,7 @@ export function OverviewTab({
       <Card
         title={
           <span className="inline-flex items-center gap-2">
-            <Trophy className="h-4 w-4" aria-hidden /> Résultats — meilleure décoration (Q2)
+            <Trophy className="h-4 w-4" aria-hidden /> Résultats : meilleure décoration (Q2)
           </span>
         }
         actions={

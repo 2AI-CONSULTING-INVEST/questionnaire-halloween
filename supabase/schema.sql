@@ -1,5 +1,5 @@
 -- =====================================================================
--- Questionnaire Halloween Chamas Tacos — schéma Supabase (PostgreSQL)
+-- Questionnaire Halloween Chamas Tacos : schéma Supabase (PostgreSQL)
 -- Installation neuve (ou après supabase/reset.sql) : à exécuter dans Supabase > SQL Editor.
 -- =====================================================================
 
@@ -145,6 +145,48 @@ create index if not exists idx_responses_ip_day on responses(ip_address, vote_da
 create index if not exists idx_responses_keyset on responses(created_at desc, id desc);
 create index if not exists idx_participants_keyset on participants(created_at desc, id desc);
 
+-- Anti-fraude des votes (2026-10-28, voir supabase/migrations/2026-10-28_antifraude-votes.sql) :
+-- clé matérielle, jeton de stockage, classe et position de l'IP, votes en attente, groupes.
+alter table responses add column if not exists hw_key varchar(64);              -- HMAC de la clé matérielle stable
+alter table responses add column if not exists hw_entropy varchar(8);           -- strong, weak, noisy
+alter table responses add column if not exists private_mode boolean;            -- navigation privée (null : incertain)
+alter table responses add column if not exists storage_key varchar(64);         -- HMAC du jeton remis à l'appareil
+alter table responses add column if not exists seen_storage jsonb;              -- HMAC des jetons retrouvés dans son stockage
+alter table responses add column if not exists ip_net varchar(45);              -- IPv4 exacte ou préfixe /64 IPv6
+alter table responses add column if not exists ip_class varchar(10);            -- normal, tor, hosting, relay, unknown
+alter table responses add column if not exists ip_country varchar(2);
+alter table responses add column if not exists ip_timezone varchar(64);
+alter table responses add column if not exists ip_city varchar(120);
+alter table responses add column if not exists ip_latitude double precision;
+alter table responses add column if not exists ip_longitude double precision;
+alter table responses add column if not exists block_stage varchar(10);         -- create ou complete
+alter table responses add column if not exists held_at timestamptz;             -- vote en attente : jamais compté
+alter table responses add column if not exists held_priority boolean not null default false;
+alter table responses add column if not exists exclusion_source varchar(5);     -- admin ou auto
+alter table responses add column if not exists group_id varchar(40);            -- groupe confirmé du moteur
+alter table responses add column if not exists human_decision varchar(10);      -- validated ou excluded : le moteur n'y touche plus
+alter table responses add column if not exists fraud_reasons jsonb;             -- règles appliquées (B1 à B3, H1 à H9)
+alter table responses add column if not exists observed_outcome varchar(10);    -- issue évitée en mode observation
+
+-- Les exclusions antérieures ont toutes été faites à la main.
+update responses set exclusion_source = 'admin', human_decision = 'excluded'
+ where excluded_at is not null and exclusion_source is null;
+
+create index if not exists idx_responses_hw_day on responses(hw_key, vote_day) where hw_key is not null;
+create index if not exists idx_responses_participant_day on responses(participant_id, vote_day) where participant_id is not null;
+create index if not exists idx_responses_storage_day on responses(storage_key, vote_day) where storage_key is not null;
+create index if not exists idx_responses_vote_day on responses(vote_day);
+create index if not exists idx_responses_held on responses(held_at) where held_at is not null and excluded_at is null;
+
+-- Deux validations parallèles ne produisent jamais deux votes comptés pour la même clé forte le même
+-- jour (garantie en base). Un vote validé à la main par un admin n'y est pas soumis, ni un vote du
+-- mode observation qui a noté une issue évitée (observed_outcome) : ce mode ne change rien de visible.
+-- Recréé à chaque passage : une version antérieure de l'index (sans la condition observed_outcome) est remplacée.
+drop index if exists responses_hw_counted_unique;
+create unique index responses_hw_counted_unique on responses(hw_key, vote_day)
+  where hw_entropy = 'strong' and completed_at is not null and held_at is null and excluded_at is null and human_decision is null
+    and observed_outcome is null;
+
 -- Réglages du backoffice (clé « risk » : mode et seuils du score de risque).
 create table if not exists settings (
   key varchar(64) primary key,
@@ -225,6 +267,22 @@ create index if not exists idx_visits_day on visits(day);
 create index if not exists idx_visits_device_day on visits(device_hash, day);
 create index if not exists idx_visits_keyset on visits(created_at desc, id desc);
 
+-- Clics de partage et d'abonnement (src/lib/clicks.ts) : share (bouton de partage, `ref` = code mis
+-- dans le lien partagé), arrival (arrivée par un lien partagé, `ref` = code reçu), follow (carte
+-- « S'abonner »). `voter_id` = cookie hw_voter de l'auteur du clic : il relie un partage, puis les
+-- personnes qu'il a ramenées, à leurs votes et à leur pseudo du tirage. Supprimés après 90 jours.
+create table if not exists clicks (
+  id uuid primary key default gen_random_uuid(),
+  day date not null,                        -- jour à Paris
+  created_at timestamptz not null default now(),
+  kind varchar(10) not null check (kind in ('share', 'arrival', 'follow')),
+  target varchar(20) not null,              -- whatsapp, snapchat, instagram, tiktok, copy
+  ref varchar(10),
+  voter_id uuid
+);
+create index if not exists idx_clicks_created on clicks(created_at);
+create index if not exists idx_clicks_ref on clicks(ref);
+
 drop trigger if exists responses_updated_at on responses;
 create trigger responses_updated_at before update on responses
   for each row execute function set_updated_at();
@@ -246,13 +304,14 @@ alter table admin_sessions enable row level security;
 alter table admin_actions enable row level security;
 alter table settings enable row level security;
 alter table visits enable row level security;
+alter table clicks enable row level security;
 alter table login_failures enable row level security;
 
 -- Droits de l'API Supabase (Data API) : depuis le 30/10/2026, une table neuve de « public » n'en a
 -- plus aucun par défaut. Seule la clé service_role (serveur) en a besoin ; anon et authenticated
 -- n'ont rien (les clés publiques ne peuvent même pas tenter une lecture).
-grant select, insert, update, delete on restaurants, decorations, responses, participants, prizes, admin_sessions, admin_actions, settings, visits, login_failures to service_role;
-revoke all on restaurants, decorations, responses, participants, prizes, admin_sessions, admin_actions, settings, visits, login_failures from anon, authenticated;
+grant select, insert, update, delete on restaurants, decorations, responses, participants, prizes, admin_sessions, admin_actions, settings, visits, clicks, login_failures to service_role;
+revoke all on restaurants, decorations, responses, participants, prizes, admin_sessions, admin_actions, settings, visits, clicks, login_failures from anon, authenticated;
 
 -- Bucket public pour les photos de décoration et les images des lots
 insert into storage.buckets (id, name, public)

@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import type { AdminAction, AdminSession, LoginFailure } from "@/lib/schema";
 import { Badge, Button, Card, ConfirmDialog, Empty, fmtDate } from "./ui";
+import { ClicksCard } from "./ClicksCard";
 import { VisitsCard } from "./VisitsCard";
 
 export type Journal = { sessions: AdminSession[]; actions: AdminAction[]; failures: { last24h: number; recent: LoginFailure[] } };
@@ -14,7 +15,7 @@ function device(ua: string | null) {
   if (!ua) return "Appareil inconnu";
   const os = /iPhone|iPad/.test(ua) ? "iOS" : /Android/.test(ua) ? "Android" : /Windows/.test(ua) ? "Windows" : /Mac OS/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : "";
   const browser = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "Navigateur";
-  return [browser, os].filter(Boolean).join(" · ");
+  return [browser, os].filter(Boolean).join(", ");
 }
 
 const place = (s: AdminSession) => [s.city, s.region, s.country].filter(Boolean).join(", ");
@@ -41,13 +42,14 @@ export function SessionsTab({ journal, tick, onChanged }: { journal: Journal; ti
   return (
     <div className="flex flex-col gap-6">
     <VisitsCard tick={tick} />
+    <ClicksCard tick={tick} />
     <Card
       title={`Échecs de connexion (24 h) : ${journal.failures.last24h}`}
       actions={
         <ConfirmDialog
           trigger={<Button disabled={busy}>Purger les données expirées</Button>}
           title="Purger les données expirées ?"
-          description="Adresse IP, navigateur et appareil des réponses de plus de 30 jours effacés ; visites de plus de 90 jours, sessions du backoffice de plus de 180 jours et échecs de connexion de plus de 30 jours supprimés. Irréversible."
+          description="Adresse IP, navigateur et appareil des réponses de plus de 30 jours effacés ; visites et clics de partage de plus de 90 jours, sessions du backoffice de plus de 180 jours et échecs de connexion de plus de 30 jours supprimés. Irréversible."
           confirmLabel="Purger"
           onConfirm={() => void post("/api/admin/purge")}
         />
@@ -120,7 +122,7 @@ export function SessionsTab({ journal, tick, onChanged }: { journal: Journal; ti
                       </span>
                     )}
                     <span className="ml-auto text-xs text-muted dark:text-zinc-400">
-                      {actions.length} action{actions.length > 1 ? "s" : ""} · dernière à {fmtDate(s.last_seen_at)}
+                      {actions.length} action{actions.length > 1 ? "s" : ""}, dernière à {fmtDate(s.last_seen_at)}
                     </span>
                   </summary>
                   <ol className="mt-2 space-y-1 border-l-2 border-line pl-4 text-sm dark:border-zinc-800">

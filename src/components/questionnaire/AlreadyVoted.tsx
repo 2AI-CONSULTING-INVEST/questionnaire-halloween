@@ -1,29 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { clientNow } from "@/lib/clock";
 import { Emoji } from "./ui";
+import { useCountdown } from "./useCountdown";
 import { ThanksActions } from "./ThanksActions";
 
 const two = (n: number) => String(n).padStart(2, "0");
 
 /**
  * Écran « déjà voté aujourd'hui » : remplace l'accueil quand l'appareil a validé un vote ce jour-là.
- * Le compte à rebours court jusqu'au minuit parisien suivant ; arrivé à zéro, le vote rouvre sans recharger.
+ * Le compte à rebours (calé sur l'heure du serveur) court jusqu'au minuit parisien suivant ; arrivé à zéro, le vote rouvre sans recharger.
  */
 export function AlreadyVoted({ nextResetAt, onReset }: { nextResetAt: string; onReset: () => void }) {
-  const [left, setLeft] = useState(() => Math.max(0, Date.parse(nextResetAt) - clientNow()));
-
-  useEffect(() => {
-    const tick = () => {
-      const ms = Math.max(0, Date.parse(nextResetAt) - clientNow());
-      setLeft(ms);
-      if (ms === 0) onReset();
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [nextResetAt, onReset]);
+  const left = useCountdown(nextResetAt, onReset);
 
   const total = Math.ceil(left / 1000);
   const h = Math.floor(total / 3600);
@@ -47,7 +35,7 @@ export function AlreadyVoted({ nextResetAt, onReset }: { nextResetAt: string; on
           role="timer"
           aria-live="off"
           aria-label={`Prochain vote dans ${h} heures ${m} minutes ${s} secondes`}
-          className="mt-6 inline-flex items-baseline gap-1.5 rounded-2xl border border-edge bg-surface/85 px-6 py-3 font-mono text-3xl font-bold tabular-nums tracking-wider text-brand shadow-lg shadow-black/25 backdrop-blur sm:text-4xl"
+          className="mt-6 inline-flex items-baseline gap-1.5 rounded-2xl border border-edge bg-surface/85 px-6 py-3 font-mono text-3xl font-bold tabular-nums tracking-wider text-brand shadow-lg shadow-black/25 backdrop-blur sm:text-4xl day:text-[#451a03]"
         >
           <span>{two(h)}</span>
           <span className="text-fg-muted">:</span>

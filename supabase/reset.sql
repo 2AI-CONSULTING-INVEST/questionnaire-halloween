@@ -1,7 +1,7 @@
 -- =====================================================================
 -- REMISE À ZÉRO COMPLÈTE de la base du vote Halloween — IRRÉVERSIBLE.
 -- Supprime toutes les tables de l'application et toutes leurs données : votes, participants,
--- lots, restaurants, décorations, journal du backoffice, échecs de connexion, réglages, compteur de visites. Les fichiers déjà envoyés restent dans Supabase Storage
+-- lots, restaurants, décorations, journal du backoffice, échecs de connexion, réglages, compteur de visites, clics de partage. Les fichiers déjà envoyés restent dans Supabase Storage
 -- (bucket « decorations ») : videz-le à la main si vous voulez repartir de zéro là aussi.
 --
 -- Ordre : 1) ce fichier, 2) supabase/schema.sql (recrée la structure et les 3 restaurants).
@@ -22,6 +22,7 @@ end $$;
 begin;
 
 drop table if exists login_failures cascade;
+drop table if exists clicks cascade;
 drop table if exists visits cascade;
 drop table if exists settings cascade;
 drop table if exists admin_actions cascade;

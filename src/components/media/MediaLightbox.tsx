@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Play, VideoOff, X } from "lucide-react";
 import { Dialog } from "radix-ui";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { isLocalMedia, mediaKind, posterOf, shortName, type Decoration } from "@/lib/schema";
-import { holdSound } from "@/components/sound/engine";
+import { bindVideoVolume, holdSound } from "@/components/sound/engine";
 
 export type LightboxGroup = { id: string; title: string; items: Decoration[] };
 
@@ -310,6 +310,7 @@ function SlideVideo({ src, active }: { src: string; active: boolean }) {
     if (!active) ref.current?.pause();
   }, [active]);
   useEffect(() => () => hold(false), []);
+  useEffect(() => (ref.current ? bindVideoVolume(ref.current) : undefined), [failed]);
 
   if (failed) {
     return (

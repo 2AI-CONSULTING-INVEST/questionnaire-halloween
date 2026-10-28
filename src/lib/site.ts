@@ -27,7 +27,7 @@ export const RESULTS = {
   description:
     "Classement en direct du vote Halloween Chamas Tacos : découvrez quel restaurant a la décoration la plus effrayante, mis à jour en temps réel.",
   shareTitle: "🏆 Résultats en direct du vote Halloween Chamas Tacos",
-  shareDescription: "Quel restaurant Chamas Tacos a La décoration d'Halloween la plus effrayante ? Le classement se met à jour en temps réel.",
+  shareDescription: "Quel restaurant Chamas Tacos a la décoration d'Halloween la plus effrayante ? Le classement se met à jour en temps réel.",
 };
 
 export const PARTICIPANTS = {

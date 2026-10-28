@@ -1,70 +1,38 @@
 import { z } from "zod";
 
 /**
- * Score de risque « revote le même jour », calculé à la validation du vote, avant l'écriture.
- * Fonction pure (testable) : toutes les requêtes sont faites par l'appelant (`riskContext`).
- * Partagé serveur / navigateur (libellés, points, méthodologie de l'onglet Sécurité) : aucun import
- * serveur ici. Les points vivent dans RISK_SIGNALS, seule source pour le calcul ET pour l'explication
- * affichée aux administrateurs : les deux ne peuvent pas diverger.
+ * Score de risque de la requête, calculé à la validation du vote, avant l'écriture.
+ * Fonction pure (testable). Partagé serveur / navigateur (libellés, points, méthodologie de l'onglet
+ * Sécurité) : aucun import serveur ici. Les points vivent dans RISK_SIGNALS, seule source pour le
+ * calcul ET pour l'explication affichée aux administrateurs : les deux ne peuvent pas diverger.
+ *
+ * Le score ne garde que les signaux propres à la requête. Les preuves d'appareil, de stockage et
+ * d'IP passent par les règles B1 à B3 et H1 à H9 (src/lib/fraud-rules.ts) et par le moteur de
+ * groupes (src/lib/fraud-graph.ts) : une même preuve ne compte jamais deux fois.
  */
 
 export type RiskSignal = { label: string; points: number; why: string };
 
 export const RISK_SIGNALS = {
-  device_voted_today: {
-    label: "Même appareil : 1 vote validé aujourd'hui",
+  no_device: {
+    label: "Aucune empreinte d'appareil envoyée",
     points: 45,
-    why: "L'empreinte de l'appareil (navigateur, écran, carte graphique, langues, fuseau…) a déjà validé un vote aujourd'hui. Deux téléphones strictement identiques peuvent partager une empreinte : ce signal seul ne bloque jamais.",
-  },
-  device_voted_twice: {
-    label: "Même appareil : 2 votes validés ou plus aujourd'hui",
-    points: 70,
-    why: "Troisième vote de la même empreinte dans la journée. Remplace le signal précédent.",
-  },
-  local_vote_day: {
-    label: "Le stockage local de l'appareil indique déjà un vote aujourd'hui",
-    points: 50,
-    why: "Le navigateur garde une trace locale du vote du jour. Si elle est présente alors que le cookie n'a pas de vote, les cookies ont été effacés (le stockage local, lui, a été conservé). Un votant honnête ne peut pas se trouver dans ce cas.",
-  },
-  new_cookie_device_voted: {
-    label: "Cookie absent alors que l'appareil a déjà voté aujourd'hui",
-    points: 15,
-    why: "Le cookie d'appareil posé au début du vote a disparu entre-temps, alors que cette empreinte a déjà voté.",
-  },
-  device_same_ip: {
-    label: "Même appareil et même adresse IP qu'un vote d'aujourd'hui",
-    points: 15,
-    why: "Renforce le signal d'empreinte quand la connexion est aussi la même. Compté dans le plafond des signaux liés à l'IP.",
-  },
-  ip_many_votes: {
-    label: "Adresse IP : 3 votes validés ou plus aujourd'hui",
-    points: 10,
-    why: "Plusieurs votes depuis la même connexion. Normal sur le Wi-Fi d'un restaurant : faible poids, plafonné.",
-  },
-  ip_very_many_votes: {
-    label: "Adresse IP : 6 votes validés ou plus aujourd'hui",
-    points: 20,
-    why: "Beaucoup de votes depuis la même connexion. Remplace le signal précédent ; plafonné.",
-  },
-  device_same_decoration: {
-    label: "Même appareil et même décoration qu'un vote d'aujourd'hui",
-    points: 10,
-    why: "Un revote vise en général la même décoration.",
-  },
-  too_fast: {
-    label: "Vote validé moins de 6 s après l'ouverture",
-    points: 25,
-    why: "Trois questions lues et répondues en moins de 6 secondes : plutôt quelqu'un qui connaît déjà le parcours.",
+    why: "La page envoie toujours une empreinte ; son absence signifie un appel direct à l'API ou un navigateur sans WebCrypto (très rare).",
   },
   way_too_fast: {
     label: "Vote validé moins de 2 s après l'ouverture",
     points: 40,
-    why: "Impossible à la main. Remplace le signal précédent.",
+    why: "Impossible à la main. Remplace le signal suivant.",
   },
   webdriver: {
     label: "Navigateur piloté par un automate (webdriver)",
     points: 40,
     why: "Le navigateur déclare être contrôlé par un programme (outil d'automatisation).",
+  },
+  too_fast: {
+    label: "Vote validé moins de 6 s après l'ouverture",
+    points: 25,
+    why: "Trois questions lues et répondues en moins de 6 secondes : plutôt quelqu'un qui connaît déjà le parcours.",
   },
   ua_mismatch: {
     label: "Type d'appareil déclaré incohérent avec l'agent utilisateur",
@@ -74,14 +42,26 @@ export const RISK_SIGNALS = {
   browser_mismatch: {
     label: "Navigateur déclaré incohérent avec l'agent utilisateur",
     points: 15,
-    why: "Le navigateur annoncé par la page (Chrome, Safari, Firefox…) n'est pas celui que la requête présente au serveur : signaux falsifiés ou outil qui se déguise.",
-  },
-  no_device: {
-    label: "Aucune empreinte d'appareil envoyée",
-    points: 45,
-    why: "La page envoie toujours une empreinte ; son absence signifie un appel direct à l'API ou un navigateur sans WebCrypto (très rare). Jamais bloquant seul.",
+    why: "Le navigateur annoncé par la page (Chrome, Safari, Firefox…) n'est ni celui de l'agent utilisateur ni celui des en-têtes Sec-CH-UA : signaux falsifiés ou outil qui se déguise. Brave se présente comme Chrome, et Samsung Internet se déclare « Samsung Browser » : ils ne sont pas signalés.",
   },
 } as const satisfies Record<string, RiskSignal>;
+
+export type RiskFlag = keyof typeof RISK_SIGNALS;
+
+/** Ordre d'affichage des signaux dans la méthodologie (du plus fort au plus faible). */
+export const RISK_SIGNAL_ORDER: RiskFlag[] = ["no_device", "way_too_fast", "webdriver", "too_fast", "ua_mismatch", "browser_mismatch"];
+
+/** Signaux des versions précédentes, encore présents sur les anciennes lignes : libellés seulement, plus aucun point. */
+export const LEGACY_FLAG_LABELS: Record<string, string> = {
+  device_voted_today: "Même appareil : 1 vote validé aujourd'hui (ancien calcul)",
+  device_voted_twice: "Même appareil : 2 votes validés ou plus aujourd'hui (ancien calcul)",
+  local_vote_day: "Le stockage local indiquait déjà un vote aujourd'hui (ancien calcul)",
+  new_cookie_device_voted: "Cookie absent alors que l'appareil avait déjà voté (ancien calcul)",
+  device_same_ip: "Même appareil et même adresse IP (ancien calcul)",
+  ip_many_votes: "Adresse IP : 3 votes validés ou plus (ancien calcul)",
+  ip_very_many_votes: "Adresse IP : 6 votes validés ou plus (ancien calcul)",
+  device_same_decoration: "Même appareil et même décoration (ancien calcul)",
+};
 
 /**
  * Plafond dur de votes validés par adresse IP et par jour (réglage `ip_daily_max`, 0 = désactivé) :
@@ -90,46 +70,43 @@ export const RISK_SIGNALS = {
 export const IP_DAILY_MAX_FLAG = "ip_daily_max";
 export const IP_DAILY_MAX_LABEL = "Plafond de votes par adresse IP atteint";
 
-export type RiskFlag = keyof typeof RISK_SIGNALS;
-
-/**
- * Signaux propres à la requête (ni l'empreinte ni l'IP, que des appareils identiques ou un tiers
- * peuvent partager) : sans au moins l'un d'eux, le score est plafonné sous le seuil de blocage.
- */
-export const OWN_SIGNALS: readonly RiskFlag[] = ["local_vote_day", "too_fast", "way_too_fast", "webdriver", "ua_mismatch", "browser_mismatch", "no_device"];
-
-/** Ordre d'affichage des signaux dans la méthodologie (du plus fort au plus faible). */
-export const RISK_SIGNAL_ORDER: RiskFlag[] = [
-  "device_voted_twice",
-  "device_voted_today",
-  "no_device",
-  "local_vote_day",
-  "way_too_fast",
-  "webdriver",
-  "too_fast",
-  "ip_very_many_votes",
-  "new_cookie_device_voted",
-  "device_same_ip",
-  "ua_mismatch",
-  "browser_mismatch",
-  "ip_many_votes",
-  "device_same_decoration",
-];
-
 export type RiskSettings = z.infer<typeof riskSettingsSchema>;
 
+/**
+ * Réglages de l'onglet Sécurité. Chaque nouvelle clé a un `.default` : les réglages déjà enregistrés
+ * (sans ces clés) restent valides et prennent les valeurs par défaut de la méthodologie.
+ */
 export const riskSettingsSchema = z
   .object({
     mode: z.enum(["block", "observe"]),
     flag_threshold: z.number().int().min(0).max(200),
     block_threshold: z.number().int().min(0).max(200),
-    /** Votes validés max. par IP et par jour (0 = sans limite) ; `.default` : les réglages déjà enregistrés sans cette clé restent valides. */
+    /** Votes validés max. par IP et par jour (0 = sans limite). */
     ip_daily_max: z.number().int().min(0).max(1000).default(60),
+    /** B2 : refuser une clé hw forte déjà vue aujourd'hui (sinon H4 : mise en attente). */
+    b2_strong_key: z.boolean().default(true),
+    /** H2 : IP Tor ou hébergeur. */
+    h2_anonymous_ip: z.boolean().default(true),
+    /** H3 : pays de l'IP connu et différent de FR. */
+    h3_foreign_country: z.boolean().default(true),
+    /** H4 : clé forte déjà vue, quand B2 est désactivé. */
+    h4_strong_seen: z.boolean().default(true),
+    /** H5 : clé faible déjà vue depuis le même réseau. */
+    h5_weak_network: z.boolean().default(true),
+    /** H6 : navigation privée et clé déjà vue. */
+    h6_private_seen: z.boolean().default(true),
+    /** H7 : récidive d'une clé forte ou d'un participant d'un groupe confirmé un jour précédent. */
+    h7_recidivism: z.boolean().default(true),
+    /** H9 : clé faible, même ville, même décoration, peu après une tentative du jour. */
+    h9_weak_nearby: z.boolean().default(true),
+    h9_minutes: z.number().int().min(1).max(120).default(10),
+    /** C2 : nombre de cookies distincts reliés par une clé forte qui confirme un groupe. */
+    c2_min_attempts: z.number().int().min(2).max(20).default(3),
   })
   .strict()
   .refine((s) => s.flag_threshold < s.block_threshold, { message: "Le seuil de signalement doit être inférieur au seuil de blocage", path: ["flag_threshold"] });
 
-export const DEFAULT_RISK_SETTINGS: RiskSettings = { mode: "block", flag_threshold: 40, block_threshold: 80, ip_daily_max: 60 };
+export const DEFAULT_RISK_SETTINGS: RiskSettings = riskSettingsSchema.parse({ mode: "block", flag_threshold: 40, block_threshold: 80, ip_daily_max: 60 });
 
 /** Réglages enregistrés (clé `risk`), ou les valeurs par défaut si absents ou invalides. */
 export async function loadRiskSettings(store: { getSetting(key: string): Promise<unknown> }): Promise<RiskSettings> {
@@ -137,36 +114,18 @@ export async function loadRiskSettings(store: { getSetting(key: string): Promise
   return parsed.success ? parsed.data : DEFAULT_RISK_SETTINGS;
 }
 
-/** Vote validé aujourd'hui par le même appareil (même `device_hash`). */
-export type DeviceVote = { voterId: string | null; ip: string | null; decorationId: string | null };
-
 export type RiskInput = {
-  /** Votes validés aujourd'hui avec la même empreinte (vide sans empreinte). */
-  deviceVotesToday: DeviceVote[];
-  /** Nombre de votes validés aujourd'hui depuis la même IP (IP inconnue : votes sans IP, comptés ensemble). */
-  ipVotesToday: number;
-  /** Cookie `hw_voter` absent de la requête. */
-  cookieIsNew: boolean;
   /** Aucune empreinte (`device_hash` null) : appel direct à l'API. */
   noDevice: boolean;
-  voterId: string | null;
-  ip: string | null;
-  decorationId: string;
-  today: string;
-  /** `voteDay` lu dans le stockage local de l'appareil (si `voteCompleted`), déclaré par le client. */
-  localVoteDay: string | null;
   /** Ouverture de la session → validation ; null si inconnue. */
   durationMs: number | null;
   webdriver: boolean;
   userAgent: string | null;
+  /** En-tête Sec-CH-UA de la requête (navigateurs Chromium), s'il existe. */
+  secChUa?: string | null;
   /** Ce que la page a déclaré d'elle-même (non fiable : sert aux contrôles de cohérence). */
   declared: { mobile?: boolean; browser?: string };
-  /** Seuil de blocage en vigueur : sans signal propre à la requête, le score reste en dessous. */
-  blockThreshold: number;
 };
-
-/** Plafond commun des signaux liés à l'IP (Wi-Fi partagé des restaurants) : jamais plus de 20. */
-export const IP_POINTS_MAX = 20;
 
 /** UA « mobile » selon le serveur (Android sans « Mobile » = tablette, comme `userAgentData.mobile`). */
 export const uaIsMobile = (ua: string) => /Mobile|iPhone|iPod/i.test(ua);
@@ -182,8 +141,37 @@ export function uaBrowser(ua: string): string {
   return "Autre";
 }
 
-/** Famille du navigateur déclaré par la page (« Chrome 130 » → « Chrome »). */
-export const browserFamily = (declared: string) => declared.replace(/\s+\d.*$/, "").trim();
+/** Noms de marque déclarés par la page qui désignent la même famille que l'agent utilisateur. */
+const DECLARED_ALIASES: Record<string, string> = { "Samsung Browser": "Samsung Internet" };
+
+/** Famille du navigateur déclaré par la page (« Chrome 130 » → « Chrome », « Samsung Browser 30.0 » → « Samsung Internet »). */
+export const browserFamily = (declared: string) => {
+  const family = declared.replace(/\s+\d.*$/, "").trim();
+  return DECLARED_ALIASES[family] ?? family;
+};
+
+/** Navigateurs Chromium dont l'agent utilisateur est celui de Chrome : seuls les en-têtes Sec-CH-UA les distinguent. */
+const LOOKS_LIKE_CHROME = new Set(["Brave"]);
+
+/** Marques de l'en-tête Sec-CH-UA (`"Brave";v="156", "Chromium";v="156", "Not=A?Brand";v="24"`), sans les marques factices. */
+export function chBrands(header: string | null | undefined): string[] {
+  if (!header) return [];
+  return [...header.matchAll(/"([^"]+)";\s*v="\d+[^"]*"/g)].map((m) => m[1]).filter((b) => !/Not.?A.?Brand|^Chromium$/i.test(b));
+}
+
+/** Famille d'une marque Sec-CH-UA (« Google Chrome » → « Chrome », « Microsoft Edge » → « Edge »). */
+const chFamily = (brand: string) => browserFamily(brand.replace(/^Google |^Microsoft /, "").replace(/^Opera.*$/, "Opera"));
+
+/** Le navigateur déclaré par la page est-il incohérent avec ce que la requête présente (agent utilisateur, puis Sec-CH-UA) ? */
+export function browserMismatch(declared: string, userAgent: string, secChUa?: string | null): boolean {
+  const client = browserFamily(declared);
+  const server = uaBrowser(userAgent);
+  const brands = chBrands(secChUa);
+  // Sec-CH-UA présent : la marque déclarée doit y figurer (c'est ce que lit la page elle-même).
+  if (brands.length && client !== "Autre" && !brands.some((b) => chFamily(b) === client)) return true;
+  if (server === "Autre" || client === "Autre" || server === client) return false;
+  return !(server === "Chrome" && LOOKS_LIKE_CHROME.has(client));
+}
 
 export function scoreRisk(input: RiskInput): { score: number; flags: RiskFlag[] } {
   const flags: RiskFlag[] = [];
@@ -192,58 +180,22 @@ export function scoreRisk(input: RiskInput): { score: number; flags: RiskFlag[] 
     score += RISK_SIGNALS[flag].points;
     flags.push(flag);
   };
-  const n = input.deviceVotesToday.length;
-  const sameCookie = (v: DeviceVote) => v.voterId !== null && v.voterId === input.voterId;
-
-  if (n >= 2) add("device_voted_twice");
-  else if (n === 1) add("device_voted_today");
   if (input.noDevice) add("no_device");
-  // Le stockage local dit « déjà voté aujourd'hui » mais ce cookie n'a pas de vote : cookies effacés.
-  if (input.localVoteDay === input.today && !input.deviceVotesToday.some(sameCookie)) add("local_vote_day");
-  if (input.cookieIsNew && n >= 1) add("new_cookie_device_voted");
-
-  let ipPoints = 0;
-  const ipFlags: RiskFlag[] = [];
-  if (input.ip && input.deviceVotesToday.some((v) => v.ip === input.ip)) {
-    ipPoints += RISK_SIGNALS.device_same_ip.points;
-    ipFlags.push("device_same_ip");
-  }
-  if (input.ipVotesToday >= 6) {
-    ipPoints += RISK_SIGNALS.ip_very_many_votes.points;
-    ipFlags.push("ip_very_many_votes");
-  } else if (input.ipVotesToday >= 3) {
-    ipPoints += RISK_SIGNALS.ip_many_votes.points;
-    ipFlags.push("ip_many_votes");
-  }
-  score += Math.min(IP_POINTS_MAX, ipPoints);
-  flags.push(...ipFlags);
-
-  if (input.deviceVotesToday.some((v) => v.decorationId === input.decorationId)) add("device_same_decoration");
   if (input.durationMs !== null) {
     if (input.durationMs < 2000) add("way_too_fast");
     else if (input.durationMs < 6000) add("too_fast");
   }
   if (input.webdriver) add("webdriver");
   if (input.userAgent && input.declared.mobile !== undefined && input.declared.mobile !== uaIsMobile(input.userAgent)) add("ua_mismatch");
-  if (input.userAgent && input.declared.browser) {
-    const server = uaBrowser(input.userAgent);
-    const client = browserFamily(input.declared.browser);
-    if (server !== "Autre" && client !== "Autre" && server !== client) add("browser_mismatch");
-  }
-  // Empreinte et IP seules (deux téléphones identiques, un tiers sur le même Wi-Fi) : signalé, jamais bloqué,
-  // sauf le 3e vote du même appareil depuis la même connexion (cookies et stockage effacés, revote lent) :
-  // un tiers devrait avoir voté deux fois depuis le réseau de ses victimes, qui seraient alors refusées dès leur
-  // premier vote sur ce réseau (compte par empreinte) : accepté, visible, réversible, neutralisé en mode observe.
-  const thirdSameNetwork = flags.includes("device_voted_twice") && flags.includes("device_same_ip");
-  if (!flags.some((f) => OWN_SIGNALS.includes(f)) && !thirdSameNetwork) score = Math.min(score, input.blockThreshold - 1);
-
+  if (input.userAgent && input.declared.browser && browserMismatch(input.declared.browser, input.userAgent, input.secChUa)) add("browser_mismatch");
   return { score, flags };
 }
 
-/** Réponse de GET /api/admin/security (onglet Sécurité). */
-export type RiskCounts = { validated: number; flagged: number; blocked: number; excluded: number };
-export type TopEntry = { key: string; votes: number; flagged: number };
-export type SecuritySummary = { settings: RiskSettings; today: RiskCounts; total: RiskCounts; topIps: TopEntry[]; topDevices: TopEntry[]; toReview: number };
-
 /** Code d'un signal → libellé lisible (code brut si inconnu). */
-export const flagLabel = (code: string) => (code === IP_DAILY_MAX_FLAG ? IP_DAILY_MAX_LABEL : ((RISK_SIGNALS as Record<string, RiskSignal>)[code]?.label ?? code));
+export const flagLabel = (code: string) =>
+  code === IP_DAILY_MAX_FLAG ? IP_DAILY_MAX_LABEL : ((RISK_SIGNALS as Record<string, RiskSignal>)[code]?.label ?? LEGACY_FLAG_LABELS[code] ?? code);
+
+/** Réponse de GET /api/admin/security (onglet Sécurité). */
+export type RiskCounts = { counted: number; held: number; blocked: number; autoExcluded: number; adminExcluded: number };
+export type TopEntry = { key: string; votes: number; held: number };
+export type SecuritySummary = { settings: RiskSettings; today: RiskCounts; total: RiskCounts; topIps: TopEntry[]; topDevices: TopEntry[]; pending: number; highPriority: number };

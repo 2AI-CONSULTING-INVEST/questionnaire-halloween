@@ -53,3 +53,9 @@ next-env.d.ts
 
 # graphify : cache local du graphe de code (régénéré automatiquement)
 /graphify-out/cache/
+
+# Images sources du lot Spotify (non utilisées par le site)
+/LOT SPOTIFY - 1 an.jpg
+/LOT SPOTIFY - 1 an.webp
+/SPOTIFY - 85aQEVO9U2JbM_CGRcgpi8pZXV9lBchtxE0cf6X8-ZQ.jpg
+/SPOTIFY - w=960.avif

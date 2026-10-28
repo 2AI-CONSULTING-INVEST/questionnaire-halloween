@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const COMMENT_MAX = 300;
-// Lettres, chiffres, ponctuation, symboles (emojis), espaces et retours à la ligne — sans chevrons.
+// Lettres, chiffres, ponctuation, symboles (emojis), espaces et retours à la ligne, sans chevrons.
 const COMMENT_RE = /^[\p{L}\p{N}\p{P}\p{S}\p{M}\p{Zs}\n\r‍️]*$/u;
 
 /** Normalise un numéro français vers E.164 (+33XXXXXXXXX). Retourne null si invalide. */
@@ -102,14 +102,34 @@ export type ResponsePatch = z.infer<typeof responsePatchSchema>;
 /** Champs encore modifiables une fois le vote validé. */
 export const RAFFLE_FIELDS = ["wants_raffle"] as const;
 
+/** Jeton opaque de l'appareil (src/lib/device-token.ts), gardé dans localStorage et IndexedDB. */
+export const DEVICE_TOKEN_RE = /^[A-Za-z0-9_-]{32}$/;
+
+/** Classe d'entropie de la clé hw : forte (Android, ordinateurs), faible (iPhone, iPad), brouillée (anti-empreinte). */
+export const HW_ENTROPIES = ["strong", "weak", "noisy"] as const;
+export type HwEntropy = (typeof HW_ENTROPIES)[number];
+
 /**
- * Signaux d'appareil envoyés par le navigateur (src/lib/fingerprint.ts) à l'ouverture et à la
- * validation du vote : un condensé (jamais stocké en clair) et quelques attributs grossiers.
- * Données non fiables : bornées, strictes, elles ne font qu'augmenter le score de cette requête.
+ * Signaux d'appareil envoyés par le navigateur (src/lib/fingerprint.ts) à l'arrivée, à l'ouverture et
+ * à la validation du vote : des condensés (jamais stockés en clair) et quelques attributs grossiers.
+ * Données non fiables : bornées, strictes. Le serveur n'en garde que des HMAC.
  */
 export const deviceSchema = z
   .object({
     hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+    /** Clé matérielle stable (condensé SHA-256) : ne change ni avec la version du navigateur ni avec le mode sombre. */
+    hw: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+    hwEntropy: z.enum(HW_ENTROPIES).optional(),
+    /** Modèle et version majeure d'Android (Chrome Android, `userAgentData`), en clair comme la plateforme. */
+    model: z.string().max(40).optional(),
+    osVersion: z.string().max(16).optional(),
+    /** Navigation privée : vrai, faux, ou null si incertain (null n'a aucun effet). */
+    privateMode: z.boolean().nullable().optional(),
+    /** Jetons retrouvés dans le stockage de l'appareil (localStorage, IndexedDB). */
+    tokens: z.array(z.string().regex(DEVICE_TOKEN_RE)).max(4).optional(),
+    /** Fuseau et langue du navigateur : contrôles de cohérence seulement, jamais enregistrés. */
+    tz: z.string().max(64).optional(),
+    lang: z.string().max(35).optional(),
     mobile: z.boolean().optional(),
     platform: z.string().max(32).optional(),
     /** Navigateur et version majeure déclarés par la page (« Chrome 130 »). */
@@ -123,8 +143,8 @@ export const deviceSchema = z
   .strict();
 
 export type Device = z.infer<typeof deviceSchema>;
-/** Attributs grossiers enregistrés (`responses.device_info`) : tout sauf le condensé et les signaux de session (`localVoteDay`, `startedAt`). */
-export type DeviceInfo = Omit<Device, "hash" | "localVoteDay" | "startedAt">;
+/** Attributs grossiers enregistrés (`responses.device_info`) : ni condensés, ni jetons, ni signaux de session ou de cohérence. */
+export type DeviceInfo = Omit<Device, "hash" | "hw" | "hwEntropy" | "privateMode" | "tokens" | "tz" | "lang" | "localVoteDay" | "startedAt">;
 
 /** Validation du vote (questions 1 → 3). Comme dans le Typeform, le vote est enregistré avant le tirage au sort. */
 export const voteCompleteSchema = z
@@ -187,11 +207,66 @@ export type ResponseRow = {
   device_info: DeviceInfo | null;
   risk_score: number;
   risk_flags: string[] | null;
-  /** Refus par score : la ligne reste sans `completed_at` (jamais comptée). */
+  /** Refus visible (cookie, stockage, clé hw forte, score, plafond par IP) : la ligne reste sans `completed_at` (jamais comptée). */
   blocked_at: string | null;
-  /** Exclu du classement à la main par un admin (le vote reste validé, non compté). */
+  /** Exclu du classement (le vote reste validé, non compté) : à la main ou par le moteur de groupes (`exclusion_source`). */
   excluded_at: string | null;
+  // Anti-fraude (migration 2026-10-28) : absents des lignes antérieures, lus comme null.
+  /** Clé matérielle stable de l'appareil (HMAC) et sa classe d'entropie. */
+  hw_key?: string | null;
+  hw_entropy?: HwEntropy | null;
+  private_mode?: boolean | null;
+  /** HMAC du jeton remis à cet appareil, et HMAC des jetons retrouvés dans son stockage. */
+  storage_key?: string | null;
+  seen_storage?: string[] | null;
+  /** Réseau (IPv4 exacte, préfixe /64 en IPv6), classe, pays, fuseau, ville et position déduits de l'IP. */
+  ip_net?: string | null;
+  ip_class?: string | null;
+  ip_country?: string | null;
+  ip_timezone?: string | null;
+  ip_city?: string | null;
+  ip_latitude?: number | null;
+  ip_longitude?: number | null;
+  /** Étape du refus visible : ouverture de la session ou validation du vote. */
+  block_stage?: "create" | "complete" | null;
+  /** Vote en attente de vérification : enregistré, jamais compté tant qu'un admin ne l'a pas validé. */
+  held_at?: string | null;
+  held_priority?: boolean | null;
+  exclusion_source?: "admin" | "auto" | null;
+  /** Groupe confirmé du moteur de groupes (src/lib/fraud-graph.ts). */
+  group_id?: string | null;
+  /** Décision d'un admin : le moteur ne modifie plus jamais cette ligne. */
+  human_decision?: "validated" | "excluded" | null;
+  /** Règles qui ont joué (B1 à B3, H1 à H9, cohérences) et issue qu'aurait eue le vote en mode observation. */
+  fraud_reasons?: string[] | null;
+  observed_outcome?: "held" | "blocked" | null;
 };
+
+/** Statut d'une réponse au sens de l'anti-fraude. */
+export type VoteStatus = "counted" | "held" | "blocked" | "excluded" | "incomplete";
+
+/**
+ * Seule définition du vote compté, partagée par le classement, les KPI, les exports, les participants
+ * et l'onglet Sécurité : validé, ni en attente, ni exclu.
+ */
+export const isCounted = (r: Pick<ResponseRow, "completed_at" | "held_at" | "excluded_at">) => !!r.completed_at && !r.held_at && !r.excluded_at;
+
+/**
+ * Refus par reconnaissance du cookie : le même navigateur qui revient (nouvel onglet, réouverture). Le
+ * cookie suffit à le refuser ; ce n'est jamais une preuve de groupe ni de récidive.
+ */
+export const isCookieRefusal = (r: Pick<ResponseRow, "blocked_at" | "fraud_reasons">) => !!r.blocked_at && (r.fraud_reasons ?? []).includes("cookie");
+
+/** Ligne qui prouve une fraude dans un groupe (récidive H7) : exclusion, ou refus pour une autre raison que le cookie. */
+export const provesFraud = (r: Pick<ResponseRow, "blocked_at" | "excluded_at" | "fraud_reasons">) => !!r.excluded_at || (!!r.blocked_at && !isCookieRefusal(r));
+
+export function voteStatus(r: Pick<ResponseRow, "completed_at" | "held_at" | "excluded_at" | "blocked_at">): VoteStatus {
+  if (r.blocked_at) return "blocked";
+  if (!r.completed_at) return "incomplete";
+  if (r.excluded_at) return "excluded";
+  if (r.held_at) return "held";
+  return "counted";
+}
 
 /** Participant au tirage au sort : une personne (email / téléphone / pseudo uniques). */
 export type Participant = {
@@ -359,4 +434,6 @@ export const MEDIA_LIMITS = {
   imageBytes: 10 * 1024 * 1024,
   /** Limite par fichier du plan gratuit Supabase. */
   videoBytes: 50 * 1024 * 1024,
+  /** Vidéo choisie dans le navigateur, avant compression (au-delà, ffmpeg.wasm manque de mémoire). */
+  videoInputBytes: 120 * 1024 * 1024,
 };

@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "author": "2AI CONSULTING & INVEST",
-  "contributors": ["Steeve MOKOKO", "ai assistant"],
+  "contributors": [
+    "Steeve MOKOKO",
+    "ai assistant"
+  ],
   "scripts": {
     "dev": "node node_modules/next/dist/bin/next dev",
     "build": "node node_modules/next/dist/bin/next build",
@@ -15,6 +18,7 @@
     "seed:images": "node scripts/make-seed-images.mjs"
   },
   "dependencies": {
+    "@ffmpeg/core": "0.12.10",
     "@supabase/supabase-js": "^2.117.3",
     "framer-motion": "^14.1.0",
     "lucide-react": "^1.55.0",

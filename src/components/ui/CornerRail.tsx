@@ -6,9 +6,19 @@ import Image from "next/image";
 import { Popover } from "radix-ui";
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { isDemoTab, subscribeDemoTab } from "@/components/questionnaire/demo";
-import { getSoundPrefs, isSoundStarted, serverSoundPrefs, setSoundMuted, setSoundVolume, subscribeSound, unlockSound } from "@/components/sound/engine";
+import {
+  getShownVolume,
+  getSoundPrefs,
+  isSoundStarted,
+  isVideoPlaying,
+  serverSoundPrefs,
+  setSoundMuted,
+  setSoundVolume,
+  subscribeSound,
+  unlockSound,
+} from "@/components/sound/engine";
 import { withBase } from "@/lib/base-path";
-import { clientNow } from "@/lib/clock";
+import { syncedNow } from "@/lib/clock";
 import { readNextVote, setNextVote, subscribeNextVote } from "@/lib/next-vote";
 
 const two = (n: number) => String(n).padStart(2, "0");
@@ -59,7 +69,7 @@ function NextVoteTimer() {
   const demo = useSyncExternalStore(subscribeDemoTab, isDemoTab, () => false);
   const target = useSyncExternalStore(subscribeNextVote, () => readNextVote(demo), () => null);
   const [now, setNow] = useState(0);
-  /** Choix de l'utilisateur (null : automatique — ouvert la première fois, replié ensuite). */
+  /** Choix de l'utilisateur (null : automatique : ouvert la première fois, replié ensuite). */
   const [manual, setManual] = useState<"open" | "closed" | null>(null);
   const reduce = useReducedMotion();
   const open = target !== null && (manual === "open" || (manual === null && !wasShown(target)));
@@ -67,7 +77,7 @@ function NextVoteTimer() {
   useEffect(() => {
     if (target === null) return;
     const tick = () => {
-      const t = clientNow();
+      const t = syncedNow(); // calé sur l'heure du serveur, comme l'écran « déjà voté »
       setNow(t);
       if (t >= target) setNextVote(null, demo);
     };
@@ -150,6 +160,8 @@ function NextVoteTimer() {
 function SoundControl() {
   const prefs = useSyncExternalStore(subscribeSound, getSoundPrefs, serverSoundPrefs);
   const started = useSyncExternalStore(subscribeSound, isSoundStarted, () => false);
+  const volume = useSyncExternalStore(subscribeSound, getShownVolume, () => serverSoundPrefs().volume);
+  const video = useSyncExternalStore(subscribeSound, isVideoPlaying, () => false);
   const id = useId();
 
   // Première interaction (n'importe où) : démarrage en fondu.
@@ -165,7 +177,7 @@ function SoundControl() {
     };
   }, [started]);
 
-  const off = prefs.muted || prefs.volume === 0;
+  const off = prefs.muted || volume === 0;
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -198,7 +210,7 @@ function SoundControl() {
             {prefs.muted ? "Remettre le son" : "Couper le son"}
           </button>
           <label htmlFor={`${id}-vol`} className="mt-4 block text-xs font-semibold uppercase tracking-wide text-fg-muted">
-            Volume
+            {video ? "Volume de la vidéo" : "Volume"}
           </label>
           <input
             id={`${id}-vol`}
@@ -206,15 +218,15 @@ function SoundControl() {
             min={0}
             max={100}
             step={5}
-            value={Math.round(prefs.volume * 100)}
-            aria-valuetext={`${Math.round(prefs.volume * 100)} %`}
+            value={Math.round(volume * 100)}
+            aria-valuetext={`${Math.round(volume * 100)} %`}
             disabled={prefs.muted}
             onChange={(e) => setSoundVolume(Number(e.target.value) / 100)}
             className="mt-2 h-11 w-full cursor-pointer accent-[var(--color-brand)] disabled:cursor-not-allowed disabled:opacity-50"
           />
           {!started && !prefs.muted && <p className="mt-1 text-xs text-fg-muted">Le son démarre doucement au premier clic sur la page.</p>}
           <p className="mt-3 border-t border-edge pt-3 text-[11px] leading-snug text-fg-muted">
-            Musiques&nbsp;: «&nbsp;Diabolus&nbsp;», Geoff Harvey —{" "}
+            Musiques&nbsp;: «&nbsp;Diabolus&nbsp;», Geoff Harvey,{" "}
             <a href="https://www.purple-planet.com" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-fg">
               Purple Planet Music
             </a>

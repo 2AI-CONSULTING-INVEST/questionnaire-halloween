@@ -1,22 +1,26 @@
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { serverNow } from "@/lib/clock";
-import { nextParisMidnight, parisDay } from "@/lib/day";
-import { getStore } from "@/lib/db";
-import { error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
+import { parisDay } from "@/lib/day";
+import { getStore, requestMeta, type VoteStamp } from "@/lib/db";
+import { strongConflict } from "@/lib/fraud-rules";
+import { applyGraph, decideVote, requestSignals, type RequestSignals } from "@/lib/fraud-server";
+import { alreadyVoted, error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
 import { clientIp } from "@/lib/rate-limit";
 import { IP_DAILY_MAX_FLAG, loadRiskSettings, scoreRisk } from "@/lib/risk";
 import { voteCompleteSchema } from "@/lib/schema";
-import { deviceStamp, readVoter } from "@/lib/voter";
+import { deviceStamp, deviceToken, readVoter, storageKeyOf, uaImpliesStrong } from "@/lib/voter";
 
 /**
- * Valide le vote (Q1 → Q5). Le tirage au sort (Q6) est complété ensuite. :id = session_id
- * La session doit avoir été ouverte par /create (ligne existante) et la requête doit porter le
- * cookie hw_voter posé à l'ouverture, égal au voter_id de la ligne : sans cookie, avec un autre, ou
- * sur une session jamais ouverte, même réponse 409 `already_voted_today` (rien n'est révélé, aucune
- * ligne n'est créée ici). Un seul vote par appareil (cookie hw_voter) et par jour (Europe/Paris).
- * Score de risque (src/lib/risk.ts) calculé avant l'écriture : au-delà du seuil de blocage (mode
- * « block »), même réponse 409 et la ligne reste non validée (`blocked_at`). Sans empreinte, signal
- * `no_device` (+45). Plafond dur par IP et par jour (`ip_daily_max`) : même refus, signal `ip_daily_max`.
+ * Valide le vote (Q1 → Q3). Le tirage au sort est complété ensuite. :id = session_id
+ * La session doit avoir été ouverte par /create (ligne existante) et la requête doit porter le cookie
+ * hw_voter posé à l'ouverture, égal au voter_id de la ligne : sinon, refus 409 `already_voted_today`.
+ * Décision (src/lib/fraud-rules.ts) : refus visible pour les cas sûrs (cookie, jeton du stockage B1,
+ * clé hw forte avec un second indice B2, score B3, plafond par IP), mise en attente silencieuse pour les cas suspects (H1 à H9),
+ * sinon vote compté. Un vote en attente reçoit la même réponse qu'un vote compté : aucun indice.
+ * Un refus à cette étape alors qu'une session existe (cookie déjà utilisé, session déjà refusée rejouée)
+ * laisse une trace (étape « complete ») ; sans cookie ni session, aucune trace. Après la réponse, le moteur de groupes repasse sur la journée (exclusion des votes en trop).
  */
 export async function POST(req: Request, ctx: RouteContext<"/api/responses/[id]/complete">) {
   const blocked = limited(req, "responses", 100);
@@ -32,10 +36,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/responses/[id]/
   const { device, ...data } = parsed.data;
 
   const store = getStore();
-  const [decoration, restaurants] = await Promise.all([
-    store.getDecoration(data.selected_decoration_id),
-    store.listRestaurants(),
-  ]);
+  const [decoration, restaurants] = await Promise.all([store.getDecoration(data.selected_decoration_id), store.listRestaurants()]);
   if (!decoration) return error("Décoration inconnue", 422, { selected_decoration_id: ["Décoration inconnue"] });
   if (!restaurants.some((r) => r.name === data.selected_restaurant)) {
     return error("Restaurant inconnu", 422, { selected_restaurant: ["Restaurant inconnu"] });
@@ -44,46 +45,62 @@ export async function POST(req: Request, ctx: RouteContext<"/api/responses/[id]/
   const voter = readVoter(req);
   const now = serverNow(req);
   const voteDay = parisDay(now);
-  const alreadyVoted = () =>
-    error("Vous avez déjà voté aujourd'hui", 409, { code: "already_voted_today", nextResetAt: nextParisMidnight(now).toISOString() });
-  if (!voter) return alreadyVoted();
-  // Pré-contrôle (message clair) ; la garantie réelle est l'index unique appliqué dans completeResponse.
-  if (await store.hasVotedToday(voter, voteDay)) return alreadyVoted();
+  if (!voter) return alreadyVoted(now); // ni cookie ni session : aucune trace
   const existing = await store.getResponse(id);
-  // Un refus par score (blocked_at) est définitif pour la journée : pas de rejeu avec d'autres signaux.
-  if (!existing || existing.session_id !== id || existing.voter_id !== voter || existing.blocked_at) return alreadyVoted();
+  if (!existing || existing.session_id !== id || existing.voter_id !== voter) return alreadyVoted(now);
 
   const ip = clientIp(req);
-  const stamp = deviceStamp(device);
-  const [settings, context] = await Promise.all([loadRiskSettings(store), store.riskContext(stamp.device_hash, ip, voteDay)]);
+  /** Trace d'un refus à la validation (nouvelle ligne : la session garde son état), listée dans « Votes frauduleux ». */
+  const trace = async (reasons: string[], fraud?: RequestSignals["stamp"]) => {
+    const stamp = fraud ?? (await requestSignals(req, ip, device)).stamp;
+    await store.recordRefusal({ sessionId: randomUUID(), meta: requestMeta(req, ip), voterId: voter, voteDay, device: deviceStamp(device), fraud: stamp, reasons, stage: "complete" });
+    return alreadyVoted(now);
+  };
+  // Un refus est définitif pour la session : pas de rejeu avec d'autres signaux (le rejeu laisse une trace).
+  if (existing.blocked_at) return trace(existing.fraud_reasons?.length ? existing.fraud_reasons : ["cookie"]);
+
+  const [settings, sig, ipVotes] = await Promise.all([loadRiskSettings(store), requestSignals(req, ip, device), store.ipVotesToday(ip, voteDay)]);
+  const ua = req.headers.get("user-agent");
   const risk = scoreRisk({
-    deviceVotesToday: context.deviceVotes,
-    ipVotesToday: context.ipVotes,
-    cookieIsNew: false, // le cookie est désormais toujours celui posé à l'ouverture de la session
-    noDevice: stamp.device_hash === null,
-    voterId: voter,
-    ip,
-    decorationId: data.selected_decoration_id,
-    today: voteDay,
-    localVoteDay: device?.localVoteDay ?? null,
+    // Sans clé matérielle alors que l'agent utilisateur en implique une forte : un vrai navigateur l'envoie toujours.
+    noDevice: deviceStamp(device).device_hash === null || (!device?.hw && uaImpliesStrong(ua, req.headers.get("sec-ch-ua"), device?.model)),
     durationMs: now - Date.parse(existing.created_at),
     webdriver: device?.webdriver === true,
-    userAgent: req.headers.get("user-agent"),
+    userAgent: ua,
+    secChUa: req.headers.get("sec-ch-ua"),
     declared: { mobile: device?.mobile, browser: device?.browser },
-    blockThreshold: settings.block_threshold,
   });
-  const ipCapped = settings.ip_daily_max > 0 && context.ipVotes >= settings.ip_daily_max;
-  const refused = settings.mode === "block" && (risk.score >= settings.block_threshold || ipCapped);
+  const ipCapped = settings.ip_daily_max > 0 && ipVotes >= settings.ip_daily_max;
+  const decision = await decideVote(store, settings, { day: voteDay, nowMs: now, voterId: voter, decorationId: data.selected_decoration_id, score: risk.score, ipCapped, sig });
 
-  const result = await store.completeResponse(id, data, {
+  const stamp: VoteStamp = {
     voterId: voter,
     voteDay,
-    device: stamp,
+    device: deviceStamp(device),
+    fraud: { ...sig.stamp, storage_key: storageKeyOf(deviceToken(voter)) },
     riskScore: risk.score,
     riskFlags: ipCapped ? [...risk.flags, IP_DAILY_MAX_FLAG] : risk.flags,
-    blocked: refused,
-  });
-  if (result === "already_voted_today" || refused) return alreadyVoted();
+    outcome: decision.outcome,
+    priority: decision.priority,
+    reasons: decision.reasons,
+    observed: decision.observed,
+  };
+  let result = await store.completeResponse(id, data, stamp);
+  if (result === "strong_conflict") {
+    // Validation parallèle de la même clé forte, déjà comptée : la décision est relue avec la ligne gagnante
+    // (refus B2 avec un second indice, sinon attente H4) ; à défaut, attente. Jamais une erreur. Mode
+    // observation : le vote reste compté, l'issue évitée est notée (fraud-rules.ts).
+    const again = await decideVote(store, settings, { day: voteDay, nowMs: now, voterId: voter, decorationId: data.selected_decoration_id, score: risk.score, ipCapped, sig });
+    const retry = again.outcome !== "counted" || again.observed ? again : strongConflict(decision, settings);
+    result = await store.completeResponse(id, data, { ...stamp, outcome: retry.outcome, reasons: retry.reasons, observed: retry.observed, priority: retry === again && again.priority });
+    if (result === "strong_conflict") return trace([...retry.reasons], sig.stamp);
+    if (retry.outcome === "blocked") return alreadyVoted(now);
+  }
+  // Index du cookie (ce navigateur a déjà voté aujourd'hui) ou session refusée entre-temps : trace.
+  if (result === "already_voted_today") return trace(["cookie"], sig.stamp);
+  if (decision.outcome === "blocked") return alreadyVoted(now);
+
+  after(() => applyGraph(getStore(), voteDay, { reason: "validation d'un vote" }).catch((e) => console.error("Moteur anti-fraude :", e)));
   revalidatePath("/resultats");
   return json({ ok: true, alreadyCompleted: result === "completed", voteDay });
 }

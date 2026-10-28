@@ -3,7 +3,8 @@
 //   src/app/(public)/resultats/opengraph-image.jpg (résultats en direct)
 // Fond : une capture de la scène 3D sans l'interface (out/bg-home.png, out/bg-results.png) et deux
 // lignes de texte, rien d'autre (volontairement sobre).
-// Usage : node scripts/3d/brand/og.mjs <racine du projet> [--capture http://localhost:3000]
+// Usage : node scripts/3d/brand/og.mjs <racine du projet> [--only=resultats|accueil] [--capture http://localhost:3000]
+//   --only choisit la carte à refaire (resultats par défaut) : l'accueil n'est réécrit que sur demande explicite.
 //   --capture refait les fonds depuis le serveur de dev : vérifiez ensuite que la crypte est bien
 //   cadrée, panneau encore poussiéreux (délais CRYPT_DELAY / HOME_DELAY en ms selon la machine).
 import http from "node:http";
@@ -18,6 +19,7 @@ const sharp = require("sharp");
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(process.argv[2] ?? ".");
 const out = path.join(here, "out");
+const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length) ?? "resultats";
 const captureFrom = process.argv.includes("--capture") ? process.argv[process.argv.indexOf("--capture") + 1] : null;
 const chrome = { executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: "new", args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"] };
 
@@ -38,6 +40,7 @@ if (captureFrom) {
 
 const CARDS = [
   {
+    id: "accueil",
     file: path.join(root, "src/app/opengraph-image.jpg"),
     bg: "bg-home.png",
     l1: "Chamas Tacos",
@@ -45,13 +48,16 @@ const CARDS = [
     alt: "Chamas Tacos : jeux concours Halloween.",
   },
   {
+    id: "resultats",
     file: path.join(root, "src/app/(public)/resultats/opengraph-image.jpg"),
     bg: "bg-results.png",
-    l1: "Chamas Tacos",
-    l2: "Jeux concours Halloween",
-    alt: "Chamas Tacos : jeux concours Halloween, résultats en direct.",
+    l1: "Résultats en direct",
+    l2: "Vote Halloween Chamas Tacos",
+    layout: "left",
+    alt: "Chamas Tacos : résultats en direct du vote Halloween.",
   },
-];
+].filter((c) => c.id === only);
+if (CARDS.length === 0) throw new Error(`--only=${only} inconnu (resultats ou accueil)`);
 
 const types = { ".html": "text/html", ".png": "image/png" };
 const server = http.createServer((req, res) => {
@@ -65,7 +71,7 @@ const page = await browser.newPage();
 await page.setViewport({ width: 1200, height: 630 });
 for (const card of CARDS) {
   await page.goto("http://localhost:5183/", { waitUntil: "networkidle0" });
-  await page.evaluate((c) => window.fill(c), { l1: card.l1, l2: card.l2, bg: card.bg });
+  await page.evaluate((c) => window.fill(c), { l1: card.l1, l2: card.l2, bg: card.bg, layout: card.layout });
   const png = await page.screenshot({ type: "png" });
   fs.writeFileSync(card.file, await sharp(png).jpeg({ quality: 86, mozjpeg: true }).toBuffer());
   fs.writeFileSync(card.file.replace(/\.jpg$/, ".alt.txt"), card.alt);

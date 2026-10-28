@@ -17,6 +17,7 @@ import { ParticipantsTab } from "./ParticipantsTab";
 import { PrizesTab } from "./PrizesTab";
 import { RestaurantsTab } from "./RestaurantsTab";
 import { ResponsesTab, type ResponsesStatus } from "./ResponsesTab";
+import { FraudNotifications } from "./FraudNotifications";
 import { SecurityTab } from "./SecurityTab";
 import { Button } from "./ui";
 import { withBase } from "@/lib/base-path";
@@ -119,6 +120,19 @@ export function AdminDashboard({ role }: { role: Role }) {
     };
   }, [load]);
 
+  // « Voir le groupe » (badge d'un participant) : bascule sur l'onglet Sécurité, qui affiche le jour du groupe.
+  useEffect(() => {
+    const show = () => setTab("security");
+    window.addEventListener("hw:admin-show-group", show);
+    return () => window.removeEventListener("hw:admin-show-group", show);
+  }, []);
+
+  // Nombre de votes en attente devant le titre de l'onglet du navigateur.
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\) /, "");
+    document.title = security && security.pending > 0 ? `(${security.pending}) ${base}` : base;
+  }, [security]);
+
   async function logout() {
     await fetch(withBase("/api/admin/logout"), { method: "POST" });
     router.replace("/admin/login");
@@ -136,7 +150,7 @@ export function AdminDashboard({ role }: { role: Role }) {
             <div>
               <h1 className="text-lg font-bold leading-tight">Backoffice Halloween</h1>
               <p className="text-xs text-muted dark:text-zinc-400">
-                Chamas Tacos ·{" "}
+                Chamas Tacos,{" "}
                 <span className={`font-semibold ${canWrite ? "text-success" : "text-amber-600"}`}>
                   {canWrite ? "Lecture / écriture" : "Lecture seule"}
                 </span>
@@ -147,6 +161,7 @@ export function AdminDashboard({ role }: { role: Role }) {
             <span className="hidden text-xs text-muted sm:inline dark:text-zinc-400" aria-live="polite">
               {failed ? "⚠️ Échec de l'actualisation" : updatedAt ? `Actualisé à ${updatedAt.toLocaleTimeString("fr-FR")}` : "Chargement…"}
             </span>
+            <FraudNotifications tick={tick} onOpenSecurity={() => setTab("security")} />
             <Button variant="ghost" onClick={() => void load()} aria-label="Actualiser" disabled={loading}>
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </Button>
@@ -188,7 +203,14 @@ export function AdminDashboard({ role }: { role: Role }) {
           <Tabs.Trigger value="responses" className={tabClass}>Réponses</Tabs.Trigger>
           <Tabs.Trigger value="decorations" className={tabClass}>Décorations ({decorations.length})</Tabs.Trigger>
           <Tabs.Trigger value="restaurants" className={tabClass}>Restaurants</Tabs.Trigger>
-          <Tabs.Trigger value="security" className={tabClass}>Sécurité{security ? ` (${security.toReview})` : ""}</Tabs.Trigger>
+          <Tabs.Trigger value="security" className={tabClass}>
+            Sécurité
+            {security && security.pending > 0 && (
+              <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-black" aria-label={`${security.pending} vote(s) en attente`}>
+                {security.pending}
+              </span>
+            )}
+          </Tabs.Trigger>
           {canWrite && <Tabs.Trigger value="journal" className={tabClass}>Journal ({journal.sessions.length})</Tabs.Trigger>}
         </Tabs.List>
         <Tabs.Content value="overview">
