@@ -123,6 +123,8 @@ describe("réglages", () => {
       h5_weak_network: true,
       h6_private_seen: true,
       h7_recidivism: true,
+      b4_cross_browser: true,
+      b4_strict_any_network: false,
       h9_weak_nearby: true,
       h9_minutes: 10,
       c2_min_attempts: 3,

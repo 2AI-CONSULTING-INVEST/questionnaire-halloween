@@ -120,6 +120,10 @@ export const deviceSchema = z
     /** Clé matérielle stable (condensé SHA-256) : ne change ni avec la version du navigateur ni avec le mode sombre. */
     hw: z.string().regex(/^[0-9a-f]{64}$/).optional(),
     hwEntropy: z.enum(HW_ENTROPIES).optional(),
+    /** Clé inter-navigateurs (condensé SHA-256) : la même dans tous les navigateurs d'un appareil (B4). */
+    xKey: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+    /** Clé stricte (ordinateurs) : système, cœurs, fuseau, tactile, fabricant de la carte graphique et polices installées, sans écran. */
+    mKey: z.string().regex(/^[0-9a-f]{64}$/).optional(),
     /** Modèle et version majeure d'Android (Chrome Android, `userAgentData`), en clair comme la plateforme. */
     model: z.string().max(40).optional(),
     osVersion: z.string().max(16).optional(),
@@ -214,6 +218,10 @@ export type ResponseRow = {
   // Anti-fraude (migration 2026-10-28) : absents des lignes antérieures, lus comme null.
   /** Clé matérielle stable de l'appareil (HMAC) et sa classe d'entropie. */
   hw_key?: string | null;
+  /** HMAC de la clé inter-navigateurs (B4) : conservé comme hw_key. */
+  xdev_key?: string | null;
+  /** HMAC de la clé stricte (polices comprises), ordinateurs seulement. */
+  xdev_strict_key?: string | null;
   hw_entropy?: HwEntropy | null;
   private_mode?: boolean | null;
   /** HMAC du jeton remis à cet appareil, et HMAC des jetons retrouvés dans son stockage. */

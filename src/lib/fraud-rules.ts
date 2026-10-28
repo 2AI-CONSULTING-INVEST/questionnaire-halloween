@@ -38,6 +38,12 @@ export const FRAUD_RULES = {
     label: "Score de risque au seuil de blocage",
     why: "Automate déclaré, validation impossible à la main, absence d'empreinte : voir les signaux du score ci-dessous.",
   },
+  B4: {
+    kind: "block",
+    label: "Même ordinateur, autre navigateur",
+    why: "Un autre cookie, mais la clé stricte (système, processeurs, fuseau, écran tactile, fabricant de la carte graphique et polices installées, sans dimension d'écran) et le réseau IP d'une tentative du jour, à toute heure : le même ordinateur qui revote depuis un deuxième navigateur. Clé stricte depuis un autre réseau (4G, VPN) : attente (H10), ou refus si le réglage « B4 sur tout réseau » est activé. Clé large seule (sans les polices) : attente (H10). Sur téléphone : attente (H10).",
+    setting: "b4_cross_browser",
+  },
   ip_daily_max: {
     kind: "block",
     label: "Plafond de votes par adresse IP atteint",
@@ -89,6 +95,12 @@ export const FRAUD_RULES = {
     label: "Score de risque au seuil de signalement",
     why: "Tout vote signalé attend une décision humaine : il n'existe plus de vote signalé mais compté.",
   },
+  H10: {
+    kind: "hold",
+    label: "Même appareil probable, autre navigateur (téléphone, clé large, autre réseau, ou Brave)",
+    why: "Clé inter-navigateurs et même réseau sur un téléphone ou une tablette (deux appareils identiques d'un même foyer sur le même Wi-Fi laissent la même trace), clé large seule sur ordinateur (deux PC de même configuration, ou navigateur sans clé stricte comme Safari sur macOS), clé stricte depuis un autre réseau quand le refus sur tout réseau est désactivé, ou Brave sur ordinateur (il brouille écran, processeurs et polices) depuis un réseau qui a déjà une tentative du jour : le vote attend une décision humaine, rien n'est visible à l'arrivée.",
+    setting: "b4_cross_browser",
+  },
   H9: {
     kind: "hold",
     label: "Clé faible, même ville, même décoration, peu après",
@@ -124,6 +136,9 @@ export type RelatedAttempt = {
   city: string | null;
   decorationId: string | null;
   groupId: string | null;
+  /** HMAC de la clé inter-navigateurs (B4, H10), et de la clé stricte (avec les polices, ordinateurs). */
+  xdevKey?: string | null;
+  xdevStrictKey?: string | null;
 };
 
 /** Ce que la requête en cours apporte (signaux du navigateur vérifiés, signaux du serveur). */
@@ -148,28 +163,73 @@ export type RequestFacts = {
   recidivism: boolean;
   tzMismatch: boolean;
   langMismatch: boolean;
+  /** HMAC de la clé inter-navigateurs, et ordinateur (système de bureau, sans écran tactile déclaré). */
+  xdevKey?: string | null;
+  xdevStrictKey?: string | null;
+  computer?: boolean;
+  /** Brave : clés brouillées à chaque visite (H10 sur ordinateur si le réseau a déjà une tentative du jour). */
+  brave?: boolean;
 };
 
-export type Recognition = "cookie" | "storage" | "hw" | null;
+export type Recognition = "cookie" | "storage" | "hw" | "xdev" | null;
 
-type RecognitionFacts = Pick<RequestFacts, "voterId" | "storageKeys" | "hwKey" | "entropy" | "privateMode" | "ipNet" | "city" | "nowMs">;
+type RecognitionFacts = Pick<RequestFacts, "voterId" | "storageKeys" | "hwKey" | "entropy" | "privateMode" | "ipNet" | "city" | "nowMs" | "xdevKey" | "xdevStrictKey" | "computer" | "brave">;
+type XdevSettings = Pick<RiskSettings, "b4_cross_browser" | "b4_strict_any_network">;
+
+/** Tentatives d'un autre cookie avec la même clé inter-navigateurs et le même réseau (B4, H10). */
+export const sameXdev = (f: Pick<RequestFacts, "voterId" | "xdevKey" | "ipNet">, related: RelatedAttempt[]) =>
+  f.xdevKey && f.ipNet ? related.filter((a) => a.xdevKey === f.xdevKey && a.ipNet === f.ipNet && a.voterId !== f.voterId) : [];
+/** Tentatives d'un autre cookie avec la même clé stricte, quel que soit le réseau. */
+export const sameXdevStrict = (f: Pick<RequestFacts, "voterId" | "xdevStrictKey">, related: RelatedAttempt[]) =>
+  f.xdevStrictKey ? related.filter((a) => a.xdevStrictKey === f.xdevStrictKey && a.voterId !== f.voterId) : [];
+
+/**
+ * Issue de la correspondance inter-navigateurs : « block » (B4) sur ordinateur avec la clé stricte
+ * identique et le même réseau (ou tout réseau si le réglage le permet), à toute heure ; « hold » (H10)
+ * sur téléphone, clé large seule et même réseau sur ordinateur (y compris un navigateur sans clé stricte,
+ * Safari sur macOS), clé stricte depuis un autre réseau sans ce réglage, ou Brave sur ordinateur depuis un
+ * réseau qui a déjà une tentative du jour d'un autre cookie ; null sinon.
+ */
+export function crossBrowser(f: Pick<RequestFacts, "voterId" | "xdevKey" | "xdevStrictKey" | "ipNet" | "computer" | "brave">, related: RelatedAttempt[], settings: XdevSettings): "block" | "hold" | null {
+  if (!settings.b4_cross_browser) return null;
+  const wide = sameXdev(f, related).length > 0;
+  if (!f.computer) return wide ? "hold" : null;
+  const strict = sameXdevStrict(f, related);
+  if (strict.some((a) => !!f.ipNet && a.ipNet === f.ipNet)) return "block";
+  if (strict.length) return settings.b4_strict_any_network ? "block" : "hold";
+  // Clé large seule (deux PC de même configuration, ou Safari sans clé stricte) : attente, jamais refus.
+  if (wide) return "hold";
+  // Brave brouille écran, cœurs et polices : aucune clé ne le relie. Même réseau qu'une tentative du jour d'un autre cookie : attente, jamais refus.
+  if (f.brave && f.ipNet && related.some((a) => a.ipNet === f.ipNet && a.voterId !== f.voterId)) return "hold";
+  return null;
+}
 
 /**
  * Seule fonction de reconnaissance d'un appareil qui a déjà une tentative aujourd'hui, partagée par
  * l'arrivée (vote-status), l'ouverture (create) et la validation (complete) : cookie, puis jeton du
- * stockage, puis clé hw forte avec un second indice (si B2 est activé). Une clé forte seule ne reconnaît
+ * stockage, puis clé hw forte avec un second indice (si B2 est activé), puis même ordinateur depuis un
+ * autre navigateur sur le même réseau (B4). Une clé forte seule ne reconnaît
  * pas (deux Android identiques) : la session s'ouvre, la validation la met en attente (H4). Une clé
  * faible (iPhone, iPad) ne reconnaît jamais.
  */
-export function recognize(f: RecognitionFacts, related: RelatedAttempt[], settings: Pick<RiskSettings, "b2_strong_key" | "h9_minutes">): Recognition {
+export function recognize(f: RecognitionFacts, related: RelatedAttempt[], settings: Pick<RiskSettings, "b2_strong_key" | "h9_minutes"> & XdevSettings): Recognition {
   if (f.voterId && related.some((a) => a.voterId === f.voterId)) return "cookie";
   if (f.storageKeys.length && related.some((a) => a.storageKey && f.storageKeys.includes(a.storageKey))) return "storage";
   if (settings.b2_strong_key && strongWithClue(f, sameStrong(f, related), settings.h9_minutes)) return "hw";
+  // B4 : même ordinateur depuis un autre navigateur, même réseau (sur téléphone : H10 à la validation, jamais ici).
+  if (crossBrowser(f, related, settings) === "block") return "xdev";
   return null;
 }
 
 const sameStrong = (f: Pick<RequestFacts, "hwKey" | "entropy">, related: RelatedAttempt[]) =>
   f.entropy === "strong" && f.hwKey ? related.filter((a) => a.entropy === "strong" && a.hwKey === f.hwKey) : [];
+
+/**
+ * Décision d'arrivée (vote-status) : l'écran « déjà voté » s'affiche si l'appareil est reconnu (cookie,
+ * jeton, clé forte avec un second indice, même ordinateur depuis un autre navigateur B4). Mode
+ * observation : le cookie seul. Une mise en attente (H4, H10) ne se voit jamais à l'arrivée.
+ */
+export const arrivalVoted = (recognized: Recognition, mode: RiskSettings["mode"]) => recognized === "cookie" || (recognized !== null && mode === "block");
 
 /**
  * Second indice qui relie la tentative à une tentative de même clé forte : navigation privée détectée,
@@ -224,6 +284,8 @@ export function decide(f: RequestFacts, related: RelatedAttempt[], settings: Ris
   const strongSeen = sameStrong(f, related);
   const strongClue = strongWithClue(f, strongSeen, settings.h9_minutes);
   if (strongSeen.length && settings.b2_strong_key && strongClue) reasons.push("B2");
+  const xdev = crossBrowser(f, related, settings);
+  if (xdev === "block") reasons.push("B4");
 
   let priority = false;
   if (f.stage === "complete") {
@@ -255,6 +317,7 @@ export function decide(f: RequestFacts, related: RelatedAttempt[], settings: Ris
       reasons.push("H9");
       priority = true;
     }
+    if (xdev === "hold") reasons.push("H10");
     if (f.tzMismatch) reasons.push("tz_mismatch");
     if (f.langMismatch) reasons.push("lang_mismatch");
   }

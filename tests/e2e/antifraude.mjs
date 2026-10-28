@@ -162,7 +162,7 @@ async function run() {
   const hex = await admin.req("/api/admin/responses?status=all&q=ff");
   ok("recherche hexa trop courte (2 caractères) → 422 (regex de la route)", hex.status === 422);
 
-  // ----- Anti-fraude (refonte du 2026-10-28) : les 30 scénarios du cahier des charges --------------
+  // ----- Anti-fraude (refonte du 2026-10-28) : les 30 scénarios du cahier des charges, puis B4 et H10 (31 à 36) --------------
   // Réglages par défaut de la méthodologie. Chaque vote laisse 2,1 s entre l'ouverture et la validation
   // (pas de signal « way_too_fast »). Chaque scénario a ses clés et ses adresses IP.
   console.log("\nAnti-fraude");
@@ -420,6 +420,86 @@ async function run() {
   const brave = await vote(client("30.0.0.1", { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36", "sec-ch-ua": '"Brave";v="156", "Chromium";v="156", "Not=A?Brand";v="24"' }), { ...ANDROID("brave"), hwEntropy: "noisy", mobile: false, platform: "Windows", browser: "Brave 156", screen: "1366x768@1.5" });
   const braveRow = await score(brave.sid);
   ok("30. Brave honnête : aucun signal browser_mismatch, compté", brave.status === 200 && !(braveRow.risk_flags ?? []).includes("browser_mismatch") && statusOf(braveRow) === "counted", braveRow.risk_flags);
+
+  // 31. même ordinateur Windows, trois navigateurs (Chrome, Firefox, Edge), même réseau : B4
+  const UA_WIN = {
+    chrome: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+    firefox: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+    edge: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0",
+  };
+  const PC = (browser, key, extra = {}) => ({
+    hash: sha(`h-${key}-${browser}`),
+    hw: sha(`hw-${key}-${browser}`), // chaque navigateur a sa clé matérielle (carte graphique masquée, langues, mémoire)
+    hwEntropy: browser === "firefox" ? "weak" : "strong",
+    xKey: sha(`x-${key}`),
+    mKey: sha(`m-${key}`), // clé stricte : polices identiques d'un navigateur à l'autre (relevé réel Chrome et Edge)
+    mobile: false,
+    platform: "Windows",
+    browser: { chrome: "Chrome 156", firefox: "Firefox 140", edge: "Edge 156" }[browser],
+    screen: "1536x864@1.25",
+    touch: false,
+    webdriver: false,
+    ...extra,
+  });
+  const pc = (ip, browser) => client(ip, { "User-Agent": UA_WIN[browser] });
+  const c31 = await vote(pc("31.0.0.1", "chrome"), PC("chrome", "pc31"));
+  const arrival31 = (await pc("31.0.0.1", "firefox").req("/api/vote-status", { method: "POST", body: { device: PC("firefox", "pc31") } })).body;
+  ok("31. arrivée du 2e navigateur (Firefox), avant toute ouverture : votedToday et nextResetAt (écran « déjà voté », sans bouton)", arrival31.votedToday === true && typeof arrival31.nextResetAt === "string" && !("reason" in arrival31), arrival31);
+  const f31 = await open(pc("31.0.0.1", "firefox"), randomUUID(), PC("firefox", "pc31"));
+  const e31 = await open(pc("31.0.0.1", "edge"), randomUUID(), PC("edge", "pc31"));
+  const c31row = await score(c31.sid);
+  ok("31. même PC (même clé stricte), Chrome puis Firefox puis Edge, même IP : Chrome compté, Firefox et Edge refusés dès l'ouverture (B4)", c31.status === 200 && statusOf(c31row) === "counted" && refusal(f31) && refusal(e31), [c31.status, f31.status, e31.status]);
+  const list31 = (await admin.req("/api/admin/fraud/review?kind=fraud&limit=100")).body;
+  ok("31. les refus portent la raison B4 et sont visibles dans « Votes frauduleux »", list31.items.some((p) => p.firstView.reasons.includes("B4")));
+
+  // 32. même PC, autre navigateur, passage en 4G : clé stricte (polices). Attente par défaut, refus avec « B4 sur tout réseau »
+  const strict = { mKey: sha("m-pc32") };
+  const c32 = await vote(pc("32.0.0.1", "chrome"), PC("chrome", "pc32", strict));
+  const f32 = await vote(pc("32.1.0.1", "firefox"), PC("firefox", "pc32", strict));
+  const f32row = await score(f32.sid);
+  ok("32. clé stricte depuis un autre réseau (4G), réglage par défaut : ouverture 201, en attente (H10), non compté", c32.status === 200 && f32.stage === "complete" && f32.status === 200 && statusOf(f32row) === "held" && f32row.fraud_reasons.includes("H10"), [f32.stage, f32row.fraud_reasons]);
+  await setSettings({ b4_strict_any_network: true });
+  const e32 = await open(pc("32.2.0.1", "edge"), randomUUID(), PC("edge", "pc32", strict));
+  await setSettings();
+  ok("32. même PC, autre navigateur, passage en 4G, « B4 sur tout réseau » activé : refusé avec la clé stricte", refusal(e32), [e32.status, e32.body]);
+
+  // 33. Chrome sur le Wi-Fi, puis Edge en 4G : clé stricte identique (Roboto, exposée par Edge seul, n'est pas mesurée)
+  const strict33 = { mKey: sha("m-pc33") };
+  const c33 = await vote(pc("33.0.0.1", "chrome"), PC("chrome", "pc33", strict33));
+  const e33 = await vote(pc("33.1.0.1", "edge"), PC("edge", "pc33", strict33));
+  const e33row = await score(e33.sid);
+  ok("33. Chrome sur le Wi-Fi puis Edge en 4G, réglage par défaut : Edge en attente (H10)", c33.status === 200 && e33.stage === "complete" && statusOf(e33row) === "held" && e33row.fraud_reasons.includes("H10"), [e33.stage, e33row.fraud_reasons]);
+  await setSettings({ b4_strict_any_network: true });
+  const e33b = await open(pc("33.2.0.1", "edge"), randomUUID(), PC("edge", "pc33-bis", strict33));
+  await setSettings();
+  ok("33. même cas avec « B4 sur tout réseau » activé : refusé", refusal(e33b), [e33b.status]);
+
+  // 34. deux PC de même configuration (même clé large), polices différentes (autre clé stricte), même réseau
+  const c34 = await vote(pc("34.0.0.1", "chrome"), PC("chrome", "pc34"));
+  const o34sid = randomUUID();
+  const second34 = pc("34.0.0.1", "chrome");
+  const other34 = PC("chrome", "pc34", { hw: sha("hw-pc34-second"), hash: sha("h-pc34-second"), mKey: sha("m-pc34-autres-polices") });
+  const o34 = await open(second34, o34sid, other34);
+  await sleep(2100);
+  const v34 = await complete(second34, o34sid, other34);
+  const r34 = await score(o34sid);
+  ok("34. deux PC, même clé large, clé stricte différente, même IP : 201 à l'ouverture puis en attente (H10), jamais refusé", c34.status === 200 && o34.status === 201 && v34.status === 200 && statusOf(r34) === "held" && r34.fraud_reasons.includes("H10") && !r34.fraud_reasons.includes("B4"), [o34.status, v34.status, r34.fraud_reasons]);
+
+  // 35. Chrome puis Brave sur le même réseau : Brave brouille ses clés, seul le réseau le relie (H10)
+  const c35 = await vote(pc("35.0.0.1", "chrome"), PC("chrome", "pc35"));
+  const brave35 = client("35.0.0.1", { "User-Agent": UA_WIN.chrome, "sec-ch-ua": '"Brave";v="156", "Chromium";v="156", "Not=A?Brand";v="24"' });
+  const b35 = await vote(brave35, PC("chrome", "pc35-brave-brouille", { hwEntropy: "noisy", browser: "Brave 156", xKey: sha(`x-brave-${randomUUID()}`), mKey: sha(`m-brave-${randomUUID()}`) }));
+  const r35 = await score(b35.sid);
+  ok("35. Chrome puis Brave, même réseau : Brave en attente (H10), jamais refusé", c35.status === 200 && b35.stage === "complete" && b35.status === 200 && statusOf(r35) === "held" && r35.fraud_reasons.includes("H10"), [b35.stage, r35.fraud_reasons]);
+
+  // 36. même PC à deux écrans : fenêtre glissée de 1536x960@1,25 vers 2560x1440@1. Clé matérielle et clé
+  // stricte calculées sans l'écran (même valeur) ; la clé large change (elle garde l'écran).
+  const twoScreens = (screenLabel, extra = {}) => PC("chrome", "pc36", { screen: screenLabel, ...extra });
+  const c36 = await vote(pc("36.0.0.1", "chrome"), twoScreens("1536x960@1.25", { xKey: sha("x-pc36-ecran-portable") }));
+  const second36 = pc("36.0.0.1", "edge");
+  const arrival36 = (await second36.req("/api/vote-status", { method: "POST", body: { device: PC("edge", "pc36", { screen: "2560x1440@1", xKey: sha("x-pc36-ecran-externe") }) } })).body;
+  const o36 = await open(second36, randomUUID(), PC("edge", "pc36", { screen: "2560x1440@1", xKey: sha("x-pc36-ecran-externe") }));
+  ok("36. même PC, autre écran (2560x1440@1 contre 1536x960@1,25), même réseau : « déjà voté » à l'arrivée et refus B4 à l'ouverture", c36.status === 200 && arrival36.votedToday === true && refusal(o36), [arrival36, o36.status]);
 
   // Compteurs de l'onglet Sécurité (lecture seule : IP masquées)
   const sec = await viewer.req("/api/admin/security");

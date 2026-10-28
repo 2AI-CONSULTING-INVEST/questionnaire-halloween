@@ -6,12 +6,12 @@ import { formatWait, speakWait } from "../../src/lib/countdown";
 import { countedVotesByParticipant } from "../../src/lib/db";
 import { nextParisMidnight } from "../../src/lib/day";
 import { participantsRows } from "../../src/lib/export";
-import { entropyClass, physicalPx } from "../../src/lib/fingerprint";
+import { crossBrowserText, entropyClass, FONT_LIST, gpuVendor, hwScreen, installedFonts, isComputerUa, osFamily, physicalPx, strictEligible, strictText } from "../../src/lib/fingerprint";
 import { readGeo } from "../../src/lib/ip-geo";
 import { toPublicResults } from "../../src/lib/public-results";
 import { redactForViewer } from "../../src/lib/redact";
 import { isCounted, voteStatus, type Decoration, type Participant, type ResponseRow } from "../../src/lib/schema";
-import { deviceToken, effectiveEntropy, storageKeyOf, uaImpliesStrong } from "../../src/lib/voter";
+import { deviceToken, effectiveEntropy, isComputer, storageKeyOf, uaImpliesStrong } from "../../src/lib/voter";
 
 process.env.ADMIN_SESSION_SECRET ??= "test-secret-de-session-assez-long-0123456789";
 
@@ -148,6 +148,90 @@ describe("appareil : classe d'entropie, jetons, double validation", () => {
     assert.equal(effectiveEntropy(undefined, samsung, null), "weak");
     assert.equal(effectiveEntropy("noisy", windows, '"Brave";v="156"'), "noisy");
     assert.deepEqual([android, windows, mac, firefox, iphone, samsung].map((ua) => uaImpliesStrong(ua, null, "Pixel 8")), [true, true, true, false, false, false]);
+  });
+  it("clé inter-navigateurs : mêmes valeurs dans Chrome, Firefox et Edge ; processeurs plafonnés à 8, zoom sans effet", () => {
+    const base = { os: "windows", width: 1536, height: 864, dpr: 1.25, cores: 12, tz: "Europe/Paris", touchPoints: 0 };
+    const chrome = crossBrowserText(base);
+    assert.equal(crossBrowserText({ ...base, cores: 16, width: 1745, height: 982, dpr: 1.1 }), chrome, "Firefox (16 coeurs au plus), zoom 110 %");
+    assert.notEqual(crossBrowserText({ ...base, cores: 4 }), chrome);
+    assert.notEqual(crossBrowserText({ ...base, touchPoints: 10 }), chrome);
+    assert.deepEqual(
+      [
+        osFamily("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", undefined, false),
+        osFamily("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/156.0 Safari/537.36 Edg/156.0", "Windows", false),
+        osFamily("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15", undefined, true),
+        osFamily("Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) Chrome/156.0 Safari/537.36", "Chrome OS", false),
+      ],
+      ["windows", "windows", "ios", "chromeos"],
+    );
+  });
+  it("clé stricte : polices détectées par largeur, calculée seulement là où elle est stable", () => {
+    const installed = new Set(["Calibri", "Segoe UI"]);
+    const measure = (font: string) => {
+      const m = font.match(/"([^"]+)"/);
+      return m && installed.has(m[1]) ? 101 : 100;
+    };
+    assert.deepEqual(installedFonts(measure, ["Arial Black", "Calibri", "Segoe UI", "Menlo"]), ["Calibri", "Segoe UI"]);
+    assert.equal(strictEligible("windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"), true);
+    assert.equal(strictEligible("macos", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15"), false, "Safari masque les polices ajoutées");
+    assert.equal(strictEligible("macos", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/156.0 Safari/537.36"), true);
+    assert.equal(strictEligible("android", "Mozilla/5.0 (Linux; Android 14) Chrome/156.0 Mobile Safari/537.36"), false);
+  });
+  it("A29 : Chrome et Edge sur le même poste (Edge expose Roboto en plus) : même clé stricte après filtrage", () => {
+    for (const f of ["Roboto", "Noto Sans", "Noto Serif", "Open Sans", "Twemoji Mozilla", "Aptos"]) assert.ok(!FONT_LIST.includes(f), f);
+    const chrome = new Set(FONT_LIST.slice(0, 108)); // relevé de l'auditeur : 108 polices côté Chrome
+    const edge = new Set([...chrome, "Roboto"]); // 109 côté Edge : les mêmes, plus Roboto
+    const measureFor = (installed: Set<string>) => (font: string) => {
+      const m = font.match(/"([^"]+)"/);
+      return m && installed.has(m[1]) ? 101 : 100;
+    };
+    const keyOf = (installed: Set<string>) => strictText({ os: "windows", cores: 8, tz: "Europe/Paris", touchPoints: 0, gpu: "intel", fonts: installedFonts(measureFor(installed)) });
+    assert.equal(keyOf(edge), keyOf(chrome));
+  });
+  it("A31 : ordinateur d'après l'agent utilisateur, écran tactile compris ; iPad en mode ordinateur exclu ; xKey stable", () => {
+    const win = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/156.0 Safari/537.36";
+    const mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15";
+    assert.equal(isComputer(win, true), true, "PC Windows tactile");
+    assert.equal(isComputer(win, false), true);
+    assert.equal(isComputer(mac, false), true);
+    assert.equal(isComputer(mac, true), false, "iPad en mode ordinateur");
+    assert.equal(isComputer("Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) Chrome/156.0", true), true);
+    assert.equal(isComputer("Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/156.0 Mobile Safari/537.36", false), false);
+    const touchPc = { os: "windows", width: 1920, height: 1280, dpr: 1.5, cores: 8, tz: "Europe/Paris" };
+    assert.equal(crossBrowserText({ ...touchPc, touchPoints: 10 }), crossBrowserText({ ...touchPc, touchPoints: 5 }), "écran tactile en oui ou non : même clé quel que soit le nombre de points annoncé");
+  });
+  it("A36 : deux écrans sur le même PC (1536x960@1,25 et 2560x1440@1) : même clé stricte, même écran (vide) dans la clé matérielle", () => {
+    const machine = { os: "windows", cores: 12, tz: "Europe/Paris", touchPoints: 0, gpu: "intel", fonts: ["Calibri", "Segoe UI"] };
+    assert.equal(strictText({ ...machine }), strictText({ ...machine }), "aucune dimension d'écran dans la clé stricte");
+    assert.ok(!strictText(machine).includes("1920") && !strictText(machine).includes("2560"));
+    assert.equal(hwScreen(true, 1536, 960, 1.25, 24), hwScreen(true, 2560, 1440, 1, 30), "ordinateur : l'écran n'entre pas dans la clé matérielle");
+    assert.notEqual(hwScreen(false, 412, 915, 2.625, 24), hwScreen(false, 393, 851, 2.75, 24), "téléphone : l'écran reste dans la clé");
+    assert.equal(hwScreen(false, 412, 915, 2.625, 24), "1080x2400x24");
+    assert.notEqual(crossBrowserText({ os: "windows", width: 1536, height: 960, dpr: 1.25, cores: 12, tz: "Europe/Paris", touchPoints: 0 }), crossBrowserText({ os: "windows", width: 2560, height: 1440, dpr: 1, cores: 12, tz: "Europe/Paris", touchPoints: 0 }), "la clé large garde l'écran (limite documentée)");
+  });
+  it("A36 : fabricant de la carte graphique normalisé (Chrome ANGLE, Edge, Firefox, Safari)", () => {
+    const cases: [string, string][] = [
+      ["Google Inc. (Intel)/ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00005917) Direct3D11 vs_5_0 ps_5_0, D3D11)", "intel"],
+      ["Google Inc. (Intel)/ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)", "intel"],
+      ["Mozilla/ANGLE (Intel, Intel(R) HD Graphics 400 Direct3D11 vs_5_0 ps_5_0)", "intel"],
+      ["Google Inc. (NVIDIA)/ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)", "nvidia"],
+      ["Mozilla/ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0)", "nvidia"],
+      ["Google Inc. (AMD)/ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001638) Direct3D11 vs_5_0 ps_5_0, D3D11)", "amd"],
+      ["Google Inc. (Apple)/ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)", "apple"],
+      ["Apple Inc./Apple GPU", "apple"],
+      ["Google Inc. (Qualcomm)/ANGLE (Qualcomm, Adreno (TM) 730, OpenGL ES 3.2)", "qualcomm"],
+      ["ARM/Mali-G78", "arm"],
+      ["Google Inc. (Google)/ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)", "autre"],
+      ["Mozilla/Mozilla", "autre"],
+      ["", "autre"],
+    ];
+    for (const [renderer, vendor] of cases) assert.equal(gpuVendor(renderer), vendor, renderer);
+  });
+  it("A36 : ordinateur côté navigateur, même logique que le serveur", () => {
+    const win = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/156.0";
+    const mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Version/18.0 Safari/605.1.15";
+    assert.deepEqual([isComputerUa(win, 10), isComputerUa(mac, 0), isComputerUa(mac, 5), isComputerUa("Mozilla/5.0 (Linux; Android 14) Mobile", 5)], [true, true, false, false]);
+    assert.deepEqual([isComputer(win, true), isComputer(mac, false), isComputer(mac, true)], [true, true, false]);
   });
   it("A17 : Android sans modèle ou en WebView, jamais fort (client et serveur)", () => {
     const android = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 Chrome/156.0 Mobile Safari/537.36";

@@ -8,7 +8,7 @@ import { ipClass, ipNetwork } from "./ip-class";
 import { readGeo } from "./ip-geo";
 import { loadRiskSettings, type RiskSettings } from "./risk";
 import { isCookieRefusal, voteStatus, type Device, type Participant, type ResponseRow } from "./schema";
-import { effectiveEntropy, hwKeyOf, storageKeyOf } from "./voter";
+import { effectiveEntropy, hwKeyOf, isComputer, storageKeyOf, xdevKeyOf, xdevStrictKeyOf } from "./voter";
 
 /**
  * Orchestration serveur de l'anti-fraude : signaux de la requête (HMAC, classe et position de l'IP),
@@ -25,6 +25,10 @@ export type RequestSignals = {
   country: string | null;
   tzMismatch: boolean;
   langMismatch: boolean;
+  /** Ordinateur (B4 : refus) ou téléphone et tablette (H10 : attente). */
+  computer: boolean;
+  /** Brave (marque dans Sec-CH-UA) : écran, cœurs et polices brouillés, ses clés ne relient rien. */
+  brave: boolean;
 };
 
 /** Langue principale de l'en-tête Accept-Language (« fr-FR,fr;q=0.9 » → « fr »). */
@@ -40,6 +44,8 @@ export async function requestSignals(req: Request, ip: string | null, device: De
   return {
     stamp: {
       hw_key: hwKeyOf(device?.hw),
+      xdev_key: xdevKeyOf(device?.xKey),
+      xdev_strict_key: xdevStrictKeyOf(device?.mKey),
       hw_entropy: device?.hw ? entropy : null,
       private_mode: device?.privateMode ?? null,
       seen_storage: storageKeys.length ? storageKeys : null,
@@ -57,6 +63,8 @@ export async function requestSignals(req: Request, ip: string | null, device: De
     country: geo.country,
     tzMismatch: !!(device?.tz && geo.timezone && device.tz !== geo.timezone),
     langMismatch: !!(acceptLang && declaredLang && acceptLang !== declaredLang),
+    computer: isComputer(req.headers.get("user-agent"), device?.touch),
+    brave: /"Brave"/.test(req.headers.get("sec-ch-ua") ?? "") || device?.browser?.startsWith("Brave") === true,
   };
 }
 
@@ -74,11 +82,20 @@ export const toRelated = (r: ResponseRow): RelatedAttempt => ({
   city: r.ip_city ?? null,
   decorationId: r.selected_decoration_id,
   groupId: r.group_id ?? null,
+  xdevKey: r.xdev_key ?? null,
+  xdevStrictKey: r.xdev_strict_key ?? null,
+});
+
+/** Clés inter-navigateurs de la requête ; Brave sur ordinateur (clés brouillées) : son réseau, pour H10. */
+const xdevKeys = (sig: RequestSignals) => ({
+  xdevKey: sig.stamp.xdev_key ?? null,
+  xdevStrictKey: sig.stamp.xdev_strict_key ?? null,
+  ipNet: sig.brave && sig.computer ? (sig.stamp.ip_net ?? null) : null,
 });
 
 /** Reconnaissance d'un appareil qui a déjà une tentative aujourd'hui (arrivée et ouverture). */
 export async function recognizeDevice(store: Store, settings: RiskSettings, day: string, voterId: string | null, sig: RequestSignals, nowMs: number) {
-  const related = (await store.relatedAttempts(day, { voterId, hwKey: sig.stamp.hw_key ?? null, storageKeys: sig.storageKeys })).map(toRelated);
+  const related = (await store.relatedAttempts(day, { voterId, hwKey: sig.stamp.hw_key ?? null, storageKeys: sig.storageKeys, ...xdevKeys(sig) })).map(toRelated);
   const facts = {
     voterId,
     storageKeys: sig.storageKeys,
@@ -88,6 +105,10 @@ export async function recognizeDevice(store: Store, settings: RiskSettings, day:
     ipNet: sig.stamp.ip_net ?? null,
     city: sig.stamp.ip_city ?? null,
     nowMs,
+    xdevKey: sig.stamp.xdev_key ?? null,
+    xdevStrictKey: sig.stamp.xdev_strict_key ?? null,
+    computer: sig.computer,
+    brave: sig.brave,
   };
   return { recognized: recognize(facts, related, settings), related };
 }
@@ -102,7 +123,7 @@ export async function decideVote(
   const hwKey = sig.stamp.hw_key ?? null;
   const entropy = sig.stamp.hw_entropy ?? null;
   const [rows, recidivism] = await Promise.all([
-    store.relatedAttempts(input.day, { voterId: input.voterId, hwKey, storageKeys: sig.storageKeys }),
+    store.relatedAttempts(input.day, { voterId: input.voterId, hwKey, storageKeys: sig.storageKeys, ...xdevKeys(sig) }),
     settings.h7_recidivism && entropy === "strong" && hwKey ? store.hwConfirmedBefore(hwKey, input.day) : Promise.resolve(false),
   ]);
   const facts: RequestFacts = {
@@ -123,6 +144,10 @@ export async function decideVote(
     recidivism,
     tzMismatch: sig.tzMismatch,
     langMismatch: sig.langMismatch,
+    xdevKey: sig.stamp.xdev_key ?? null,
+    xdevStrictKey: sig.stamp.xdev_strict_key ?? null,
+    computer: sig.computer,
+    brave: sig.brave,
   };
   return decide(facts, rows.map(toRelated), settings);
 }
@@ -152,6 +177,9 @@ export function toGraphAttempt(r: ResponseRow, participants: Map<string, Partici
     email: p?.email ?? null,
     humanDecision: r.human_decision ?? null,
     cookieRefusal: isCookieRefusal(r),
+    xdevKey: r.xdev_key ?? null,
+    xdevStrictKey: r.xdev_strict_key ?? null,
+    computer: isComputer(r.user_agent, r.device_info?.touch),
     createdMs: Date.parse(r.created_at),
     autoExcluded: r.exclusion_source === "auto",
     groupId: r.group_id ?? null,

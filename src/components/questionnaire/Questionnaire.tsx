@@ -191,7 +191,11 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
           syncServerClock(status.now);
           if (blockedOpen.current) return; // la fermeture de la modale mène à l'écran « déjà voté »
           const st = useQuestionnaire.getState();
-          if (status.votedToday && !(st.voteCompleted && st.voteDay === status.today && !st.raffleDone)) setAlreadyVoted({ nextResetAt: status.nextResetAt });
+          if (status.votedToday && !(st.voteCompleted && st.voteDay === status.today && !st.raffleDone)) {
+            // Repère du jour posé aussi dans ce navigateur (nouveau navigateur reconnu par B4) : un rechargement reste verrouillé.
+            markVoteDay(status.today);
+            setAlreadyVoted({ nextResetAt: status.nextResetAt });
+          }
           else if (!status.votedToday && markerLock) setAlreadyVoted(null); // le serveur ne connaît aucune tentative : il tranche
         })
         .catch(() => undefined)

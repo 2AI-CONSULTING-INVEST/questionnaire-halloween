@@ -265,3 +265,22 @@ describe("A19 : identifiant de groupe stable", () => {
     assert.equal(buildGroups(DAY, [t("b-2", 10), t("a-2", 10)], OPTS)[0].id, `${DAY}:a-2`);
   });
 });
+
+describe("lien « même ordinateur, autre navigateur »", () => {
+  it("ordinateurs, même clé stricte et même réseau : groupe confirmé (C1), le second vote exclu", () => {
+    const list = [a({ xdevKey: "x", xdevStrictKey: "m", computer: true, ipNet: "9.9.9.1" }), a({ xdevKey: "x", xdevStrictKey: "m", computer: true, ipNet: "9.9.9.1" })];
+    const [g] = buildGroups(DAY, list, OPTS);
+    assert.deepEqual([g.status, g.conditions, g.exclude], ["confirmed", ["C1"], [list[1].id]]);
+  });
+  it("clé large seule (polices différentes), même réseau : lien suspect, jamais confirmé", () => {
+    const list = [a({ xdevKey: "x", xdevStrictKey: "m1", computer: true, ipNet: "9.9.9.6" }), a({ xdevKey: "x", xdevStrictKey: "m2", computer: true, ipNet: "9.9.9.6" })];
+    assert.deepEqual(kinds(list), ["xdev_wide"]);
+    const [g] = buildGroups(DAY, list, OPTS);
+    assert.deepEqual([g.status, g.exclude], ["suspect", []]);
+  });
+  it("téléphones, autre réseau, ou même cookie : aucun lien", () => {
+    assert.deepEqual(kinds([a({ xdevKey: "x", ipNet: "9.9.9.2" }), a({ xdevKey: "x", ipNet: "9.9.9.2" })]), []);
+    assert.deepEqual(kinds([a({ xdevKey: "x", computer: true, ipNet: "9.9.9.3" }), a({ xdevKey: "x", computer: true, ipNet: "9.9.9.4" })]), []);
+    assert.deepEqual(kinds([a({ voterId: "v", xdevKey: "x", computer: true, ipNet: "9.9.9.5" }), a({ voterId: "v", xdevKey: "x", computer: true, ipNet: "9.9.9.5" })]), []);
+  });
+});

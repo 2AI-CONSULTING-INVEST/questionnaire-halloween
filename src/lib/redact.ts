@@ -3,6 +3,8 @@ import { formatFrPhone, type Participant, type ResponseRow, type Visit } from ".
 /** Champs anti-fraude masqués pour le rôle « lecture seule » : clé matérielle, stockage, réseau et tout ce qui est déduit de l'IP. */
 const VIEWER_HIDDEN = [
   "hw_key",
+  "xdev_key",
+  "xdev_strict_key",
   "hw_entropy",
   "private_mode",
   "storage_key",

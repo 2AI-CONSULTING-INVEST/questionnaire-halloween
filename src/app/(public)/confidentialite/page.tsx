@@ -71,7 +71,9 @@ export default function PrivacyPage() {
               <strong className="text-fg">Vote</strong> (table des réponses)&nbsp;: restaurant préféré, décoration choisie, commentaire facultatif, choix du tirage, jour du vote, dates
               de création et de validation, identifiant aléatoire de l&apos;appareil (cookie), adresse IP, navigateur (agent utilisateur), empreinte d&apos;appareil
               (condensé HMAC non réversible), clé matérielle de l&apos;appareil (condensé HMAC non réversible de caractéristiques stables : écran, processeur, carte
-              graphique, langues, fuseau) et sa classe, navigation privée détectée ou non, condensé du jeton gardé sur l&apos;appareil, attributs grossiers de
+              graphique, langues, fuseau) et sa classe, clé inter-navigateurs de l&apos;appareil (condensé HMAC non réversible du système, de la
+              définition de l&apos;écran, du nombre de processeurs, du fuseau et de l&apos;écran tactile, identique dans tous ses navigateurs), polices installées
+              (ordinateurs, condensé non réversible), navigation privée détectée ou non, condensé du jeton gardé sur l&apos;appareil, attributs grossiers de
               l&apos;appareil (téléphone ou ordinateur, plateforme, modèle et version d&apos;Android le cas échéant, taille d&apos;écran, tactile, navigateur), score,
               règles anti-fraude appliquées et statut du vote (compté, en attente de vérification, refusé ou exclu).
             </li>
@@ -109,7 +111,7 @@ export default function PrivacyPage() {
           <h2 className={h2}>Durées de conservation</h2>
           <ul className={ul}>
             <li>Adresse IP, navigateur, attributs d&apos;appareil et tout ce qui est déduit de l&apos;IP (type de connexion, pays, fuseau, ville, position)&nbsp;: effacés 30 jours après le vote.</li>
-            <li>Empreinte et clé matérielle (condensés non réversibles)&nbsp;: conservées avec le vote, jusqu&apos;à la fin de l&apos;opération.</li>
+            <li>Empreinte, clé matérielle et clé inter-navigateurs (condensés non réversibles)&nbsp;: conservées avec le vote, jusqu&apos;à la fin de l&apos;opération.</li>
             <li>Visites, partages et abonnements&nbsp;: supprimés après 90 jours.</li>
             <li>Journal du backoffice&nbsp;: supprimé après 180 jours&nbsp;; tentatives de connexion échouées&nbsp;: après 30 jours.</li>
             <li>Votes (sans IP ni navigateur) et participants au tirage&nbsp;: jusqu&apos;à la fin de l&apos;opération et la remise des lots.</li>

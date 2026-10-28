@@ -57,6 +57,34 @@ function examples(settings: RiskSettings) {
       related: [earlier({})],
     },
     {
+      title: "Même ordinateur, autre navigateur",
+      tone: "danger",
+      text: "Vote sous Chrome, puis Firefox sur le même PC et le même réseau : autre cookie, autre clé matérielle, mais même clé stricte (polices comprises).",
+      facts: { ...BASE, hwKey: "k2", entropy: "weak", xdevKey: "x1", xdevStrictKey: "m1", computer: true },
+      related: [earlier({ xdevKey: "x1", xdevStrictKey: "m1", ipNet: BASE.ipNet })],
+    },
+    {
+      title: "Deux PC de même configuration sur le même réseau",
+      tone: "warn",
+      text: "Même système, même écran, même processeur, même fuseau, mais pas les mêmes polices : rien ne prouve que c'est le même ordinateur, le vote attend une décision humaine (H10).",
+      facts: { ...BASE, hwKey: "k2", entropy: "weak", xdevKey: "x4", xdevStrictKey: "m4", computer: true },
+      related: [earlier({ xdevKey: "x4", xdevStrictKey: "m5", ipNet: BASE.ipNet })],
+    },
+    {
+      title: "Même ordinateur, autre navigateur, passage en 4G",
+      tone: "warn",
+      text: "Autre réseau, mais même clé stricte (polices installées comprises) : attente, ou refus si « B4 sur tout réseau » est activé.",
+      facts: { ...BASE, hwKey: "k2", entropy: "weak", xdevKey: "x3", xdevStrictKey: "m3", computer: true, ipNet: "192.0.2.77" },
+      related: [earlier({ xdevKey: "x3", xdevStrictKey: "m3" })],
+    },
+    {
+      title: "Deux téléphones identiques sur le même Wi-Fi, autre navigateur",
+      tone: "warn",
+      text: "Même correspondance que B4 sur téléphone : deux appareils d'un même foyer restent possibles, le vote attend une décision humaine (H10).",
+      facts: { ...BASE, hwKey: "k2", entropy: "weak", xdevKey: "x2", computer: false },
+      related: [earlier({ xdevKey: "x2", ipNet: BASE.ipNet })],
+    },
+    {
       title: "Deux Android identiques, autre réseau, autre ville",
       tone: "warn",
       text: "Même modèle, même clé forte, mais aucun second indice : le vote attend une décision humaine, il n'est pas refusé.",
@@ -282,6 +310,8 @@ export function RiskMethodology({ settings }: { settings: RiskSettings }) {
                 <li>Deux iPhone du même modèle, même version d&apos;iOS et mêmes réglages sont indiscernables pour une page web.</li>
                 <li>La position est celle déduite de l&apos;IP : précise à la ville, parfois fausse sur les réseaux mobiles, incapable de distinguer deux voisins.</li>
                 <li>Deux Android identiques (même modèle, même version, même langue) partagent la clé forte : sans second indice, le second vote est mis en attente (H4), pas refusé ; avec un second indice (même réseau, même ville peu après, navigation privée), il est refusé (B2). Recommandation : démarrer en mode observation et mesurer le nombre de cookies distincts par clé et par jour avant d&apos;appliquer.</li>
+                <li>Même ordinateur, autre navigateur et autre réseau (VPN, 4G) : seule la clé stricte (polices) relie les deux, en attente par défaut ; sans elle (Safari sur macOS, Firefox strict ou privé), rien ne les relie hormis le moteur de groupes. Deux PC sans logiciel ajouté (mêmes polices de série), même nombre de cœurs, même fabricant de carte graphique, même réseau : B4 les confond, refus visible, l&apos;admin peut réintégrer.</li>
+                <li>Clé stricte : système, cœurs (8 au plus), fuseau, écran tactile, fabricant de la carte graphique, polices ; aucune dimension d&apos;écran (elle ne change pas d&apos;un écran à l&apos;autre). La clé large garde l&apos;écran et ne relie pas deux écrans du même PC.</li>
                 <li>Un script qui n&apos;envoie pas le modèle Android obtient une clé faible et échappe à B2 et H4, comme un agent utilisateur falsifié.</li>
                 <li>Un ordinateur au rendu graphique logiciel (machine virtuelle, bureau à distance) est traité comme fort : deux postes identiques peuvent se heurter à H4, ou à B2 avec un second indice.</li>
                 <li>Un script qui invente une clé différente à chaque vote échappe aux règles de clé : le score, la classe d&apos;IP et le plafond par IP restent les garde-fous.</li>

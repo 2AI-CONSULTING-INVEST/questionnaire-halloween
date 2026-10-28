@@ -37,6 +37,10 @@ export type GraphAttempt = {
   humanDecision: "validated" | "excluded" | null;
   /** Refus par reconnaissance du cookie (schema.ts, `isCookieRefusal`) : hors du moteur de groupes. */
   cookieRefusal?: boolean;
+  /** HMAC de la clé inter-navigateurs, et ordinateur (lien « même ordinateur, autre navigateur »). */
+  xdevKey?: string | null;
+  xdevStrictKey?: string | null;
+  computer?: boolean;
   /** Ouverture de la session (created_at), pour l'identifiant d'un groupe sans vote ; à défaut `atMs`. */
   createdMs?: number;
   /** Exclusion déjà posée par le moteur (pour ne réécrire que ce qui change). */
@@ -48,6 +52,8 @@ export const LINK_KINDS = {
   cookie: { label: "Même cookie de vote", confirms: false, suspectOnly: false },
   storage: { label: "Jeton du stockage de l'appareil", confirms: true, suspectOnly: false },
   participant: { label: "Même participant au tirage (pseudo, téléphone ou email)", confirms: true, suspectOnly: false },
+  xdev: { label: "Même ordinateur, autre navigateur, même réseau (clé stricte, polices comprises)", confirms: true, suspectOnly: false },
+  xdev_wide: { label: "Même configuration d'ordinateur, même réseau (clé large seule)", confirms: false, suspectOnly: true },
   strong: { label: "Même clé matérielle forte", confirms: false, suspectOnly: false },
   weak_network: { label: "Même clé faible et même réseau", confirms: false, suspectOnly: false },
   weak_anonymous: { label: "Même clé faible, deux IP Tor ou hébergeur", confirms: false, suspectOnly: false },
@@ -57,7 +63,7 @@ export type LinkKind = keyof typeof LINK_KINDS;
 export type Link = { a: string; b: string; kind: LinkKind };
 
 export const GROUP_CONDITIONS = {
-  C1: "Lien de stockage ou de participant",
+  C1: "Lien de stockage, de participant, ou même ordinateur depuis un autre navigateur sur le même réseau (clé stricte)",
   C2: "Cookies distincts reliés par une clé forte, au seuil réglé ou plus",
   C3: "Deux cookies ou plus depuis des IP Tor ou hébergeur",
   C4: "Navigation privée sur deux cookies ou plus, dans un groupe de trois cookies ou plus",
@@ -125,6 +131,12 @@ export function linkAttempts(attempts: GraphAttempt[], opts: GraphOptions): Link
         (x.phone && x.phone === y.phone) ||
         (x.email && y.email && (x.email === y.email || canonicalEmail(x.email) === canonicalEmail(y.email)));
       if (samePerson) add("participant");
+      // Même ordinateur, autre navigateur (B4) : ordinateurs seulement ; deux téléphones identiques d'un foyer ne se relient pas.
+      // La clé stricte (polices comprises) confirme ; la clé large seule n'est qu'un indice (deux PC de même configuration).
+      if (!sameCookie && x.computer && y.computer && x.ipNet && x.ipNet === y.ipNet) {
+        if (x.xdevStrictKey && x.xdevStrictKey === y.xdevStrictKey) add("xdev");
+        else if (x.xdevKey && x.xdevKey === y.xdevKey) add("xdev_wide");
+      }
       if (x.hwKey && x.hwKey === y.hwKey && x.entropy === y.entropy) {
         if (x.entropy === "strong") add("strong");
         else if (x.entropy === "weak") {

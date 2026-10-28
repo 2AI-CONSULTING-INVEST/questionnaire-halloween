@@ -52,7 +52,7 @@ export function AdminDashboard({ role }: { role: Role }) {
   /** Incrémenté à chaque actualisation : les onglets paginés rechargent les pages affichées. */
   const [tick, setTick] = useState(0);
   const [tab, setTab] = useState("overview");
-  const [responsesStatus, setResponsesStatus] = useState<ResponsesStatus>("completed");
+  const [responsesStatus, setResponsesStatus] = useState<ResponsesStatus>("validated");
 
   // Thème : lu après montage pour éviter un écart d'hydratation.
   useEffect(() => {

@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import { isIP } from "node:net";
 import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { parisDay } from "./day";
+import { nextParisMidnight, parisDay, parisMidnight } from "./day";
 import { isUuid } from "./http";
 import { afterCursor, compareKeys, encodeCursor, escapeLike, searchKind, type Cursor, type Page } from "./paging";
 import type { GraphChange } from "./fraud-graph";
@@ -24,7 +24,7 @@ export type ListFilter = { completedOnly?: boolean; from?: string; to?: string; 
 export type DeviceStamp = { device_hash: string | null; device_info: DeviceInfo | null };
 /** Signaux anti-fraude enregistrés sur une ligne (ouverture, validation, refus) : HMAC et valeurs déduites de l'IP. */
 export type FraudStamp = Partial<
-  Pick<ResponseRow, "hw_key" | "hw_entropy" | "private_mode" | "storage_key" | "seen_storage" | "ip_net" | "ip_class" | "ip_country" | "ip_timezone" | "ip_city" | "ip_latitude" | "ip_longitude">
+  Pick<ResponseRow, "hw_key" | "xdev_key" | "xdev_strict_key" | "hw_entropy" | "private_mode" | "storage_key" | "seen_storage" | "ip_net" | "ip_class" | "ip_country" | "ip_timezone" | "ip_city" | "ip_latitude" | "ip_longitude">
 >;
 /**
  * Appareil, jour (Europe/Paris), score de risque et décision enregistrés à la validation du vote.
@@ -55,14 +55,20 @@ export type RefusalInput = { sessionId: string; meta: Meta; voterId: string | nu
  */
 export const REFUSAL_TRACES_MAX = { hw: 50, ip: 200 } as const;
 /** Clés qui relient une requête aux tentatives du jour (cookie, clé hw, jetons du stockage). */
-export type AttemptKeys = { voterId: string | null; hwKey: string | null; storageKeys: string[] };
+/** `ipNet` : seulement pour Brave sur ordinateur (ses clés sont brouillées, seul le réseau peut le relier, H10). */
+export type AttemptKeys = { voterId: string | null; hwKey: string | null; storageKeys: string[]; xdevKey?: string | null; xdevStrictKey?: string | null; ipNet?: string | null };
 /** Décision d'un admin sur des votes : faire compter (double validation) ou exclure. */
 export type HumanAction = "validate" | "invalidate";
 export type HumanResult = { done: string[]; refused: { id: string; reason: "incomplete" | "conflict" | "missing" }[] };
-/** `completed` = votes comptés (validés, ni en attente ni exclus) ; `held` = en attente de vérification. */
-export type ResponseStatus = "completed" | "held" | "incomplete" | "blocked" | "excluded" | "all";
-/** Filtre des listes paginées de réponses ; `flaggedFrom` : score ≥ seuil ou bloquée ; `q` : IP ou début d'empreinte. */
-export type ResponseFilter = { status: ResponseStatus; raffle?: boolean; flaggedFrom?: number; q?: string };
+/** `validated` = tous les votes validés (completed_at posé : comptés, en attente, exclus) ; `completed` = votes comptés (validés, ni en attente ni exclus) ; `held` = en attente de vérification. */
+export const RESPONSE_STATUSES = ["validated", "completed", "held", "incomplete", "blocked", "excluded", "all"] as const;
+export type ResponseStatus = (typeof RESPONSE_STATUSES)[number];
+/**
+ * Filtre des listes paginées de réponses ; `flaggedFrom` : score ≥ seuil ou bloquée ; `risky` : score > 0 ou au moins
+ * une règle anti-fraude ; `from` / `to` : jours (Paris, inclus) de validation ; `q` : IP ou début d'empreinte ;
+ * `sort: "risk"` : score décroissant au lieu de la date.
+ */
+export type ResponseFilter = { status: ResponseStatus; raffle?: boolean; flaggedFrom?: number; risky?: boolean; from?: string; to?: string; q?: string; sort?: "risk" };
 export type ParticipantSort = "pseudo" | "email" | "date";
 /** `deleted` : participants supprimés (suppression douce) au lieu des actifs. */
 export type ParticipantFilter = { q?: string; sort: ParticipantSort; dir: "asc" | "desc"; deleted?: boolean };
@@ -132,14 +138,14 @@ export interface Store {
   getResponse(idOrSessionId: string): Promise<ResponseRow | null>;
   deleteResponse(id: string): Promise<void>;
   listResponses(filter?: ListFilter): Promise<ResponseRow[]>;
-  /** Page de réponses (les plus récentes d'abord), filtre appliqué côté stockage, total filtré. */
+  /** Page de réponses (les plus récentes d'abord, ou par score décroissant), filtre appliqué côté stockage, total filtré. */
   pageResponses(filter: ResponseFilter, page: PageQuery): Promise<Page<ResponseRow>>;
   countResponses(filter: ResponseFilter): Promise<number>;
   /** Vrai si cet appareil (cookie) a une tentative validée ce jour-là (comptée, en attente ou exclue). */
   hasVotedToday(voterId: string, day: string): Promise<boolean>;
   /** Votes validés ce jour-là depuis cette IP (plafond `ip_daily_max`) ; IP inconnue : votes sans IP, comptés ensemble. */
   ipVotesToday(ip: string | null, day: string): Promise<number>;
-  /** Tentatives validées du jour reliées à la requête par le cookie, la clé hw ou un jeton du stockage. */
+  /** Tentatives validées du jour reliées à la requête par le cookie, la clé hw, la clé inter-navigateurs ou un jeton du stockage. */
   relatedAttempts(day: string, keys: AttemptKeys): Promise<ResponseRow[]>;
   /**
    * Récidive (H7) : cette clé hw appartenait, un jour précédent, à un groupe confirmé qui contenait une
@@ -296,24 +302,59 @@ interface PgFilter {
   is(column: string, value: null): PgFilter;
   or(filters: string): PgFilter;
   eq(column: string, value: string): PgFilter;
+  gte(column: string, value: string): PgFilter;
+  lt(column: string, value: string): PgFilter;
   like(column: string, pattern: string): PgFilter;
 }
 
+/** Bornes ISO des jours (Paris) `from` et `to` du filtre : du minuit qui ouvre `from` (inclus) au minuit qui clôt `to` (exclu). */
+const completedBounds = (f: ResponseFilter) => [f.from && parisMidnight(f.from).toISOString(), f.to && nextParisMidnight(parisMidnight(f.to)).toISOString()] as const;
+
 function applyResponseFilter(query: PgFilter, f: ResponseFilter): PgFilter {
   let q = query;
-  if (f.status === "completed") q = q.not("completed_at", "is", null).is("held_at", null).is("excluded_at", null);
+  if (f.status === "validated") q = q.not("completed_at", "is", null);
+  else if (f.status === "completed") q = q.not("completed_at", "is", null).is("held_at", null).is("excluded_at", null);
   else if (f.status === "held") q = q.not("completed_at", "is", null).not("held_at", "is", null).is("excluded_at", null);
   else if (f.status === "incomplete") q = q.is("completed_at", null).is("blocked_at", null);
   else if (f.status === "blocked") q = q.not("blocked_at", "is", null);
   else if (f.status === "excluded") q = q.not("excluded_at", "is", null);
   if (f.raffle) q = q.not("participant_id", "is", null);
   if (f.flaggedFrom !== undefined) q = q.or(`risk_score.gte.${f.flaggedFrom},blocked_at.not.is.null`);
+  if (f.risky) q = q.or("risk_score.gt.0,fraud_reasons.neq.[]"); // fraud_reasons (jsonb) : null ou [] = aucune règle
+  const [from, to] = completedBounds(f);
+  if (from) q = q.gte("completed_at", from);
+  if (to) q = q.lt("completed_at", to);
   if (f.q) q = kindOf(f.q) === "ip" ? q.eq("ip_address", f.q) : q.like("device_hash", `${f.q.toLowerCase()}%`);
   return q;
 }
 
 /** Applique le filtre à un constructeur de requête supabase-js et le rend avec son type d'origine. */
 const filtered = <Q>(query: Q, f: ResponseFilter): Q => applyResponseFilter(query as unknown as PgFilter, f) as unknown as Q;
+
+/** Même filtre en mémoire (stockage local, exports) : exactement le sens d'`applyResponseFilter`. */
+export function responseMatcher(f: ResponseFilter) {
+  const [from, to] = completedBounds(f);
+  const kind = kindOf(f.q);
+  return (r: ResponseRow) => {
+    const status =
+      f.status === "validated" ? !!r.completed_at
+      : f.status === "completed" ? isCounted(r)
+      : f.status === "held" ? !!r.completed_at && !!r.held_at && !r.excluded_at
+      : f.status === "incomplete" ? !r.completed_at && !r.blocked_at
+      : f.status === "blocked" ? !!r.blocked_at
+      : f.status === "excluded" ? !!r.excluded_at
+      : true;
+    const flagged = f.flaggedFrom === undefined || r.risk_score >= f.flaggedFrom || !!r.blocked_at;
+    const risky = !f.risky || r.risk_score > 0 || !!r.fraud_reasons?.length;
+    const dated = (!from || (r.completed_at ?? "") >= from) && (!to || (!!r.completed_at && r.completed_at < to));
+    const q = !kind || (kind === "ip" ? r.ip_address === f.q : kind === "device" && !!r.device_hash?.startsWith(f.q!.toLowerCase()));
+    return status && (!f.raffle || !!r.participant_id) && flagged && risky && dated && q;
+  };
+}
+
+/** Colonne de tri d'une page de réponses et valeur de curseur correspondante (score sur 6 chiffres : l'ordre des chaînes suit celui des nombres). */
+const responseSort = (f: ResponseFilter) =>
+  f.sort === "risk" ? { column: "risk_score", value: (r: ResponseRow) => String(r.risk_score).padStart(6, "0") } : { column: "created_at", value: (r: ResponseRow) => r.created_at };
 
 /** `limit + 1` lignes lues → page de `limit` lignes, curseur suivant seulement s'il reste quelque chose. */
 function slicePage<T extends { id: string }>(rows: T[], limit: number, value: (row: T) => string, total: number): Page<T> {
@@ -333,6 +374,8 @@ function pageLocal<T extends { id: string }>(rows: T[], value: (row: T) => strin
 /** Index unique « une clé forte, un vote compté par jour » (supabase/schema.sql). */
 const STRONG_INDEX = "responses_hw_counted_unique";
 const HEX64 = /^[0-9a-f]{64}$/;
+/** Réseau tel que `ipNetwork` l'écrit (IPv4 exacte ou préfixe IPv6 /64) : seule forme acceptée dans un filtre. */
+const IP_NET = /^(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-f:]{2,39}\/64)$/i;
 
 /** Ce qui est déduit de l'IP, effacé avec elle après 30 jours (supabase/purge.sql). */
 const IP_DERIVED_NULL = { ip_net: null, ip_class: null, ip_country: null, ip_timezone: null, ip_city: null, ip_latitude: null, ip_longitude: null };
@@ -513,13 +556,14 @@ class SupabaseStore implements Store {
 
   async pageResponses(filter: ResponseFilter, page: PageQuery) {
     if (kindOf(filter.q) === "none") return { rows: [], nextCursor: null, total: 0 };
+    const sort = responseSort(filter);
     // Lignes et total filtré (`count`) dans la même réponse PostgREST.
-    let q = filtered(this.sb.from("responses").select("*", { count: "exact" }), filter).order("created_at", { ascending: false }).order("id", { ascending: false });
+    let q = filtered(this.sb.from("responses").select("*", { count: "exact" }), filter).order(sort.column, { ascending: false }).order("id", { ascending: false });
     const c = page.cursor;
-    if (c) q = q.or(`created_at.lt."${c.value}",and(created_at.eq."${c.value}",id.lt."${c.id}")`);
+    if (c) q = q.or(`${sort.column}.lt."${c.value}",and(${sort.column}.eq."${c.value}",id.lt."${c.id}")`);
     const res = await q.limit(page.limit + 1);
     const rows = this.check(res) as ResponseRow[];
-    return slicePage(rows, page.limit, (r) => r.created_at, res.count ?? 0);
+    return slicePage(rows, page.limit, sort.value, res.count ?? 0);
   }
 
   async countResponses(filter: ResponseFilter) {
@@ -545,10 +589,14 @@ class SupabaseStore implements Store {
   }
 
   async relatedAttempts(day: string, keys: AttemptKeys) {
-    // Valeurs sûres dans le filtre PostgREST : uuid (cookie lu par readVoter) et HMAC hexadécimaux.
+    // Valeurs sûres dans le filtre PostgREST : uuid (cookie lu par readVoter), HMAC hexadécimaux, réseau validé.
+    // Tentatives du jour seulement, 500 au plus (un réseau partagé par Brave ne charge pas toute la journée).
     const or = [
       keys.voterId && isUuid(keys.voterId) && `voter_id.eq.${keys.voterId}`,
       keys.hwKey && HEX64.test(keys.hwKey) && `hw_key.eq.${keys.hwKey}`,
+      keys.xdevKey && HEX64.test(keys.xdevKey) && `xdev_key.eq.${keys.xdevKey}`,
+      keys.xdevStrictKey && HEX64.test(keys.xdevStrictKey) && `xdev_strict_key.eq.${keys.xdevStrictKey}`,
+      keys.ipNet && IP_NET.test(keys.ipNet) && `ip_net.eq.${keys.ipNet}`,
       keys.storageKeys.filter((k) => HEX64.test(k)).length && `storage_key.in.(${keys.storageKeys.filter((k) => HEX64.test(k)).join(",")})`,
     ].filter(Boolean);
     if (!or.length) return [];
@@ -1316,28 +1364,14 @@ class LocalStore implements Store {
     );
   }
 
-  private matchesFilter(r: ResponseRow, f: ResponseFilter) {
-    const status =
-      f.status === "completed" ? isCounted(r)
-      : f.status === "held" ? !!r.completed_at && !!r.held_at && !r.excluded_at
-      : f.status === "incomplete" ? !r.completed_at && !r.blocked_at
-      : f.status === "blocked" ? !!r.blocked_at
-      : f.status === "excluded" ? !!r.excluded_at
-      : true;
-    const flagged = f.flaggedFrom === undefined || r.risk_score >= f.flaggedFrom || !!r.blocked_at;
-    const kind = kindOf(f.q);
-    const q = !kind || (kind === "ip" ? r.ip_address === f.q : kind === "device" && !!r.device_hash?.startsWith(f.q!.toLowerCase()));
-    return status && (!f.raffle || !!r.participant_id) && flagged && q;
-  }
-
   async pageResponses(filter: ResponseFilter, page: PageQuery) {
     const d = await this.read();
-    return pageLocal(d.responses.filter((r) => this.matchesFilter(r, filter)), (r) => r.created_at, "desc", page);
+    return pageLocal(d.responses.filter(responseMatcher(filter)), responseSort(filter).value, "desc", page);
   }
 
   async countResponses(filter: ResponseFilter) {
     const d = await this.read();
-    return d.responses.filter((r) => this.matchesFilter(r, filter)).length;
+    return d.responses.filter(responseMatcher(filter)).length;
   }
 
   async hasVotedToday(voterId: string, day: string) {
@@ -1356,8 +1390,13 @@ class LocalStore implements Store {
       (r) =>
         r.completed_at &&
         r.vote_day === day &&
-        ((keys.voterId && r.voter_id === keys.voterId) || (keys.hwKey && r.hw_key === keys.hwKey) || (r.storage_key && keys.storageKeys.includes(r.storage_key))),
-    );
+        ((keys.voterId && r.voter_id === keys.voterId) ||
+          (keys.hwKey && r.hw_key === keys.hwKey) ||
+          (keys.xdevKey && r.xdev_key === keys.xdevKey) ||
+          (keys.xdevStrictKey && r.xdev_strict_key === keys.xdevStrictKey) ||
+          (keys.ipNet && r.ip_net === keys.ipNet) ||
+          (r.storage_key && keys.storageKeys.includes(r.storage_key))),
+    ).slice(0, 500);
   }
 
   async hwConfirmedBefore(hwKey: string, day: string) {

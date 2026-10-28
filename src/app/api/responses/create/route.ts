@@ -8,7 +8,7 @@ import { loadRiskSettings } from "@/lib/risk";
 import { deviceSchema } from "@/lib/schema";
 import { deviceStamp, deviceToken, ensureVoter, setVoterCookie, storageKeyOf } from "@/lib/voter";
 
-const RECOGNITION_REASON = { cookie: "cookie", storage: "B1", hw: "B2" } as const;
+const RECOGNITION_REASON = { cookie: "cookie", storage: "B1", hw: "B2", xdev: "B4" } as const;
 
 /**
  * Crée une session de réponse (idempotent) et pose le cookie d'appareil `hw_voter`.

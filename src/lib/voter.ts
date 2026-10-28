@@ -74,6 +74,21 @@ const hmac = (label: string, value: string) => createHmac("sha256", riskSecret()
 export const deviceToken = (voterId: string) => hmac("device-token", voterId).digest("base64url").slice(0, 32);
 /** Ce qui est enregistré d'un jeton : son HMAC (`storage_key`, `seen_storage`). */
 export const storageKeyOf = (token: string) => hmac("storage-key", token).digest("hex");
+/** HMAC de la clé inter-navigateurs envoyée par le navigateur (`xdev_key`, règle B4). */
+export const xdevKeyOf = (x: string | undefined) => (x ? hmac("xdev", x).digest("hex") : null);
+/** HMAC de la clé stricte (`xdev_strict_key`), ordinateurs seulement. */
+export const xdevStrictKeyOf = (m: string | undefined) => (m ? hmac("xdev-strict", m).digest("hex") : null);
+/**
+ * Ordinateur pour B4, d'après l'agent utilisateur : Windows, Linux, ChromeOS, ou Macintosh sans écran
+ * tactile (un iPad en mode « ordinateur » s'annonce Macintosh avec un écran tactile ; aucun Mac n'en a),
+ * jamais « Mobile ». Un PC Windows tactile reste un ordinateur.
+ */
+export function isComputer(userAgent: string | null, touch: boolean | undefined): boolean {
+  const ua = userAgent ?? "";
+  if (/Android|iPhone|iPad|iPod|Mobile/.test(ua)) return false;
+  if (/Macintosh/.test(ua)) return touch !== true;
+  return /Windows NT|X11|CrOS/.test(ua);
+}
 /** HMAC de la clé matérielle envoyée par le navigateur (`hw_key`). */
 export const hwKeyOf = (hw: string | undefined) => (hw ? hmac("hw", hw).digest("hex") : null);
 

@@ -97,6 +97,10 @@ export const riskSettingsSchema = z
     h6_private_seen: z.boolean().default(true),
     /** H7 : récidive d'une clé forte ou d'un participant d'un groupe confirmé un jour précédent. */
     h7_recidivism: z.boolean().default(true),
+    /** B4 (ordinateur : refus) et H10 (téléphone : attente) : même clé inter-navigateurs et même réseau, autre cookie. */
+    b4_cross_browser: z.boolean().default(true),
+    /** B4 sur tout réseau : clé stricte (polices comprises) depuis un autre réseau (4G, VPN) → refus au lieu d'attente (H10). */
+    b4_strict_any_network: z.boolean().default(false),
     /** H9 : clé faible, même ville, même décoration, peu après une tentative du jour. */
     h9_weak_nearby: z.boolean().default(true),
     h9_minutes: z.number().int().min(1).max(120).default(10),

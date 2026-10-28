@@ -156,9 +156,9 @@
     "semantic_hash": ""
   },
   "src/app/api/admin/responses/route.ts": {
-    "mtime": 1793145920.5425043,
-    "seen": 1793161625.9316833,
-    "ast_hash": "8c82daad68d6e0d2735c2a20f9e8dfe7",
+    "mtime": 1793181757.6678405,
+    "seen": 1793181880.7181458,
+    "ast_hash": "ef6694e2053b4be75ae0f4d60ecca8af",
     "semantic_hash": ""
   },
   "src/app/api/analytics/by-restaurant/route.ts": {
@@ -234,15 +234,15 @@
     "semantic_hash": ""
   },
   "src/app/api/responses/create/route.ts": {
-    "mtime": 1793174464.5284314,
-    "seen": 1793174734.7068863,
-    "ast_hash": "d5b22ec522bd9f67385ee3a0dddd88c2",
+    "mtime": 1793180847.9237616,
+    "seen": 1793181426.1658325,
+    "ast_hash": "a146b29945cf9f05b4caca10f1a24d64",
     "semantic_hash": ""
   },
   "src/app/api/responses/export/route.ts": {
-    "mtime": 1793145889.3985052,
-    "seen": 1793161625.9355974,
-    "ast_hash": "a04005832349867e39e76d0011a3707b",
+    "mtime": 1793181757.8796496,
+    "seen": 1793181880.7290332,
+    "ast_hash": "3feced8f5747976a9a8406f450f93e49",
     "semantic_hash": ""
   },
   "src/app/api/restaurants/[id]/route.ts": {
@@ -264,9 +264,9 @@
     "semantic_hash": ""
   },
   "src/app/api/vote-status/route.ts": {
-    "mtime": 1793174464.530392,
-    "seen": 1793174734.7088494,
-    "ast_hash": "18a7a2f011c37ed0d35d7e45b08cf4ba",
+    "mtime": 1793182551.4813871,
+    "seen": 1793182627.0408313,
+    "ast_hash": "66bfabf56b5baf31328740e188bc395d",
     "semantic_hash": ""
   },
   "src/app/layout.tsx": {
@@ -288,9 +288,9 @@
     "semantic_hash": ""
   },
   "src/components/admin/AdminDashboard.tsx": {
-    "mtime": 1793145989.4393635,
-    "seen": 1793161625.9375486,
-    "ast_hash": "ee9aa767635407c8591787f9e600f561",
+    "mtime": 1793181757.9517436,
+    "seen": 1793181880.732939,
+    "ast_hash": "4f97080ee5d135917dbde2c9c73cb6d3",
     "semantic_hash": ""
   },
   "src/components/admin/Charts.tsx": {
@@ -324,9 +324,9 @@
     "semantic_hash": ""
   },
   "src/components/admin/ResponsesTab.tsx": {
-    "mtime": 1793161099.5084639,
-    "seen": 1793161625.9385254,
-    "ast_hash": "4d459968fdd8b905f3637cbbb5786c33",
+    "mtime": 1793182870.1888783,
+    "seen": 1793183002.9988678,
+    "ast_hash": "ef26cd13bbefe20de78afa2406d4cfd8",
     "semantic_hash": ""
   },
   "src/components/admin/RestaurantsTab.tsx": {
@@ -372,9 +372,9 @@
     "semantic_hash": ""
   },
   "src/components/questionnaire/Questionnaire.tsx": {
-    "mtime": 1793175775.305495,
-    "seen": 1793175911.5961325,
-    "ast_hash": "17248424be72c7678e128f0b53c7f1f1",
+    "mtime": 1793182551.483339,
+    "seen": 1793182627.0493052,
+    "ast_hash": "caddab5c87d25687f9d749bbc997dd2c",
     "semantic_hash": ""
   },
   "src/components/questionnaire/RaffleConfirmDialog.tsx": {
@@ -522,9 +522,9 @@
     "semantic_hash": ""
   },
   "src/lib/db.ts": {
-    "mtime": 1793175804.6054533,
-    "seen": 1793175911.6078484,
-    "ast_hash": "acf56990a17ef058ba138440cbaaa36d",
+    "mtime": 1793183705.512669,
+    "seen": 1793183920.7668672,
+    "ast_hash": "f5793177d2c7ca6aa7077e64758f79b7",
     "semantic_hash": ""
   },
   "src/lib/export.ts": {
@@ -564,9 +564,9 @@
     "semantic_hash": ""
   },
   "src/lib/schema.ts": {
-    "mtime": 1793160605.8996315,
-    "seen": 1793161625.9480557,
-    "ast_hash": "b6e98a15ca984df9967b32daf4f4147d",
+    "mtime": 1793184823.9066596,
+    "seen": 1793184903.5988417,
+    "ast_hash": "60c04b040f6d2bf2680c4f7e99788745",
     "semantic_hash": ""
   },
   "src/lib/site.ts": {
@@ -582,9 +582,9 @@
     "semantic_hash": ""
   },
   "src/lib/voter.ts": {
-    "mtime": 1793163151.20416,
-    "seen": 1793163375.5379577,
-    "ast_hash": "349d783e6a4887eafb8b344666914c7e",
+    "mtime": 1793182870.1859484,
+    "seen": 1793183003.0195446,
+    "ast_hash": "b23fbf46f2650ac1d6067ffc63bb3ca5",
     "semantic_hash": ""
   },
   "tsconfig.json": {
@@ -606,9 +606,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793175830.6134393,
-    "seen": 1793175911.6222498,
-    "ast_hash": "4d887436582eba42adc3651422e93f68",
+    "mtime": 1793184792.8380606,
+    "seen": 1793184903.6095774,
+    "ast_hash": "123334453a540c1ccb1ee6cd795c279f",
     "semantic_hash": ""
   },
   "public/emoji/LICENSE.txt": {
@@ -1188,9 +1188,9 @@
     "semantic_hash": ""
   },
   "src/components/admin/SecurityTab.tsx": {
-    "mtime": 1793174652.3380077,
-    "seen": 1793174734.7137282,
-    "ast_hash": "5accdc2238dd6053b282bf9682ad167a",
+    "mtime": 1793181210.151206,
+    "seen": 1793181426.1804132,
+    "ast_hash": "eb09c8dd22978f065b75ec3988955807",
     "semantic_hash": ""
   },
   "src/components/admin/paged.ts": {
@@ -1200,9 +1200,9 @@
     "semantic_hash": ""
   },
   "src/lib/fingerprint.ts": {
-    "mtime": 1793175964.816264,
-    "seen": 1793176184.0634432,
-    "ast_hash": "c410d7f9c3e9123e245b4b054d65bf00",
+    "mtime": 1793184703.211627,
+    "seen": 1793184903.5949352,
+    "ast_hash": "328e99ea843eba0279a2ba39b17a7653",
     "semantic_hash": ""
   },
   "src/lib/paging.ts": {
@@ -1212,15 +1212,15 @@
     "semantic_hash": ""
   },
   "src/lib/risk.ts": {
-    "mtime": 1793161174.9533052,
-    "seen": 1793161625.9480557,
-    "ast_hash": "5be729e0eca0f52fea5d882c5a25f46b",
+    "mtime": 1793181103.9752238,
+    "seen": 1793181426.2369728,
+    "ast_hash": "f650800dd40416ddaa8b96a0908ce151",
     "semantic_hash": ""
   },
   "tests/e2e/antifraude.mjs": {
-    "mtime": 1793174605.3846178,
-    "seen": 1793174734.736051,
-    "ast_hash": "00d97513b2ea77111fbedee65f6a2b90",
+    "mtime": 1793184742.161236,
+    "seen": 1793184903.6007946,
+    "ast_hash": "9a923c3cb2a6e5d0429793907d5d9961",
     "semantic_hash": ""
   },
   "tests/unit/analytics.test.ts": {
@@ -1248,9 +1248,9 @@
     "semantic_hash": ""
   },
   "tests/unit/risk.test.ts": {
-    "mtime": 1793146112.004565,
-    "seen": 1793161625.9512606,
-    "ast_hash": "5be4e6202ed94db5bb8aa437af9eb21f",
+    "mtime": 1793181103.977239,
+    "seen": 1793181426.2504148,
+    "ast_hash": "90fe978debc928ac7fbbcb3f1b39b4af",
     "semantic_hash": ""
   },
   "tests/unit/server-only.mjs": {
@@ -1272,9 +1272,9 @@
     "semantic_hash": ""
   },
   "src/components/admin/RiskMethodology.tsx": {
-    "mtime": 1793174669.976969,
-    "seen": 1793174734.7137282,
-    "ast_hash": "c9ecf10b017f03bc879b1e3ac4d184a9",
+    "mtime": 1793184792.839039,
+    "seen": 1793184903.577353,
+    "ast_hash": "929b66741095a92a9f4e94ddeebc00cc",
     "semantic_hash": ""
   },
   "src/app/api/admin/visits/route.ts": {
@@ -1338,9 +1338,9 @@
     "semantic_hash": ""
   },
   "src/app/(public)/confidentialite/page.tsx": {
-    "mtime": 1793147009.5286882,
-    "seen": 1793161625.9276192,
-    "ast_hash": "4a680496a937ff6f8c1b426b9469e98b",
+    "mtime": 1793181219.9527736,
+    "seen": 1793181426.1408472,
+    "ast_hash": "2f90c381712d770f7341b5d9e73f1178",
     "semantic_hash": ""
   },
   "src/app/api/admin/purge/route.ts": {
@@ -1356,9 +1356,9 @@
     "semantic_hash": ""
   },
   "src/lib/redact.ts": {
-    "mtime": 1793145524.851597,
-    "seen": 1793161625.9480557,
-    "ast_hash": "dcef4ca0a0c3e74f2af3353f2b1982f3",
+    "mtime": 1793181103.9871397,
+    "seen": 1793181426.2369728,
+    "ast_hash": "cf3808574fa098a3faea079eba5d752b",
     "semantic_hash": ""
   },
   "tests/unit/clock.test.ts": {
@@ -1542,9 +1542,9 @@
     "semantic_hash": ""
   },
   "src/components/admin/FraudReview.tsx": {
-    "mtime": 1793163234.5281506,
-    "seen": 1793163375.5166388,
-    "ast_hash": "561ef121806081faff01ec84d3ebb618",
+    "mtime": 1793181335.5738585,
+    "seen": 1793181426.1759741,
+    "ast_hash": "32b2fc8c86a3a061eb71fd86e536e3b7",
     "semantic_hash": ""
   },
   "src/components/questionnaire/BlockedVoteDialog.tsx": {
@@ -1584,9 +1584,9 @@
     "semantic_hash": ""
   },
   "src/lib/fraud-graph.ts": {
-    "mtime": 1793163048.324933,
-    "seen": 1793163375.531998,
-    "ast_hash": "dffe8805faefe69785e21d22cd4c2067",
+    "mtime": 1793183705.515598,
+    "seen": 1793183920.7678437,
+    "ast_hash": "21bae16a93d70ca1edc8b207de69686b",
     "semantic_hash": ""
   },
   "src/lib/fraud-review.ts": {
@@ -1596,15 +1596,15 @@
     "semantic_hash": ""
   },
   "src/lib/fraud-rules.ts": {
-    "mtime": 1793174464.5255022,
-    "seen": 1793174734.7305496,
-    "ast_hash": "e6347641dc39c1c798171cd4662f3904",
+    "mtime": 1793184801.056988,
+    "seen": 1793184903.5959122,
+    "ast_hash": "7080f2f45a30c9f5146af6ff259e91a9",
     "semantic_hash": ""
   },
   "src/lib/fraud-server.ts": {
-    "mtime": 1793174464.5264778,
-    "seen": 1793174734.7305496,
-    "ast_hash": "00df79bfd31d14821dc18f85f8351c2b",
+    "mtime": 1793183705.5136454,
+    "seen": 1793183920.7678437,
+    "ast_hash": "0d60822686be9cccba18e268d64a7703",
     "semantic_hash": ""
   },
   "src/lib/ip-class.ts": {
@@ -1638,9 +1638,9 @@
     "semantic_hash": ""
   },
   "tests/unit/antifraude-divers.test.ts": {
-    "mtime": 1793175743.0130913,
-    "seen": 1793175911.6155026,
-    "ast_hash": "e08370dae66b9c9f5b3f7d5ef618d709",
+    "mtime": 1793184742.1597397,
+    "seen": 1793184903.601771,
+    "ast_hash": "fc25c1bde5793f0af9633cf1fd808eb7",
     "semantic_hash": ""
   },
   "tests/unit/clicks.test.ts": {
@@ -1650,15 +1650,15 @@
     "semantic_hash": ""
   },
   "tests/unit/fraud-graph.test.ts": {
-    "mtime": 1793163267.9064324,
-    "seen": 1793163375.5389333,
-    "ast_hash": "23ebf79ecb7c82ab2fad3f325456564f",
+    "mtime": 1793183784.3566165,
+    "seen": 1793183920.7737029,
+    "ast_hash": "e768541bd5a3f374dbee8e1f7225a781",
     "semantic_hash": ""
   },
   "tests/unit/fraud-rules.test.ts": {
-    "mtime": 1793174565.050265,
-    "seen": 1793174734.7385476,
-    "ast_hash": "8033821af241b504e58c41e9b313e114",
+    "mtime": 1793183784.354673,
+    "seen": 1793183920.7737029,
+    "ast_hash": "ea0301ea0ee84781e618063e48191efa",
     "semantic_hash": ""
   },
   "tests/unit/ip-class.test.ts": {
@@ -1683,6 +1683,18 @@
     "mtime": 1793137342.0655346,
     "seen": 1793161625.9541886,
     "ast_hash": "4edf7a7d9a76fa92eb8a12414f119c96",
+    "semantic_hash": ""
+  },
+  "tests/unit/responses-filter.test.ts": {
+    "mtime": 1793181758.1365805,
+    "seen": 1793181880.781541,
+    "ast_hash": "5b2559e4960768835c2741960b4b52b2",
+    "semantic_hash": ""
+  },
+  "tests/unit/store-brave.test.ts": {
+    "mtime": 1793183784.3575969,
+    "seen": 1793183920.7766323,
+    "ast_hash": "97f934a635cf76b28a79d59f5f9d1db9",
     "semantic_hash": ""
   }
 }

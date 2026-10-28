@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { decide, FRAUD_RULE_ORDER, FRAUD_RULES, recognize, sinceLinked, strongConflict, strongWithClue, type RelatedAttempt, type RequestFacts } from "../../src/lib/fraud-rules";
+import { arrivalVoted, crossBrowser, decide, FRAUD_RULE_ORDER, FRAUD_RULES, recognize, sinceLinked, strongConflict, strongWithClue, type RelatedAttempt, type RequestFacts } from "../../src/lib/fraud-rules";
 import { DEFAULT_RISK_SETTINGS, type RiskSettings } from "../../src/lib/risk";
 
 const NOW = Date.parse("2026-10-27T18:00:00Z");
@@ -219,5 +219,88 @@ describe("B2 : refus seulement avec un second indice, sinon attente (H4)", () =>
   });
   it("strongWithClue : aucune tentative de même clé, aucun indice", () => {
     assert.equal(strongWithClue({ ...NO_CLUE, privateMode: true, storageKeys: [] }, [], 10), false);
+  });
+});
+
+describe("B4 : même ordinateur, autre navigateur (clé stricte et même réseau)", () => {
+  const PC = { xdevKey: "x-pc", xdevStrictKey: "m-pc", computer: true, entropy: "weak" as const, privateMode: null, city: "Paris" };
+  /** Tentatives successives, chacune avec son cookie et sa clé matérielle (Chrome, Firefox, Edge). */
+  const run = (list: Partial<RequestFacts>[], s: RiskSettings = S) => {
+    const related: RelatedAttempt[] = [];
+    return list.map((over, i) => {
+      const f = facts({ voterId: `cookie-${i}`, hwKey: `hw-${i}`, ...over });
+      const d = decide(f, related, s);
+      if (d.outcome !== "blocked") related.push(attempt({ id: `t${i}`, voterId: f.voterId, hwKey: f.hwKey, entropy: f.entropy, ipNet: f.ipNet, city: "Paris", xdevKey: f.xdevKey, xdevStrictKey: f.xdevStrictKey }));
+      return d;
+    });
+  };
+  it("Chrome, puis Firefox, puis Edge sur le même PC, même IP (même clé stricte) : 1 compté, les 2 autres refusés (B4)", () => {
+    const d = run([PC, PC, PC]);
+    assert.deepEqual(d.map((x) => x.outcome), ["counted", "blocked", "blocked"]);
+    assert.ok(d[1].reasons.includes("B4") && d[1].recognized === "xdev");
+  });
+  it("même PC, autre IP (4G) : pas de B4 par défaut, attente H10 ; refus avec « B4 sur tout réseau »", () => {
+    const g4 = { ...PC, ipNet: "192.0.2.200" };
+    const def = run([PC, g4]);
+    assert.deepEqual([def[1].outcome, def[1].reasons.includes("H10"), def[1].reasons.includes("B4")], ["held", true, false]);
+    const any = run([PC, g4], settings({ b4_strict_any_network: true }));
+    assert.deepEqual([any[1].outcome, any[1].reasons.includes("B4")], ["blocked", true]);
+  });
+  it("deux PC différents sur la même IP : pas de B4", () => {
+    assert.deepEqual(run([PC, { ...PC, xdevKey: "x-autre-pc", xdevStrictKey: "m-autre-pc" }]).map((x) => x.outcome), ["counted", "counted"]);
+  });
+  it("deux PC de même clé large et de clé stricte différente, même IP : attente H10, pas de refus", () => {
+    const d = run([PC, { ...PC, xdevStrictKey: "m-autres-polices" }]);
+    assert.deepEqual([d[1].outcome, d[1].reasons.includes("H10"), d[1].reasons.includes("B4"), d[1].recognized], ["held", true, false, null]);
+  });
+  it("navigateur sans clé stricte (Safari sur macOS), clé large et même réseau : attente H10", () => {
+    const d = run([PC, { ...PC, xdevStrictKey: null }]);
+    assert.deepEqual([d[1].outcome, d[1].reasons.includes("H10")], ["held", true]);
+  });
+  it("deux téléphones de même clé sur la même IP : attente (H10), jamais refus", () => {
+    const d = run([{ ...PC, computer: false }, { ...PC, computer: false }]);
+    assert.deepEqual([d[1].outcome, d[1].reasons.includes("H10"), d[1].reasons.includes("B4"), d[1].recognized], ["held", true, false, null]);
+  });
+  it("mode observation : aucun refus, issue évitée notée ; réglage désactivé : rien", () => {
+    const obs = run([PC, PC], settings({ mode: "observe" }));
+    assert.deepEqual([obs[1].outcome, obs[1].observed], ["counted", "blocked"]);
+    assert.deepEqual(run([PC, PC], settings({ b4_cross_browser: false })).map((x) => x.outcome), ["counted", "counted"]);
+  });
+  it("même cookie : jamais B4 (c'est la règle du cookie)", () => {
+    assert.equal(crossBrowser({ ...PC, voterId: "c", ipNet: "1.1.1.1" }, [attempt({ voterId: "c", ipNet: "1.1.1.1", xdevKey: "x-pc", xdevStrictKey: "m-pc" })], S), null);
+  });
+});
+
+describe("arrivée : écran « déjà voté » dès l'arrivée", () => {
+  const PC = { voterId: "nouveau-navigateur", storageKeys: [], hwKey: "hw-firefox", entropy: "weak" as const, privateMode: null, ipNet: "203.0.113.10", city: "Paris", nowMs: NOW, xdevKey: "x-pc", xdevStrictKey: "m-pc", computer: true };
+  const seen = [attempt({ voterId: "cookie-chrome", hwKey: "hw-chrome", ipNet: "203.0.113.10", xdevKey: "x-pc", xdevStrictKey: "m-pc" })];
+  const arrival = (f: Parameters<typeof recognize>[0], s: RiskSettings = S) => arrivalVoted(recognize(f, seen, s), s.mode);
+  it("nouveau navigateur sur le même ordinateur, même réseau (B4) : « déjà voté »", () => assert.equal(arrival(PC), true));
+  it("clé stricte depuis un autre réseau : rien à l'arrivée par défaut (H10 silencieux), « déjà voté » avec B4 sur tout réseau", () => {
+    const g4 = { ...PC, ipNet: "192.0.2.200", xdevStrictKey: "m-pc" };
+    assert.equal(arrival(g4), false);
+    assert.equal(arrival(g4, settings({ b4_strict_any_network: true })), true);
+  });
+  it("téléphone (H10) : rien de visible à l'arrivée", () => assert.equal(arrival({ ...PC, computer: false }), false));
+  it("mode observation : rien de visible, sauf le cookie", () => {
+    assert.equal(arrival(PC, settings({ mode: "observe" })), false);
+    assert.equal(arrivalVoted("cookie", "observe"), true);
+  });
+  it("aucune correspondance : la page s'ouvre", () => assert.equal(arrival({ ...PC, xdevKey: "x-autre", xdevStrictKey: "m-autre" }), false));
+  it("clé large seule, même réseau (deux PC de même configuration, ou Safari) : rien à l'arrivée (H10 silencieux)", () => {
+    assert.equal(arrival({ ...PC, xdevStrictKey: "m-autres-polices" }), false);
+    assert.equal(arrival({ ...PC, xdevStrictKey: null }), false);
+  });
+});
+
+describe("A30 : Brave sur ordinateur", () => {
+  const brave = { voterId: "cookie-brave", xdevKey: "aleatoire", computer: true, brave: true, ipNet: "203.0.113.10" };
+  it("même réseau qu'une tentative du jour d'un autre cookie : attente H10, jamais refus", () => {
+    const d = decide(facts({ ...brave, hwKey: "hw-brave", entropy: "noisy" }), [attempt({ voterId: "cookie-chrome", ipNet: "203.0.113.10", xdevKey: "x-pc" })], S);
+    assert.deepEqual([d.outcome, d.reasons.includes("H10"), d.reasons.includes("B4"), d.recognized], ["held", true, false, null]);
+  });
+  it("autre réseau, ou même cookie : rien", () => {
+    assert.equal(crossBrowser({ ...brave, ipNet: "192.0.2.9" }, [attempt({ voterId: "cookie-chrome", ipNet: "203.0.113.10" })], S), null);
+    assert.equal(crossBrowser(brave, [attempt({ voterId: "cookie-brave", ipNet: "203.0.113.10" })], S), null);
   });
 });

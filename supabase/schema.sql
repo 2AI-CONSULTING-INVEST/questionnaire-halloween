@@ -329,3 +329,12 @@ insert into restaurants (name, city) values
   ('CHAMAS TACOS - LILLE MOULINS', 'Lille'),
   ('CHAMAS TACOS - VILLENEUVE D''ASCQ', 'Villeneuve d''Ascq')
 on conflict (name) do nothing;
+
+-- =====================================================================
+-- Clé inter-navigateurs (règle B4 : même ordinateur, autre navigateur, même réseau). Même contenu que
+-- supabase/migrations/2026-10-28b_cle-inter-navigateurs.sql. HMAC conservé comme hw_key (non purgé).
+-- =====================================================================
+alter table responses add column if not exists xdev_key varchar(64);             -- HMAC de la clé inter-navigateurs
+create index if not exists idx_responses_xdev_day on responses(xdev_key, vote_day) where xdev_key is not null;
+alter table responses add column if not exists xdev_strict_key varchar(64);      -- HMAC de la clé stricte (polices comprises)
+create index if not exists idx_responses_xdev_strict_day on responses(xdev_strict_key, vote_day) where xdev_strict_key is not null;
