@@ -316,7 +316,7 @@ export function RiskMethodology({ settings }: { settings: RiskSettings }) {
                 <li>Un ordinateur au rendu graphique logiciel (machine virtuelle, bureau à distance) est traité comme fort : deux postes identiques peuvent se heurter à H4, ou à B2 avec un second indice.</li>
                 <li>Un script qui invente une clé différente à chaque vote échappe aux règles de clé : le score, la classe d&apos;IP et le plafond par IP restent les garde-fous.</li>
                 <li>L&apos;agent utilisateur décide de la classe d&apos;entropie : un script qui change d&apos;agent utilisateur en même temps (iPhone ou Firefox annoncé, classe « faible ») obtient une clé faible, qui ne relie que par le réseau, l&apos;anonymat de l&apos;IP ou la position.</li>
-                <li>Navigation privée : sur Chrome, un Android dont la mémoire est presque pleine peut être pris à tort pour une navigation privée (le signal ne compte qu&apos;avec une clé déjà vue, H6, ou dans C4).</li>
+                <li>Navigation privée (B5) : détectée sur Safari (iPhone, Mac) et Firefox ; jamais sur Chromium (Chrome, Edge, Brave), où elle est couverte par les clés (B2, B4 : même clé hw ou même mKey, même réseau).</li>
                 <li>Aucune permission n&apos;est demandée, aucune position GPS n&apos;est lue : seules des empreintes non réversibles (HMAC) sont conservées.</li>
               </ul>
             </div>

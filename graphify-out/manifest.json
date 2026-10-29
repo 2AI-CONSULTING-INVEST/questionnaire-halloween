@@ -606,9 +606,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793200275.8799386,
-    "seen": 1793200396.5112677,
-    "ast_hash": "cdf0ef1f19903d1bb2b827c844a47ff4",
+    "mtime": 1793202814.0668209,
+    "seen": 1793208815.5230727,
+    "ast_hash": "051be2d1e7b3c5f911bf94d6cfaca87e",
     "semantic_hash": ""
   },
   "public/emoji/LICENSE.txt": {
@@ -1200,9 +1200,9 @@
     "semantic_hash": ""
   },
   "src/lib/fingerprint.ts": {
-    "mtime": 1793184703.211627,
-    "seen": 1793184903.5949352,
-    "ast_hash": "328e99ea843eba0279a2ba39b17a7653",
+    "mtime": 1793202814.0608096,
+    "seen": 1793208815.5008242,
+    "ast_hash": "0f81284c6796f13f1f843dde95a2e9d2",
     "semantic_hash": ""
   },
   "src/lib/paging.ts": {
@@ -1218,9 +1218,9 @@
     "semantic_hash": ""
   },
   "tests/e2e/antifraude.mjs": {
-    "mtime": 1793200275.881934,
-    "seen": 1793200396.5063827,
-    "ast_hash": "a6c309c109c888f9e02b106dd5a2e043",
+    "mtime": 1793202814.0718205,
+    "seen": 1793208815.512072,
+    "ast_hash": "96f75d0ef278b53e83c7706ec365df03",
     "semantic_hash": ""
   },
   "tests/unit/analytics.test.ts": {
@@ -1272,9 +1272,9 @@
     "semantic_hash": ""
   },
   "src/components/admin/RiskMethodology.tsx": {
-    "mtime": 1793184792.839039,
-    "seen": 1793184903.577353,
-    "ast_hash": "929b66741095a92a9f4e94ddeebc00cc",
+    "mtime": 1793202814.068822,
+    "seen": 1793208815.482003,
+    "ast_hash": "b8173bfbfcf2aaf0e97544592f7183ca",
     "semantic_hash": ""
   },
   "src/app/api/admin/visits/route.ts": {
@@ -1596,9 +1596,9 @@
     "semantic_hash": ""
   },
   "src/lib/fraud-rules.ts": {
-    "mtime": 1793200275.8737488,
-    "seen": 1793200396.5042686,
-    "ast_hash": "04c52ec651231d3bf79b318c0a3deff3",
+    "mtime": 1793202814.0638137,
+    "seen": 1793208815.5008242,
+    "ast_hash": "c9a361ed349725b6a37b591df5898aad",
     "semantic_hash": ""
   },
   "src/lib/fraud-server.ts": {
@@ -1656,9 +1656,9 @@
     "semantic_hash": ""
   },
   "tests/unit/fraud-rules.test.ts": {
-    "mtime": 1793200338.7671523,
-    "seen": 1793200396.5073967,
-    "ast_hash": "7ed5f67ad1dd91770d241ca0d4887ba2",
+    "mtime": 1793202814.073825,
+    "seen": 1793208815.5140722,
+    "ast_hash": "4521724707841e25c44bcc12833ecb01",
     "semantic_hash": ""
   },
   "tests/unit/ip-class.test.ts": {

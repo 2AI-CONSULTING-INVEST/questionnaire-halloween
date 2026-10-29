@@ -208,10 +208,11 @@ async function run() {
   const hRow = await score(honestSession);
 
   // 2. navigation privée en boucle, Android (clé forte), même IP
-  const loop = await vote(android("2.2.2.2"), ANDROID("boucle", { privateMode: true }));
-  const loop2 = await vote(android("2.2.2.2"), ANDROID("boucle", { privateMode: true }));
-  const loop3 = await vote(android("2.2.2.2"), ANDROID("boucle", { privateMode: true }));
-  ok("2. Android en navigation privée, même IP : tous refusés dès l'ouverture (B5, puis B2)", refusal(loop) && loop2.stage === "create" && refusal(loop2) && loop3.stage === "create" && refusal(loop3));
+  // Chromium : la navigation privée n'est pas détectée (privateMode null), seule la clé forte et le même réseau relient.
+  const loop = await vote(android("2.2.2.2"), ANDROID("boucle"));
+  const loop2 = await vote(android("2.2.2.2"), ANDROID("boucle"));
+  const loop3 = await vote(android("2.2.2.2"), ANDROID("boucle"));
+  ok("2. Android en navigation privée, même IP : 1er compté, les suivants refusés dès l'ouverture (B2)", loop.status === 200 && loop2.stage === "create" && refusal(loop2) && loop3.stage === "create" && refusal(loop3));
   await setSettings({ b2_strong_key: false });
   const k2 = [1, 2, 3].map(() => android("2.2.2.3"));
   const b1 = await vote(k2[0], ANDROID("boucle-b2off"));
@@ -225,8 +226,9 @@ async function run() {
 
   // 3. même scénario, une IP différente à chaque vote (la faille F1)
   const f1 = [];
-  for (let i = 0; i < 4; i++) f1.push(await vote(android(`33.3.${i}.${i + 1}`), ANDROID("rotation-ip", { privateMode: true }))); // 3.3.x.x : plage d'hébergeur
-  ok("3. IP différente à chaque vote : au plus 1 compté (F1 fermée)", f1.filter((r) => r.status === 200).length === 1 && f1.slice(1).every(refusal));
+  for (let i = 0; i < 4; i++) f1.push(await vote(android(`33.3.${i}.${i + 1}`), ANDROID("rotation-ip"))); // 3.3.x.x : plage d'hébergeur
+  const f1rows = await Promise.all(f1.filter((r) => r.stage === "complete").map((r) => score(r.sid)));
+  ok("3. IP différente à chaque vote : au plus 1 compté (F1 fermée), les autres en attente (H4) ou refusés", f1rows.filter((r) => statusOf(r) === "counted").length <= 1, f1rows.map(statusOf));
 
   // 4. sortie Tor (TOR_EXIT_LIST du serveur de test)
   const tor = await vote(iphone(TOR_IP), IPHONE("tor"));
@@ -354,11 +356,11 @@ async function run() {
   const arrival = async (c, device) => (await c.req("/api/vote-status", { method: "POST", body: { device } })).body;
   const s19 = await arrival(honest, IPHONE("honnete"));
   ok("19. arrivée avec le cookie d'une tentative du jour : votedToday, l'ouverture est refusée", s19.votedToday === true && refusal(byCookie) && typeof s19.nextResetAt === "string" && !("reason" in s19));
-  ok("20. arrivée sans cookie ni jeton, même Android (clé forte) en navigation privée (second indice) : votedToday", (await arrival(android("21.20.0.1"), ANDROID("boucle", { privateMode: true }))).votedToday === true);
+  ok("20. arrivée sans cookie ni jeton, même Android (clé forte), même réseau (second indice) : votedToday", (await arrival(android("2.2.2.2"), ANDROID("boucle"))).votedToday === true);
   ok("21. arrivée sans cookie ni jeton, iPhone identique : votedToday faux", (await arrival(iphone("21.0.0.1"), IPHONE("wifi"))).votedToday === false);
 
   // 22. vote-status jamais appelé (lent ou en erreur côté page) : create refuse quand même
-  ok("22. sans passer par vote-status, l'ouverture refuse quand même", refusal(await open(android("22.0.0.1"), randomUUID(), ANDROID("boucle", { privateMode: true }))));
+  ok("22. sans passer par vote-status, l'ouverture refuse quand même", refusal(await open(android("2.2.2.2"), randomUUID(), ANDROID("boucle"))));
 
   // 23. après minuit, le vote rouvre pour tous
   const dayAfter = (c) => (c.jar.set(TEST_CLOCK_COOKIE, encodeURIComponent("+172800000")), c); // J+2 : le votant honnête a déjà voté à J+1 (scénario 1)
@@ -389,7 +391,7 @@ async function run() {
   // 27. cinq tentatives bloquées du même Android : une seule ligne, dépli dans l'ordre
   // 27.0.0.0/16 est classé hébergeur (le vote serait en attente, H2) : 27.1.x.x est une plage ordinaire.
   const c27 = await vote(android("27.1.0.1"), ANDROID("cinq-blocages"));
-  for (let i = 0; i < 5; i++) await open(android(`27.1.1.${i}`), randomUUID(), ANDROID("cinq-blocages", { privateMode: true })); // navigation privée : nouveau cookie à chaque fois, second indice
+  for (let i = 0; i < 5; i++) await open(android("27.1.0.1"), randomUUID(), ANDROID("cinq-blocages")); // nouveau cookie à chaque fois, même réseau : second indice
   const row27 = await score(c27.sid);
   const list27 = (await admin.req("/api/admin/fraud/review?kind=fraud&limit=100")).body;
   const p27 = list27.items.filter((p) => p.firstView.hwPrefix === row27.hw_key.slice(0, 8));
@@ -420,6 +422,10 @@ async function run() {
   const brave = await vote(client("30.0.0.1", { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36", "sec-ch-ua": '"Brave";v="156", "Chromium";v="156", "Not=A?Brand";v="24"' }), { ...ANDROID("brave"), hwEntropy: "noisy", mobile: false, platform: "Windows", browser: "Brave 156", screen: "1366x768@1.5" });
   const braveRow = await score(brave.sid);
   ok("30. Brave honnête : aucun signal browser_mismatch, compté", brave.status === 200 && !(braveRow.risk_flags ?? []).includes("browser_mismatch") && statusOf(braveRow) === "counted", braveRow.risk_flags);
+
+  // B5. navigation privée sur Safari iPhone (détectée) : refus dès l'ouverture
+  const priv = await vote(iphone("26.0.0.2"), IPHONE("prive", { privateMode: true }));
+  ok("B5. Safari iPhone en navigation privée : refusé dès l'ouverture", priv.stage === "create" && refusal(priv), [priv.stage, priv.status]);
 
   // 31. même ordinateur Windows, trois navigateurs (Chrome, Firefox, Edge), même réseau : B4
   const UA_WIN = {

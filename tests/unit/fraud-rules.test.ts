@@ -322,3 +322,15 @@ describe("B5 : navigation privée détectée", () => {
     assert.equal(decide(facts({ privateMode: true }), [], settings({ b5_private_block: false })).outcome, "counted");
   });
 });
+
+describe("B5 : Brave jamais, Safari oui", () => {
+  const base = { ...NO_CLUE, voterId: null, storageKeys: [], hwKey: "k", entropy: "weak" as const, privateMode: true };
+  it("Brave avec privateMode : pas de B5 (quota fixe, faux positif)", () => {
+    assert.equal(recognize({ ...base, brave: true }, [], S), null);
+    assert.ok(!decide(facts({ privateMode: true, brave: true }), [], S).reasons.includes("B5"));
+  });
+  it("Safari avec privateMode : B5", () => {
+    assert.equal(recognize({ ...base, brave: false }, [], S), "private");
+    assert.equal(decide(facts({ privateMode: true, hwKey: "iphone-x", entropy: "weak" }), [], S).outcome, "blocked");
+  });
+});

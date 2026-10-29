@@ -186,11 +186,10 @@ async function privateMode(): Promise<boolean | null> {
   try {
     const ua = navigator.userAgent;
     if (/Firefox\//.test(ua)) return navigator.serviceWorker === undefined;
-    if (/Chrome\//.test(ua) && navigator.storage?.estimate) {
-      const { quota } = await navigator.storage.estimate();
-      const heap = (performance as Performance & { memory?: { jsHeapSizeLimit?: number } }).memory?.jsHeapSizeLimit ?? 1_073_741_824;
-      return quota !== undefined ? quota < heap * 2 : null;
-    }
+    // shortcut: la navigation privée Chromium n'est pas détectable de façon fiable (Chrome et Edge : même quota en privé ;
+    // Brave : quota fixe, faux positifs ; Android presque plein : faux positifs). Elle est couverte par B2 et B4 (même clé hw
+    // ou même mKey en navigation privée, vérifié en vrai, avec le même réseau). À revoir si un signal fiable apparaît.
+    if (/Chrome\//.test(ua)) return null;
     if (/Safari\//.test(ua) && navigator.storage?.getDirectory) {
       try {
         await navigator.storage.getDirectory();
