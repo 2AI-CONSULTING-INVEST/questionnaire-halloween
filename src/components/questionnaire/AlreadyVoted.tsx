@@ -1,5 +1,6 @@
 "use client";
 
+import { BlockedHelpTab } from "./BlockedHelpTab";
 import { Emoji } from "./ui";
 import { useCountdown } from "./useCountdown";
 import { ThanksActions } from "./ThanksActions";
@@ -10,7 +11,7 @@ const two = (n: number) => String(n).padStart(2, "0");
  * Écran « déjà voté aujourd'hui » : remplace l'accueil quand l'appareil a validé un vote ce jour-là.
  * Le compte à rebours (calé sur l'heure du serveur) court jusqu'au minuit parisien suivant ; arrivé à zéro, le vote rouvre sans recharger.
  */
-export function AlreadyVoted({ nextResetAt, onReset }: { nextResetAt: string; onReset: () => void }) {
+export function AlreadyVoted({ nextResetAt, detected = false, onReset }: { nextResetAt: string; detected?: boolean; onReset: () => void }) {
   const left = useCountdown(nextResetAt, onReset);
 
   const total = Math.ceil(left / 1000);
@@ -20,14 +21,16 @@ export function AlreadyVoted({ nextResetAt, onReset }: { nextResetAt: string; on
 
   return (
     <main className="relative z-10 flex min-h-dvh flex-1 items-center px-4 pb-20 pt-[max(31vh,7rem)] sm:px-6 sm:py-20 md:px-8">
+      {/* Ouverte seule une fois par jour quand l'appareil a été reconnu sans être passé par le vote. */}
+      <BlockedHelpTab autoOpen={detected} day={nextResetAt.slice(0, 10)} />
       <div className="mx-auto flex w-full max-w-3xl flex-col items-center text-center">
         {/* Sur téléphone, le titre descend sous la lune et repose sur un léger voile de lisibilité. */}
-        <div className="rounded-3xl bg-page/55 px-3 py-4 backdrop-blur-sm sm:bg-transparent sm:p-0 sm:backdrop-blur-none day:bg-transparent day:backdrop-blur-none">
+        <div className="w-full rounded-3xl bg-page/55 px-3 py-4 text-center backdrop-blur-sm sm:bg-transparent sm:p-0 sm:backdrop-blur-none day:bg-transparent day:backdrop-blur-none">
           <h1 className="text-[1.65rem] leading-[1.18] tracking-tight text-fg [text-shadow:0_2px_24px_rgba(0,0,0,0.45)] min-[400px]:text-[1.9rem] sm:text-5xl day:[text-shadow:none]">
             <Emoji name="pumpkin" size={64} priority className="mr-3 h-[1em] w-[1em]" />
             Vous avez déjà voté aujourd&apos;hui&nbsp;✅
           </h1>
-          <p className="mt-3 max-w-xl text-base text-fg-muted sm:mt-5 sm:text-xl">
+          <p className="mx-auto mt-3 max-w-xl text-base text-fg-muted sm:mt-5 sm:text-xl">
             Merci&nbsp;! Revenez demain&nbsp;: le vote se réinitialise à minuit (heure de Paris).
           </p>
         </div>

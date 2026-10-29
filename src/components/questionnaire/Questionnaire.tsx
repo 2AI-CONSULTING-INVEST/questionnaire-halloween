@@ -115,7 +115,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
   const groups = useMemo(() => groupDecorations(decorations), [decorations]);
   const [hydrated, setHydrated] = useState(false);
   /** L'appareil a déjà voté aujourd'hui : écran dédié jusqu'à la réouverture (minuit à Paris). */
-  const [alreadyVoted, setAlreadyVoted] = useState<{ nextResetAt: string } | null>(null);
+  const [alreadyVoted, setAlreadyVoted] = useState<{ nextResetAt: string; detected?: boolean } | null>(null);
   /** Refus visible du serveur (409) : modale « Votre vote est bloqué », puis écran « déjà voté ». */
   const [blocked, setBlocked] = useState<{ nextResetAt: string } | null>(null);
   /** Modale « vote bloqué » ouverte : une réponse tardive de vote-status ne la remplace pas (seul closeBlocked y mène). */
@@ -172,7 +172,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
       // Repère du jour de vote encore dans le stockage : écran « déjà voté » tout de suite, sans attendre le réseau.
       const inProgress = s.voteCompleted && !s.raffleDone; // vote du jour en cours sur cet appareil (tirage pas encore rempli) : on laisse finir
       const markerLock = !demo && !inProgress && !s.voteCompleted && readVoteDaySync() === parisDay(now);
-      if (markerLock) setAlreadyVoted({ nextResetAt: nextParisMidnight(now).toISOString() });
+      if (markerLock) setAlreadyVoted({ nextResetAt: nextParisMidnight(now).toISOString(), detected: true });
       setHydrated(true);
       if (demo) {
         setArrivalPending(false);
@@ -194,7 +194,8 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
           if (status.votedToday && !(st.voteCompleted && st.voteDay === status.today && !st.raffleDone)) {
             // Repère du jour posé aussi dans ce navigateur (nouveau navigateur reconnu par B4) : un rechargement reste verrouillé.
             markVoteDay(status.today);
-            setAlreadyVoted({ nextResetAt: status.nextResetAt });
+            // `detected` : reconnu sans être passé par le vote sur cet appareil (languette d'aide de l'écran « déjà voté »).
+            setAlreadyVoted({ nextResetAt: status.nextResetAt, detected: !(st.voteCompleted && st.voteDay === status.today) });
           }
           else if (!status.votedToday && markerLock) setAlreadyVoted(null); // le serveur ne connaît aucune tentative : il tranche
         })
@@ -231,7 +232,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
   const closeBlocked = useCallback(() => {
     blockedOpen.current = false;
     setBlocked((b) => {
-      if (b) setAlreadyVoted({ nextResetAt: b.nextResetAt });
+      if (b) setAlreadyVoted({ nextResetAt: b.nextResetAt, detected: true });
       return null;
     });
   }, []);
@@ -873,7 +874,7 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
 
   const progress = screen === "welcome" ? 0 : Math.min(1, index / (SCREENS.length - 1));
 
-  if (alreadyVoted) return <AlreadyVoted nextResetAt={alreadyVoted.nextResetAt} onReset={reopenVote} />;
+  if (alreadyVoted) return <AlreadyVoted nextResetAt={alreadyVoted.nextResetAt} detected={!demo && !!alreadyVoted.detected} onReset={reopenVote} />;
   const blockedDialog = blocked && <BlockedVoteDialog nextResetAt={blocked.nextResetAt} onClose={closeBlocked} onReopen={reopenVote} />;
 
   return (

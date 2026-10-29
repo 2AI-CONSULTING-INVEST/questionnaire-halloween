@@ -354,9 +354,9 @@
     "semantic_hash": ""
   },
   "src/components/questionnaire/AlreadyVoted.tsx": {
-    "mtime": 1793163203.4540038,
-    "seen": 1793163375.5211258,
-    "ast_hash": "ff89dd4dc92cbadd2df5a16d8ef4c90f",
+    "mtime": 1793263003.0418673,
+    "seen": 1793263068.5628347,
+    "ast_hash": "4aaafed5c1a1f7e9442d14db21eedf88",
     "semantic_hash": ""
   },
   "src/components/questionnaire/Confetti.tsx": {
@@ -372,9 +372,9 @@
     "semantic_hash": ""
   },
   "src/components/questionnaire/Questionnaire.tsx": {
-    "mtime": 1793182551.483339,
-    "seen": 1793182627.0493052,
-    "ast_hash": "caddab5c87d25687f9d749bbc997dd2c",
+    "mtime": 1793263003.039865,
+    "seen": 1793263068.5638368,
+    "ast_hash": "319b8ffa287f3853d511722a590e77fe",
     "semantic_hash": ""
   },
   "src/components/questionnaire/RaffleConfirmDialog.tsx": {
@@ -1679,12 +1679,6 @@
     "ast_hash": "7c5ad5abfbcd2913f812c5faa659c92d",
     "semantic_hash": ""
   },
-  "prompt-antifraude-votes.txt": {
-    "mtime": 1793137342.0655346,
-    "seen": 1793161625.9541886,
-    "ast_hash": "4edf7a7d9a76fa92eb8a12414f119c96",
-    "semantic_hash": ""
-  },
   "tests/unit/responses-filter.test.ts": {
     "mtime": 1793181758.1365805,
     "seen": 1793181880.781541,
@@ -1695,6 +1689,12 @@
     "mtime": 1793183784.3575969,
     "seen": 1793183920.7766323,
     "ast_hash": "97f934a635cf76b28a79d59f5f9d1db9",
+    "semantic_hash": ""
+  },
+  "src/components/questionnaire/BlockedHelpTab.tsx": {
+    "mtime": 1793263848.4181113,
+    "seen": 1793263866.7736104,
+    "ast_hash": "ac2bf80a4f5350abb903949552803fd6",
     "semantic_hash": ""
   }
 }
