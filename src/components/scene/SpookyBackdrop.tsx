@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { setSoundPlace, setSoundTheme, soundEvent } from "@/components/sound/engine";
+import { preloadCeremonySounds, setSoundPlace, setSoundTheme, soundEvent } from "@/components/sound/engine";
 import { getTheme, setTheme, subscribeTheme } from "@/lib/theme";
 import { useSceneState } from "./scene-state";
 import type { SceneName, World } from "./world";
@@ -38,6 +38,15 @@ const TAPS_NEEDED = 30;
 const TAP_GAP_MS = 600;
 
 /** Fait s'envoler une nuée de chauves-souris (ex. : vote validé). */
+const CEREMONY_EVENT = "hw:ceremony";
+/** Cérémonie vue (une fois par visiteur et par fin de concours) : clé = date de fin du concours. */
+const CEREMONY_SEEN_KEY = "hw-ceremony-seen";
+
+/** Cérémonie du podium : la passer ou la rejouer (bouton de la page des résultats). */
+export function ceremonyCommand(kind: "skip" | "replay") {
+  window.dispatchEvent(new CustomEvent(CEREMONY_EVENT, { detail: kind }));
+}
+
 export function triggerSwarm(size?: number) {
   window.dispatchEvent(new CustomEvent(SWARM_EVENT, { detail: size }));
 }
@@ -67,16 +76,17 @@ function canRun3D() {
  * Easter egg : toucher la lune au moins 30 fois, vite (ou taper « lumos »), allume le jour ;
  * de même sur le soleil (ou « nox ») pour ramener la nuit.
  */
-export function SpookyBackdrop() {
+export function SpookyBackdrop({ contestClosed = false, closedAt = null }: { contestClosed?: boolean; closedAt?: string | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const worldRef = useRef<World | null>(null);
   const taps = useRef<number[]>([]);
   const [indoor, setIndoor] = useState(false);
   const pathname = usePathname();
   const questionnaireScene = useSceneState((s) => s.questionnaireScene);
-  // Résultats : la crypte ; participants et lots : la clairière de la faucheuse (les cadeaux) ; sinon la scène du questionnaire.
-  const scene: SceneName = pathname.startsWith("/resultats") ? "crypt" : pathname.startsWith("/participants") ? "reaper" : questionnaireScene;
+  // Résultats : la crypte ; participants et lots, et l'accueil une fois le concours terminé : la clairière de la faucheuse ; sinon la scène du questionnaire.
+  const scene: SceneName = pathname.startsWith("/resultats") ? "crypt" : pathname.startsWith("/participants") || (contestClosed && pathname === "/") ? "reaper" : questionnaireScene;
   const sceneRef = useRef(scene);
+  const podiumRef = useRef({ on: contestClosed, key: closedAt ?? "" });
   // Poster : image du rendu exact de la scène d'arrivée (scripts/3d/posters.mjs, posters.css), affichée
   // dès le premier rendu sous le canvas, retirée en fondu une fois le décor 3D affiché. Gardée si WebGL
   // est indisponible (mieux que le ciel vide).
@@ -106,11 +116,38 @@ export function SpookyBackdrop() {
           onSound: soundEvent,
           onReveal: () => {
             useSceneState.getState().setRevealed(true);
-            soundEvent({ type: "reveal" });
+            // Rire diabolique : pas après la fanfare du podium.
+            if (!podiumRef.current.on) soundEvent({ type: "reveal" });
           },
-          onPlaqueClick: () => {
+          onPlaqueClick: (place) => {
             const s = useSceneState.getState();
-            if (Date.now() - s.boardClosedAt > 400) s.setBoardOpen(true);
+            if (Date.now() - s.boardClosedAt <= 400) return;
+            if (place) s.setPodiumOpen(place);
+            else s.setBoardOpen(true);
+          },
+          podium: podiumRef.current.on,
+          onCeremony: (step) => {
+            const s = useSceneState.getState();
+            if (step !== "end") return s.setCeremony(step);
+            s.setCeremony(null);
+            try {
+              localStorage.setItem(CEREMONY_SEEN_KEY, podiumRef.current.key);
+            } catch {
+              /* stockage indisponible : elle se rejouera à la prochaine visite */
+            }
+          },
+          shouldPlayCeremony: () => {
+            let seen = false;
+            try {
+              seen = localStorage.getItem(CEREMONY_SEEN_KEY) === podiumRef.current.key;
+            } catch {
+              /* stockage indisponible : on la joue */
+            }
+            if (!seen) {
+              useSceneState.getState().setCeremony("start");
+              preloadCeremonySounds();
+            }
+            return !seen;
           },
           // Easter egg : au moins 30 tapes rapides sur la lune (moins de 0,6 s entre deux) ;
           // une pause remet à zéro. La lune s'illumine à mesure.
@@ -153,6 +190,16 @@ export function SpookyBackdrop() {
     });
     const onSwarm = (e: Event) => worldRef.current?.swarm((e as CustomEvent<number | undefined>).detail);
     window.addEventListener(SWARM_EVENT, onSwarm);
+    const onCeremonyCmd = (e: Event) => {
+      const kind = (e as CustomEvent<"skip" | "replay">).detail;
+      if (kind === "skip") worldRef.current?.skipCeremony();
+      else {
+        useSceneState.getState().setCeremony("start");
+        preloadCeremonySounds();
+        worldRef.current?.replayCeremony();
+      }
+    };
+    window.addEventListener(CEREMONY_EVENT, onCeremonyCmd);
 
     // Formules magiques au clavier.
     let typed = "";
@@ -171,17 +218,32 @@ export function SpookyBackdrop() {
       unsubTheme();
       unsubResults();
       window.removeEventListener(SWARM_EVENT, onSwarm);
+      window.removeEventListener(CEREMONY_EVENT, onCeremonyCmd);
       window.removeEventListener("keydown", onKey);
+      soundEvent({ type: "crowd", level: 0 });
       worldRef.current?.dispose();
       worldRef.current = null;
     };
   }, []);
 
+  // Concours terminé / rouvert pendant la visite : podium (ou classement) dans la crypte.
+  useEffect(() => {
+    podiumRef.current = { on: contestClosed, key: closedAt ?? "" };
+    worldRef.current?.setPodium(contestClosed);
+  }, [contestClosed, closedAt]);
+
   // Changement de lieu : la caméra s'y rend.
   useEffect(() => {
     sceneRef.current = scene;
     worldRef.current?.setScene(scene);
-    if (scene !== "crypt") useSceneState.getState().setRevealed(false);
+    if (scene !== "crypt") {
+      // La crypte ne se met plus à jour une fois quittée : la cérémonie ne coupera pas la foule elle-même.
+      soundEvent({ type: "crowd", level: 0 });
+      const s = useSceneState.getState();
+      s.setRevealed(false);
+      s.setCeremony(null);
+      s.setPodiumOpen(null);
+    }
   }, [scene]);
 
   return (

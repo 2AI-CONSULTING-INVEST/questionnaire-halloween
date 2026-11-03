@@ -3,10 +3,11 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serverNow } from "@/lib/clock";
 import { parisDay } from "@/lib/day";
+import { loadContest } from "@/lib/contest";
 import { getStore, requestMeta, type VoteStamp } from "@/lib/db";
 import { strongConflict } from "@/lib/fraud-rules";
 import { applyGraph, decideVote, requestSignals, type RequestSignals } from "@/lib/fraud-server";
-import { alreadyVoted, error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
+import { alreadyVoted, error, isUuid, json, limited, readJson, zodError, votesClosed } from "@/lib/http";
 import { clientIp } from "@/lib/rate-limit";
 import { IP_DAILY_MAX_FLAG, loadRiskSettings, scoreRisk } from "@/lib/risk";
 import { voteCompleteSchema } from "@/lib/schema";
@@ -25,6 +26,7 @@ import { deviceStamp, deviceToken, readVoter, storageKeyOf, uaImpliesStrong } fr
 export async function POST(req: Request, ctx: RouteContext<"/api/responses/[id]/complete">) {
   const blocked = limited(req, "responses", 100);
   if (blocked) return blocked;
+  if ((await loadContest(getStore())).closed) return votesClosed();
 
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Session invalide", 404);

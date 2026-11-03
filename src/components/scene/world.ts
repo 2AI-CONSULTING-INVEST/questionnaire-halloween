@@ -20,13 +20,13 @@ import { createBloodScreen } from "./bloodScreen";
 import { Billboards, easeInOut, flicker, glowTexture, rand, shadowTexture, smokeTexture, smooth } from "./core";
 import { cutGlowWarmup, updateCutGlow } from "./glow";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
-import { createCrypt, type CryptArea, type ResultsData } from "./crypt";
+import { createCrypt, type CeremonyStep, type CryptArea, type ResultsData } from "./crypt";
 import { createGraveyard, createGround, createReaperClearing, outdoorPose, type GraveyardArea } from "./outdoor";
 import type { Area, EyeStyle, Flame, Frame, Kit, Pose, SceneName } from "./types";
 import { ASSETS } from "./assets";
 import { batGeometry, createBatMaterial } from "./bats";
 
-export type { ResultsData } from "./crypt";
+export type { CeremonyStep, ResultsData } from "./crypt";
 export type { SceneName } from "./types";
 import type { SoundEvent } from "../sound/engine";
 
@@ -39,8 +39,14 @@ export type WorldOptions = {
   onIndoor?: (indoor: boolean) => void;
   /** Le classement vient d'être dévoilé. */
   onReveal?: () => void;
-  /** Clic sur le panneau du classement (dans la crypte, une fois dépoussiéré). */
-  onPlaqueClick?: () => void;
+  /** Clic sur le panneau du classement (dans la crypte, une fois dévoilé) ; mode podium : place visée. */
+  onPlaqueClick?: (place: 1 | 2 | 3 | null) => void;
+  /** Concours terminé : podium et cérémonie dans la crypte. */
+  podium?: boolean;
+  /** Étapes de la cérémonie du podium (places dévoilées, roulement, fin). */
+  onCeremony?: (step: CeremonyStep) => void;
+  /** Jouer la cérémonie à l'arrivée dans la crypte (sinon podium final, directement). */
+  shouldPlayCeremony?: () => boolean;
   /** Tape sur la lune (objet 3D du ciel), avec le point touché à l'écran. */
   onMoonTap?: (point: { x: number; y: number }) => void;
   /** Évènements sonores : nuées de chauves-souris, travellings (pas). */
@@ -54,6 +60,11 @@ export type World = {
   /** Une nuée de chauves-souris s'envole du lieu courant. */
   swarm(size?: number): void;
   setResults(data: ResultsData): void;
+  /** Concours terminé (ou rouvert) : podium dans la crypte. */
+  setPodium(on: boolean): void;
+  /** Cérémonie du podium : passer à la fin / la rejouer (dans la crypte). */
+  skipCeremony(): void;
+  replayCeremony(): void;
   /** Easter egg : 0 → 1, la lune s'illumine à mesure des tapes (et sursaute à chaque tape). */
   setMoonCharge(charge: number): void;
   /** Centre de la lune à l'écran (px), ou null si elle n'est pas visible. */
@@ -344,6 +355,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   let graveyard: GraveyardArea | null = null;
   let reaper: Area | null = null;
   let crypt: CryptArea | null = null;
+  let podiumOn = !!opts.podium;
   let active: Area | null = null;
   let wanted: SceneName = "graveyard";
   let pendingResults: ResultsData | null = null;
@@ -699,7 +711,8 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     dungeonReady ??= Promise.all([loader.loadAsync(ASSETS.dungeon), ensureDungeonTex(), logos, halloween]).then(([gltf]) => {
       if (disposed) return;
       registerPack(gltf, dungeonMat);
-      crypt = createCrypt(kit);
+      crypt = createCrypt(kit, { onSound: opts.onSound, onCeremony: opts.onCeremony, shouldPlayCeremony: opts.shouldPlayCeremony });
+      crypt.setPodium(podiumOn);
       scene.add(crypt.group);
       crypt.group.visible = indoor;
       if (pendingResults) crypt.setResults(pendingResults);
@@ -1106,7 +1119,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   const plaqueAt = (e: MouseEvent) => {
-    if (!indoor || !crypt || shots.length || (e.target as Element | null)?.closest?.("a, button, input, [role=dialog]")) return false;
+    if (!indoor || !crypt || shots.length || (e.target as Element | null)?.closest?.("a, button, input, [role=dialog]")) return null;
     ndc.set((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1));
     raycaster.setFromCamera(ndc, camera);
     return crypt.hitPlaque(raycaster);
@@ -1126,7 +1139,8 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       opts.onMoonTap?.({ x: e.clientX, y: e.clientY });
       return;
     }
-    if (plaqueAt(e)) opts.onPlaqueClick?.();
+    const hit = plaqueAt(e);
+    if (hit) opts.onPlaqueClick?.(hit.place);
   };
   const onLost = (e: Event) => {
     e.preventDefault();
@@ -1175,6 +1189,21 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       pendingResults = data;
       crypt?.setResults(data);
       if (reduce && indoor) renderFrame(0);
+    },
+    setPodium(on) {
+      podiumOn = on;
+      crypt?.setPodium(on);
+      if (reduce && indoor) renderFrame(0);
+    },
+    skipCeremony() {
+      crypt?.skip();
+      if (reduce && indoor) renderFrame(0);
+    },
+    replayCeremony() {
+      if (!crypt || !indoor || shots.length) return;
+      crypt.resetDust();
+      crypt.reveal(() => opts.onReveal?.(), true);
+      if (reduce) renderFrame(0);
     },
     dispose() {
       disposed = true;

@@ -380,3 +380,8 @@ html[data-hw-topbar] .hw-rail { top: calc(3.5rem + env(safe-area-inset-top)); }
 /* Défilement horizontal des carrousels sans barre visible. */
 .no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Cérémonie du podium (crypte) : les liens légaux du pied de page laissent la place aux légendes. */
+html[data-hw-ceremony] footer {
+  visibility: hidden;
+}

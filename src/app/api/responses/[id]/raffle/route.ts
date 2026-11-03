@@ -1,10 +1,11 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
+import { loadContest } from "@/lib/contest";
 import { CONFLICT_MESSAGES, ConflictError, getStore, type Store } from "@/lib/db";
 import { applyGraph } from "@/lib/fraud-server";
 import { loadRiskSettings } from "@/lib/risk";
 import { isCounted, type ResponseRow } from "@/lib/schema";
-import { conflictError, error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
+import { conflictError, error, isUuid, json, limited, readJson, zodError, votesClosed } from "@/lib/http";
 
 /** Conflit de coordonnées : message unique, sans dire quel champ (pas d'oracle « cette personne participe déjà »). */
 const TAKEN = "Ces coordonnées sont déjà utilisées pour une inscription";
@@ -18,6 +19,7 @@ import { participantInput, raffleSchema } from "@/lib/schema";
 export async function POST(req: Request, ctx: RouteContext<"/api/responses/[id]/raffle">) {
   const blocked = limited(req, "raffle", 10);
   if (blocked) return blocked;
+  if ((await loadContest(getStore())).closed) return votesClosed();
 
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Session invalide", 404);

@@ -333,6 +333,8 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
 
   const showServerError = useCallback(
     (body: ApiError) => {
+      // Concours terminé pendant le parcours : l'accueil (régénéré) annonce la fin.
+      if (body.details?.code === "votes_closed") return window.location.reload();
       const field = Object.keys(body.details ?? {})[0];
       const target = field ? SCREEN_OF_FIELD[field] : undefined;
       if (field && target) {

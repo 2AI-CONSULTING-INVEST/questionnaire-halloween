@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import type { ResultsData } from "./crypt";
+import type { CeremonyStep, ResultsData } from "./crypt";
 
 /** État partagé entre les pages publiques et le décor 3D (qui persiste d'une page à l'autre). */
 type SceneState = {
@@ -16,6 +16,12 @@ type SceneState = {
   boardOpen: boolean;
   /** Fermeture du classement : le clic qui le ferme ne doit pas le rouvrir (il tombe sur le panneau). */
   boardClosedAt: number;
+  /** Cérémonie du podium en cours : dernière étape jouée (null : pas de cérémonie en cours). */
+  ceremony: Exclude<CeremonyStep, "end"> | "start" | null;
+  /** Place du podium ouverte en grand (vidéo du restaurant), null sinon. */
+  podiumOpen: 1 | 2 | 3 | null;
+  setCeremony(step: SceneState["ceremony"]): void;
+  setPodiumOpen(place: 1 | 2 | 3 | null): void;
   setQuestionnaireScene(scene: "graveyard" | "reaper"): void;
   setStatus(status: SceneState["status"]): void;
   setRevealed(revealed: boolean): void;
@@ -30,6 +36,10 @@ export const useSceneState = create<SceneState>()((set) => ({
   results: null,
   boardOpen: false,
   boardClosedAt: 0,
+  ceremony: null,
+  podiumOpen: null,
+  setCeremony: (ceremony) => set({ ceremony }),
+  setPodiumOpen: (podiumOpen) => set(podiumOpen ? { podiumOpen } : { podiumOpen, boardClosedAt: Date.now() }),
   setQuestionnaireScene: (questionnaireScene) => set({ questionnaireScene }),
   setStatus: (status) => set({ status }),
   setRevealed: (revealed) => set({ revealed }),

@@ -313,7 +313,8 @@ function longBone(profile: number[][]) {
   return paint(new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), 9), "cream", { min: 1, max: 0 });
 }
 
-export function createSkeletonArm(mat: THREE.Material, scale: number): SkeletonArm {
+/** `left` : bras gauche (miroir du bras droit : pouce, radius et olécrane de l'autre côté). */
+export function createSkeletonArm(mat: THREE.Material, scale: number, left = false): SkeletonArm {
   const root = new THREE.Group();
   const hand = createBoneHand(mat, false);
   // Carpes : deux rangées de petits os entre la paume et l'avant-bras (repère de la main : +y vers le bras).
@@ -348,6 +349,8 @@ export function createSkeletonArm(mat: THREE.Material, scale: number): SkeletonA
   const shoulderHead = bone(knob);
 
   const s = scale;
+  /** Côté du pouce : -1 pour le bras droit (radius à -side), +1 pour le gauche. */
+  const hs = left ? -1 : 1;
   const R_FORE = 0.05 * s; // rayon de référence des os de l'avant-bras
   const R_HUM = 0.062 * s; // rayon de référence de l'humérus (aux condyles)
   const SEP_WRIST = 0.05 * s;
@@ -379,7 +382,7 @@ export function createSkeletonArm(mat: THREE.Material, scale: number): SkeletonA
       basis.makeBasis(x, y, z);
       hand.root.position.copy(wrist);
       hand.root.quaternion.setFromRotationMatrix(basis);
-      hand.root.scale.set(-s, s, s);
+      hand.root.scale.set(left ? s : -s, s, s);
 
       // Avant-bras : du poignet (un peu en retrait, sous les carpes) jusqu'au coude.
       dir.subVectors(elbow, wrist).normalize();
@@ -398,14 +401,14 @@ export function createSkeletonArm(mat: THREE.Material, scale: number): SkeletonA
       // Radius côté pouce (à gauche de la main droite, paume au mur), ulna côté auriculaire.
       // Au coude, les deux os s'emboîtent sous les condyles, un peu en retrait de la charnière.
       const foreEnd = elbow.clone().addScaledVector(dir, 0.04 * s);
-      const pair: [THREE.Mesh, number][] = [[radius, -1], [ulna, 1]];
+      const pair: [THREE.Mesh, number][] = [[radius, -hs], [ulna, hs]];
       for (const [m, k] of pair) {
         const from = start.clone().addScaledVector(side, (k * SEP_WRIST) / 2);
         const to = foreEnd.clone().addScaledVector(side, (k * SEP_ELBOW) / 2);
         stretch(m, from, to, R_FORE);
       }
       // Olécrane : derrière le coude, au bout de l'ulna.
-      olecranon.position.copy(elbow).addScaledVector(side, SEP_ELBOW / 2).addScaledVector(back, 0.045 * s);
+      olecranon.position.copy(elbow).addScaledVector(side, (hs * SEP_ELBOW) / 2).addScaledVector(back, 0.045 * s);
       olecranon.quaternion.setFromUnitVectors(up, dir.clone().negate());
       olecranon.scale.setScalar(0.042 * s);
       // Humérus : des condyles (juste au-dessus de la charnière) jusqu'à l'épaule.
@@ -1061,6 +1064,44 @@ export function createWitchHat(mat: THREE.Material, opts: { height?: number; rad
   const g = new THREE.Group();
   g.add(new THREE.Mesh(merge([paint(crown, DCELL.black), paint(brimGeo, DCELL.black), paint(bandGeo, DCELL.violet), ...buckle]), mat));
   return g;
+}
+
+// ---------------------------------------------------------------------------
+// Public de squelettes (cérémonie du podium) : main + avant-bras figés doigts tendus, fusionnés en
+// une seule géométrie pour être dessinés en instances (des dizaines de mains, un seul appel de dessin).
+// ---------------------------------------------------------------------------
+
+/**
+ * Repère : poignet à l'origine, doigts vers +y, avant-bras vers -y. Main gauche : paume vers +x ;
+ * `right` : main droite (miroir en x, triangles remis à l'endroit pour un éclairage juste).
+ */
+export function createClapHandGeometry(right = false) {
+  const tmp = new THREE.MeshBasicMaterial();
+  const hand = createBoneHand(tmp, true);
+  hand.pose(0.06, 0.07, 0.2);
+  hand.root.updateMatrixWorld(true);
+  const parts: THREE.BufferGeometry[] = [];
+  hand.root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) parts.push(m.geometry.clone().applyMatrix4(m.matrixWorld));
+  });
+  tmp.dispose();
+  // Modèle : doigts -y, paume +z → doigts +y, paume +x.
+  const geo = merge(parts).rotateZ(Math.PI).rotateY(Math.PI / 2);
+  if (!right) return geo;
+  geo.scale(-1, 1, 1);
+  // Miroir : chaque triangle change de sens ; on échange ses 2e et 3e sommets (géométrie non indexée).
+  for (const name of Object.keys(geo.attributes)) {
+    const a = geo.getAttribute(name) as THREE.BufferAttribute;
+    const n = a.itemSize;
+    for (let v = 0; v + 2 < a.count; v += 3)
+      for (let k = 0; k < n; k++) {
+        const tmp = a.array[(v + 1) * n + k];
+        a.array[(v + 1) * n + k] = a.array[(v + 2) * n + k];
+        a.array[(v + 2) * n + k] = tmp;
+      }
+  }
+  return geo;
 }
 
 // ---------------------------------------------------------------------------

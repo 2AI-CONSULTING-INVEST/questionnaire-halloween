@@ -6,6 +6,7 @@ import { Dialog } from "radix-ui";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { isLocalMedia, mediaKind, posterOf, shortName, type Decoration } from "@/lib/schema";
 import { bindVideoVolume, holdSound } from "@/components/sound/engine";
+import { optimizedPoster } from "./poster";
 
 export type LightboxGroup = { id: string; title: string; items: Decoration[] };
 
@@ -294,8 +295,8 @@ function Viewer({
   );
 }
 
-/** Vidéo : affiche + gros bouton lecture ; se met en pause quand on change de média. */
-function SlideVideo({ src, active }: { src: string; active: boolean }) {
+/** Vidéo : affiche + gros bouton lecture ; se met en pause quand on change de média. Rien n'est téléchargé avant la lecture. */
+export function SlideVideo({ src, active }: { src: string; active: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -326,7 +327,7 @@ function SlideVideo({ src, active }: { src: string; active: boolean }) {
       <video
         ref={ref}
         src={src}
-        poster={posterOf(src)}
+        poster={optimizedPoster(posterOf(src), 540)}
         playsInline
         controls={started}
         preload="none"

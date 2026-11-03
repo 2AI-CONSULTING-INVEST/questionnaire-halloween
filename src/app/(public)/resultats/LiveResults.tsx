@@ -3,38 +3,58 @@
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, Expand, Gift, X } from "lucide-react";
+import { ArrowLeft, Expand, FastForward, Gift, Play, RotateCcw, X } from "lucide-react";
 import { Dialog } from "radix-ui";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { CelebrationConfetti } from "@/components/contest/CelebrationConfetti";
+import { CeremonyCaption } from "@/components/contest/CeremonyCaption";
+import { placeLabel, podiumSlots } from "@/components/scene/podium";
 import { useSceneState } from "@/components/scene/scene-state";
+import { ceremonyCommand } from "@/components/scene/SpookyBackdrop";
 import { Emoji } from "@/components/questionnaire/ui";
-import { Lantern } from "@/components/ui/Lantern";
 import type { PublicResults } from "@/lib/public-results";
 import { isLocalMedia, shortName } from "@/lib/schema";
 import { displayName, tabTitle } from "@/lib/site";
 import { withBase } from "@/lib/base-path";
+import { LanternPost, Mound } from "./ModalDecor";
+import { PodiumModal } from "./PodiumModal";
 
 const pct = (v: number) => `${Math.round(v * 1000) / 10}`.replace(".", ",") + " %";
+const pill = "inline-flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1.5 text-xs text-white/85 backdrop-blur transition-colors hover:text-white";
 
 /**
- * Résultats en direct. Avec le décor 3D, le classement est peint sur le mur de la crypte
- * (la liste reste lisible par les lecteurs d'écran) ; un clic sur le panneau l'ouvre en grand.
- * Sans 3D, la liste s'affiche directement.
+ * Résultats. Avec le décor 3D, le classement est peint sur le mur de la crypte (la liste reste
+ * lisible par les lecteurs d'écran) ; un clic sur le panneau l'ouvre en grand. Sans 3D, la liste
+ * s'affiche directement.
+ * Concours terminé (`closed`) : le panneau devient un podium, dévoilé par une cérémonie la première
+ * fois (légendes, confettis, bouton « Passer », puis « Revoir la cérémonie ») ; un clic sur une place
+ * ouvre la vidéo de ce restaurant (`media` : restaurant → vidéo, ou photo à défaut).
  */
-export function LiveResults({ initial }: { initial: PublicResults }) {
+export function LiveResults({ initial, closed = false, media = {} }: { initial: PublicResults; closed?: boolean; media?: Record<string, string> }) {
   const [data, setData] = useState(initial);
   const status = useSceneState((s) => s.status);
   const revealed = useSceneState((s) => s.revealed);
   const boardOpen = useSceneState((s) => s.boardOpen);
   const setBoardOpen = useSceneState((s) => s.setBoardOpen);
+  const ceremony = useSceneState((s) => s.ceremony);
+  const podiumOpen = useSceneState((s) => s.podiumOpen);
+  const setPodiumOpen = useSceneState((s) => s.setPodiumOpen);
   const on3D = status === "ready";
+  const slots = useMemo(() => podiumSlots(data.results), [data.results]);
 
   useEffect(() => {
     useSceneState.getState().setResults(data);
   }, [data]);
 
-  // On referme le classement en quittant la page.
-  useEffect(() => () => useSceneState.getState().setBoardOpen(false), []);
+  // On referme le classement (ou la vidéo d'une place) en quittant la page.
+  useEffect(
+    () => () => {
+      const s = useSceneState.getState();
+      s.setBoardOpen(false);
+      s.setPodiumOpen(null);
+    },
+    [],
+  );
 
   // Titre de l'onglet selon l'étape : ouverture de la crypte, puis restaurant en tête (ou égalité).
   const leaders = data.results.filter((r) => r.votes > 0 && r.votes === Math.max(...data.results.map((o) => o.votes)));
@@ -44,7 +64,18 @@ export function LiveResults({ initial }: { initial: PublicResults }) {
       : leaders.length > 1
         ? `égalité en tête entre ${leaders.map((r) => displayName(r.restaurant_name)).join(" et ")}`
         : "en attente des premiers votes";
-  const title = on3D && !revealed ? "Résultats · Ouverture de la crypte…" : `${boardOpen ? "Classement" : "Résultats"} en direct · ${standing}`;
+  const winners = leaders.map((r) => displayName(r.restaurant_name)).join(" et ");
+  const title = closed
+    ? ceremony
+      ? "Résultats · Cérémonie du podium"
+      : on3D && !revealed
+        ? "Résultats · Ouverture de la crypte…"
+        : leaders.length
+          ? `Résultats · ${winners} ${leaders.length > 1 ? "remportent" : "remporte"} le concours`
+          : "Résultats du concours"
+    : on3D && !revealed
+      ? "Résultats · Ouverture de la crypte…"
+      : `${boardOpen ? "Classement" : "Résultats"} en direct · ${standing}`;
   useEffect(() => {
     document.title = tabTitle(title);
   }, [title]);
@@ -68,6 +99,16 @@ export function LiveResults({ initial }: { initial: PublicResults }) {
     return () => document.documentElement.removeAttribute("data-hw-topbar");
   }, [on3D]);
 
+  // Pendant la cérémonie, le pied de page (liens légaux, en haut de l'écran dans la crypte) s'efface sous les légendes (globals.css).
+  const playing = closed && on3D && !!ceremony;
+  useEffect(() => {
+    document.documentElement.toggleAttribute("data-hw-ceremony", playing);
+    return () => document.documentElement.removeAttribute("data-hw-ceremony");
+  }, [playing]);
+
+  const openSlot = podiumOpen ? (slots.find((s) => s.place === podiumOpen) ?? null) : null;
+  const podiumReady = closed && on3D && revealed && !ceremony;
+
   return (
     <main className={`relative z-10 mx-auto max-w-3xl px-4 sm:px-8 ${on3D ? "pt-[max(1rem,env(safe-area-inset-top))]" : "pb-40 pt-28 sm:pt-32"}`}>
       <div className={on3D ? "flex items-start justify-between gap-3 pt-2" : ""}>
@@ -75,33 +116,53 @@ export function LiveResults({ initial }: { initial: PublicResults }) {
           href="/"
           className={`inline-flex items-center gap-1 text-sm transition-colors ${on3D ? "rounded-full bg-black/40 px-3 py-1.5 text-white/85 backdrop-blur hover:text-white" : "text-fg-muted hover:text-fg"}`}
         >
-          <ArrowLeft className="h-4 w-4" aria-hidden /> Retour au vote
+          <ArrowLeft className="h-4 w-4" aria-hidden /> Retour à l&apos;accueil
         </Link>
         {on3D &&
-          (revealed ? (
-            <button
-              type="button"
-              onClick={() => setBoardOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1.5 text-xs text-white/85 backdrop-blur transition-colors hover:text-white"
-            >
+          (closed ? (
+            ceremony ? null : revealed ? (
+              <button type="button" onClick={() => ceremonyCommand("replay")} className={pill}>
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Revoir la cérémonie
+              </button>
+            ) : (
+              <p className={pill} aria-live="polite">
+                Ouverture de la crypte…
+              </p>
+            )
+          ) : revealed ? (
+            <button type="button" onClick={() => setBoardOpen(true)} className={pill}>
               <Expand className="h-3.5 w-3.5" aria-hidden /> Voir le classement en grand
             </button>
           ) : (
-            <p className="rounded-full bg-black/40 px-3 py-1.5 text-xs text-white/80 backdrop-blur" aria-live="polite">
+            <p className={pill} aria-live="polite">
               Ouverture de la crypte…
             </p>
           ))}
       </div>
       <h1 className={on3D ? "sr-only" : "mt-6 text-3xl tracking-tight text-fg sm:text-5xl"}>
         <Emoji name="trophy" size={48} className="mr-2 h-[1em] w-[1em]" />
-        Résultats en direct
+        {closed ? "Résultats du concours" : "Résultats en direct"}
       </h1>
       <p className={on3D ? "sr-only" : "mt-3 text-fg-muted"}>
-        <strong className="text-fg">{data.total.toLocaleString("fr-FR")}</strong> vote{data.total > 1 ? "s" : ""} · mis à jour
-        automatiquement
+        <strong className="text-fg">{data.total.toLocaleString("fr-FR")}</strong> vote{data.total > 1 ? "s" : ""} ·{" "}
+        {closed ? "concours terminé" : "mis à jour automatiquement"}
       </p>
 
-      <Ranking data={data} className={on3D ? "sr-only" : "mt-10"} />
+      <Ranking data={data} className={on3D ? "sr-only" : "mt-10"} onPick={closed && !on3D ? setPodiumOpen : undefined} slots={closed && !on3D ? slots : undefined} />
+
+      {/* Podium au mur : chaque place ouvre la vidéo de son restaurant (aussi au clavier). */}
+      {podiumReady && slots.length > 0 && (
+        <div className="fixed inset-x-0 bottom-[max(3.25rem,calc(env(safe-area-inset-bottom)+2.75rem))] z-10 flex flex-col items-center gap-2 px-4">
+          <p className="rounded-full bg-black/45 px-3 py-1.5 text-center text-xs text-white/85 backdrop-blur">Touchez une place du podium pour voir sa vidéo</p>
+          <div className="sr-only flex gap-2 focus-within:not-sr-only">
+            {slots.map((s) => (
+              <button key={s.place} type="button" onClick={() => setPodiumOpen(s.place)} className={pill}>
+                <Play className="h-3.5 w-3.5" aria-hidden /> {placeLabel(s.rank)} : {shortName(s.entry.restaurant_name)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Lien discret vers le tirage au sort (lots, participants, gagnants). */}
       <p className={on3D ? "fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-0 right-0 z-10 text-center" : "mt-8 text-center"}>
@@ -113,8 +174,23 @@ export function LiveResults({ initial }: { initial: PublicResults }) {
         </Link>
       </p>
 
-      {/* Classement en grand, net, au centre de l'écran, sur fond flouté */}
-      <Dialog.Root open={on3D && boardOpen} onOpenChange={setBoardOpen}>
+      {/* Cérémonie du podium : légendes, confettis du gagnant, « Passer ». */}
+      {closed && on3D && <CeremonyCaption step={ceremony} slots={slots} />}
+      {closed && on3D && ceremony === 1 && <CelebrationConfetti />}
+      {closed && on3D && ceremony && (
+        <button
+          type="button"
+          onClick={() => ceremonyCommand("skip")}
+          className="fixed bottom-[max(3.5rem,calc(env(safe-area-inset-bottom)+3rem))] right-4 z-30 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-white/20 bg-black/55 px-4 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-black/70 sm:right-6"
+        >
+          Passer <FastForward className="h-4 w-4" aria-hidden />
+        </button>
+      )}
+
+      {closed && <PodiumModal slot={openSlot} media={media} onClose={() => setPodiumOpen(null)} />}
+
+      {/* Classement en grand, net, au centre de l'écran, sur fond flouté (concours en cours). */}
+      <Dialog.Root open={on3D && boardOpen && !closed} onOpenChange={setBoardOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/55 backdrop-blur-md data-[state=open]:animate-[fade-in_200ms_ease-out]" />
           <Dialog.Content
@@ -156,47 +232,11 @@ export function LiveResults({ initial }: { initial: PublicResults }) {
             </div>
             {/* Motte de terre (rendu des assets KayKit Halloween Bits + Forest Nature), au bas-centre
                 de l'écran, légèrement enfoncée sous le bord. */}
-            <Image
-              src={withBase("/decor/modal-mound.png")}
-              alt=""
-              width={2018}
-              height={585}
-              unoptimized
-              aria-hidden
-              priority
-              className="pointer-events-none absolute bottom-0 left-1/2 h-auto w-[var(--mw)] max-w-none -translate-x-1/2 translate-y-[22%] select-none drop-shadow-[0_-6px_24px_rgba(0,0,0,0.5)]"
-            />
+            <Mound />
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
     </main>
-  );
-}
-
-/**
- * Poteau-lanterne (rendu KayKit, mât allongé) planté dans la motte à droite du panneau.
- * Hauteur liée au panneau : de 6 % au-dessus de lui (24 % sur mobile : la lanterne pend alors
- * au-dessus) jusqu'à 6 % sous son bord (pied planté dans la motte). Mât à 83 % de la largeur.
- * Deux plans : le poteau derrière le panneau ; devant, la lanterne (image à part, accrochée sous le
- * bout du bras) qui se balance, avec son halo et les insectes qui tournent autour.
- */
-function LanternPost({ front = false, className = "" }: { front?: boolean; className?: string }) {
-  return (
-    <div
-      aria-hidden
-      className={`pointer-events-none absolute -bottom-[6%] -top-[24%] sm:-top-[6%] right-0 translate-x-[calc(17%+22px)] sm:translate-x-[calc(17%+110px)] ${front ? "z-10" : ""} ${className}`}
-    >
-      {/* Devant, l'image (invisible) ne sert qu'à donner au plan la taille du poteau. */}
-      <Image
-        src={withBase("/decor/modal-post.png")}
-        alt=""
-        unoptimized
-        width={695}
-        height={3581}
-        className={`h-full w-auto max-w-none select-none drop-shadow-[0_8px_18px_rgba(0,0,0,0.55)] ${front ? "invisible" : ""}`}
-      />
-      {front && <Lantern />}
-    </div>
   );
 }
 
@@ -225,7 +265,20 @@ const MEDALS = [
   },
 ] as const;
 
-function Ranking({ data, className = "", large = false }: { data: PublicResults; className?: string; large?: boolean }) {
+function Ranking({
+  data,
+  className = "",
+  large = false,
+  slots,
+  onPick,
+}: {
+  data: PublicResults;
+  className?: string;
+  large?: boolean;
+  /** Concours terminé : places du podium, chacune ouvre la vidéo de son restaurant. */
+  slots?: ReturnType<typeof podiumSlots>;
+  onPick?: (place: 1 | 2 | 3) => void;
+}) {
   const max = Math.max(1, ...data.results.map((r) => r.votes));
   return (
     <ol className={`flex flex-col gap-3 ${className}`}>
@@ -233,6 +286,7 @@ function Ranking({ data, className = "", large = false }: { data: PublicResults;
         // Rang « sportif » : les ex æquo partagent le même rang (et la même médaille).
         const rank = 1 + data.results.filter((o) => o.votes > r.votes).length;
         const medal = r.votes > 0 ? MEDALS[rank - 1] : undefined;
+        const slot = slots?.find((s) => s.entry.id === r.id);
         return (
           <motion.li
             key={r.id}
@@ -267,6 +321,16 @@ function Ranking({ data, className = "", large = false }: { data: PublicResults;
                 />
               </div>
             </div>
+            {slot && onPick && (
+              <button
+                type="button"
+                onClick={() => onPick(slot.place)}
+                aria-label={`Voir la vidéo de ${shortName(r.restaurant_name)} (${placeLabel(slot.rank)})`}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand text-black shadow transition hover:brightness-105"
+              >
+                <Play className="ml-0.5 h-5 w-5" fill="currentColor" aria-hidden />
+              </button>
+            )}
           </motion.li>
         );
       })}

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { ContestOver } from "@/components/contest/ContestOver";
 import { Questionnaire } from "@/components/questionnaire/Questionnaire";
+import { drawResultsOf, loadContest } from "@/lib/contest";
 import { getStore } from "@/lib/db";
 import { BASE_PATH } from "@/lib/base-path";
 import { HOME } from "@/lib/site";
@@ -18,6 +20,10 @@ export const revalidate = 60;
 
 export default async function Home() {
   const store = getStore();
+  // Concours terminé (onglet « Concours » du backoffice) : plus de questionnaire, les routes de vote refusent aussi.
+  const contest = await loadContest(store);
+  if (contest.closed) return <ContestOver results={drawResultsOf(contest)} />;
+
   // Lots : seulement nom, description et image (jamais le gagnant) pour la confirmation du « Non ».
   const [restaurants, decorations, prizes] = await Promise.all([store.listRestaurants(), store.listDecorations(), store.listPrizes()]);
 

@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, Trophy } from "lucide-react";
+import { DrawResults } from "@/components/contest/DrawResults";
 import { SocialCards } from "@/components/questionnaire/SocialCards";
 import { Emoji } from "@/components/questionnaire/ui";
+import { drawResultsOf, loadContest } from "@/lib/contest";
 import { getStore } from "@/lib/db";
 import { withBase } from "@/lib/base-path";
 import { isLocalMedia } from "@/lib/schema";
@@ -28,7 +30,7 @@ const card = "rounded-2xl border border-edge bg-surface/90 shadow-lg shadow-blac
 
 export default async function ParticipantsPage() {
   const store = getStore();
-  const [participants, prizes] = await Promise.all([store.listParticipants(), store.listPrizes()]);
+  const [participants, prizes, contest] = await Promise.all([store.listParticipants(), store.listPrizes(), loadContest(store)]);
   // Seuls les pseudos quittent le serveur : jamais d'email ni de téléphone.
   const pseudos = participants.map((p) => ({ id: p.id, pseudo: p.pseudo }));
   const pseudoOf = new Map(pseudos.map((p) => [p.id, p.pseudo]));
@@ -43,7 +45,7 @@ export default async function ParticipantsPage() {
         href="/"
         className="mt-2 inline-flex min-h-10 items-center gap-1 rounded-full bg-black/40 px-3 text-sm text-white/85 backdrop-blur transition-colors hover:text-white day:bg-surface/75 day:text-fg"
       >
-        <ArrowLeft className="h-4 w-4" aria-hidden /> Retour au vote
+        <ArrowLeft className="h-4 w-4" aria-hidden /> {contest.closed ? "Retour à l'accueil" : "Retour au vote"}
       </Link>
 
       {/* En jour, halo clair très diffus autour des lettres : le haut de la clairière est un violet sombre. */}
@@ -53,10 +55,14 @@ export default async function ParticipantsPage() {
           Tirage au sort Halloween
         </h1>
         <p className="mx-auto mt-4 max-w-xl text-base text-fg-muted sm:text-lg day:text-fg day:[text-shadow:0_0_18px_rgba(255,240,220,0.95),0_0_6px_rgba(255,240,220,0.85)]">
-          <strong className="text-fg">{count.toLocaleString("fr-FR")}</strong> participant{count > 1 ? "s" : ""} inscrit{count > 1 ? "s" : ""} · le tirage
-          sera effectué en direct sur nos réseaux sociaux.
+          <strong className="text-fg">{count.toLocaleString("fr-FR")}</strong> participant{count > 1 ? "s" : ""} inscrit{count > 1 ? "s" : ""} ·{" "}
+          {contest.closed
+            ? "le concours est terminé, les résultats du tirage sont publiés sur nos réseaux sociaux."
+            : "le tirage sera effectué en direct sur nos réseaux sociaux."}
         </p>
       </header>
+
+      {contest.closed && <DrawResults results={drawResultsOf(contest)} className="mt-8" />}
 
       {winners.length > 0 && (
         <section aria-labelledby="winners" className="mt-10">
@@ -104,7 +110,7 @@ export default async function ParticipantsPage() {
       </section>
 
       <section className="mt-12 flex flex-col items-center">
-        <p className="mb-4 text-sm text-fg-muted">Ne ratez pas le tirage en direct&nbsp;:</p>
+        <p className="mb-4 text-sm text-fg-muted">{contest.closed ? "Suivez-nous pour ne pas rater le prochain concours :" : "Ne ratez pas le tirage en direct :"}</p>
         <SocialCards />
       </section>
     </main>

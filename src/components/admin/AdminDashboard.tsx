@@ -11,6 +11,7 @@ import { DEFAULT_RISK_SETTINGS, type SecuritySummary } from "@/lib/risk";
 import type { Decoration, Prize, Restaurant } from "@/lib/schema";
 import { SessionsTab, type Journal } from "./SessionsTab";
 import { Emoji } from "../questionnaire/ui";
+import { ContestTab } from "./ContestTab";
 import { DecorationsTab } from "./DecorationsTab";
 import { OverviewTab, type Filters } from "./OverviewTab";
 import { ParticipantsTab } from "./ParticipantsTab";
@@ -198,6 +199,7 @@ export function AdminDashboard({ role }: { role: Role }) {
       <Tabs.Root value={tab} onValueChange={setTab} className="mx-auto max-w-7xl px-4 py-6 sm:px-8">
         <Tabs.List aria-label="Sections" className="mb-6 flex gap-6 overflow-x-auto border-b border-line dark:border-zinc-800">
           <Tabs.Trigger value="overview" className={tabClass}>Tableau de bord</Tabs.Trigger>
+          <Tabs.Trigger value="contest" className={tabClass}>Concours</Tabs.Trigger>
           <Tabs.Trigger value="participants" className={tabClass}>Participants ({participants.length})</Tabs.Trigger>
           <Tabs.Trigger value="prizes" className={tabClass}>Lots ({prizes.length})</Tabs.Trigger>
           <Tabs.Trigger value="responses" className={tabClass}>Réponses</Tabs.Trigger>
@@ -224,6 +226,9 @@ export function AdminDashboard({ role }: { role: Role }) {
               setTab("responses");
             }}
           />
+        </Tabs.Content>
+        <Tabs.Content value="contest">
+          <ContestTab canWrite={canWrite} />
         </Tabs.Content>
         <Tabs.Content value="participants">
           <ParticipantsTab total={participants.length} prizes={prizes} canWrite={canWrite} tick={tick} onChanged={load} />

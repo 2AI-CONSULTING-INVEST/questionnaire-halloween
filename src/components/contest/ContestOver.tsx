@@ -1,0 +1,56 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect } from "react";
+import type { DrawResults as Results } from "@/lib/contest";
+import { setNextVote } from "@/lib/next-vote";
+import { Emoji } from "../questionnaire/ui";
+import { SocialCards } from "../questionnaire/SocialCards";
+import { DrawResults, hasDrawResults } from "./DrawResults";
+
+/**
+ * Accueil une fois le concours terminé (backoffice, onglet « Concours ») : décor de la clairière
+ * de la faucheuse (SpookyBackdrop), « Voir le gagnant » vers la crypte, résultats du tirage.
+ */
+export function ContestOver({ results }: { results: Results }) {
+  const published = hasDrawResults(results);
+  // Plus de vote : plus de compte à rebours « prochain vote » mémorisé sur l'appareil.
+  useEffect(() => setNextVote(null, false), []);
+
+  return (
+    <main className="relative z-10 flex min-h-dvh flex-1 items-center px-4 py-24 sm:px-6 md:px-8">
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-center text-center">
+        <div className="w-full rounded-3xl bg-page/55 px-3 py-5 backdrop-blur-sm sm:bg-transparent sm:p-0 sm:backdrop-blur-none day:bg-transparent day:backdrop-blur-none">
+          <h1 className="text-4xl leading-[1.15] tracking-tight text-fg [text-shadow:0_2px_24px_rgba(0,0,0,0.45)] sm:text-6xl day:[text-shadow:none]">
+            <Emoji name="pumpkin" size={64} priority className="mr-3 h-[1em] w-[1em]" />
+            Le concours est{" "}
+            {/* Le fantôme ne passe jamais seul à la ligne. */}
+            <span className="whitespace-nowrap">
+              terminé&nbsp;!
+              <Emoji name="ghost" size={64} priority className="ml-3 h-[1em] w-[1em]" />
+            </span>
+          </h1>
+          <p className="mx-auto mt-5 max-w-2xl text-lg text-fg-muted sm:text-xl">
+            Merci à toutes et à tous pour vos votes et votre participation&nbsp;!{" "}
+            {published
+              ? "Les résultats du tirage au sort sont publiés sur nos réseaux sociaux."
+              : "Les résultats du tirage au sort seront publiés très bientôt sur nos réseaux sociaux."}
+          </p>
+        </div>
+
+        <Link
+          href="/resultats"
+          className="mt-9 inline-flex min-h-16 items-center rounded-full bg-brand px-10 text-2xl font-bold text-black shadow-[0_0_30px_rgba(250,204,21,0.35)] transition-[filter,box-shadow] hover:brightness-105 hover:shadow-[0_0_44px_rgba(250,204,21,0.5)] active:brightness-95 sm:text-3xl"
+        >
+          Voir le gagnant
+        </Link>
+
+        {published ? <DrawResults results={results} className="mt-8" /> : <SocialCards className="mt-8" />}
+
+        <Link href="/participants" className="mt-6 inline-flex min-h-11 items-center text-base font-semibold text-fg underline decoration-brand decoration-2 underline-offset-4 hover:text-brand">
+          Les lots et les gagnants du tirage
+        </Link>
+      </div>
+    </main>
+  );
+}

@@ -1,5 +1,6 @@
+import { loadContest } from "@/lib/contest";
 import { CONFLICT_MESSAGES, getStore } from "@/lib/db";
-import { error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
+import { error, isUuid, json, limited, readJson, votesClosed, zodError } from "@/lib/http";
 import { RAFFLE_FIELDS, responsePatchSchema } from "@/lib/schema";
 
 /**
@@ -10,6 +11,7 @@ import { RAFFLE_FIELDS, responsePatchSchema } from "@/lib/schema";
 async function handle(req: Request, ctx: RouteContext<"/api/responses/[id]/update">) {
   const blocked = limited(req, "responses", 100);
   if (blocked) return blocked;
+  if ((await loadContest(getStore())).closed) return votesClosed();
 
   const { id } = await ctx.params;
   if (!isUuid(id)) return error("Session invalide", 404);

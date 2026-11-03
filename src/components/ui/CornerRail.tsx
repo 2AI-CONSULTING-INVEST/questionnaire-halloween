@@ -49,10 +49,11 @@ const TAB = "pointer-events-auto flex h-11 items-center rounded-l-xl border bord
  * de la crypte (et sous le bandeau du tirage quand il est affiché : voir globals.css, .hw-rail) :
  * le compte à rebours jusqu'au prochain vote, puis le son.
  */
-export function CornerRail() {
+export function CornerRail({ contestClosed = false }: { contestClosed?: boolean }) {
   return (
     <div className="hw-rail pointer-events-none fixed right-0 z-40 flex flex-col items-end gap-2">
-      <NextVoteTimer />
+      {/* Concours terminé : plus de prochain vote. */}
+      {!contestClosed && <NextVoteTimer />}
       <SoundControl />
     </div>
   );

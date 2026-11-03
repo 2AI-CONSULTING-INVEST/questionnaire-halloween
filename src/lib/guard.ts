@@ -7,6 +7,7 @@ import { maskDetails } from "./redact";
 const VERBS: Record<string, string> = { POST: "Ajout", PATCH: "Modification", PUT: "Modification", DELETE: "Suppression", GET: "Consultation" };
 const NOUNS: [RegExp, string][] = [
   [/\/api\/admin\/settings/, "réglages de sécurité"],
+  [/\/api\/admin\/contest/, "fin du concours et résultats du tirage"],
   [/\/api\/admin\/sessions/, "session du backoffice"],
   [/\/api\/admin\/purge/, "données expirées"],
   [/\/api\/admin\/fraud\/decide/, "décision anti-fraude sur des votes"],

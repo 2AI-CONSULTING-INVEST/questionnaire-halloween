@@ -9,6 +9,7 @@ import { bindVideoVolume, holdSound } from "@/components/sound/engine";
 import { MediaLightbox } from "@/components/media/MediaLightbox";
 import { isLocalMedia, mediaKind, shortName, thumbOf, type DecorationGroup } from "@/lib/schema";
 import { KeyBadge } from "./ui";
+import { optimizedPoster } from "../media/poster";
 
 export const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -253,7 +254,7 @@ function DecorationCard({
                       key={item.id}
                       ref={video}
                       src={item.image_url}
-                      poster={src}
+                      poster={optimizedPoster(src, 300)}
                       playsInline
                       preload="metadata"
                       onEnded={() => setEndedKey(endKey)}

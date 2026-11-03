@@ -1,8 +1,9 @@
 import { serverNow } from "@/lib/clock";
 import { parisDay } from "@/lib/day";
+import { loadContest } from "@/lib/contest";
 import { getStore, requestMeta } from "@/lib/db";
 import { recognizeDevice, requestSignals } from "@/lib/fraud-server";
-import { alreadyVoted, error, isUuid, json, limited, readJson, zodError } from "@/lib/http";
+import { alreadyVoted, error, isUuid, json, limited, readJson, zodError, votesClosed } from "@/lib/http";
 import { clientIp } from "@/lib/rate-limit";
 import { loadRiskSettings } from "@/lib/risk";
 import { deviceSchema } from "@/lib/schema";
@@ -20,6 +21,7 @@ const RECOGNITION_REASON = { cookie: "cookie", storage: "B1", hw: "B2", xdev: "B
 export async function POST(req: Request) {
   const blocked = limited(req, "responses", 100);
   if (blocked) return blocked;
+  if ((await loadContest(getStore())).closed) return votesClosed();
 
   const raw = await readJson(req);
   if (raw instanceof Response) return raw;

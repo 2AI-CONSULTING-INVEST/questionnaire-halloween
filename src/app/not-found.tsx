@@ -17,16 +17,16 @@ export default function NotFound() {
         <div className="w-full max-w-md rounded-2xl border border-edge bg-surface/90 p-6 text-center shadow-lg shadow-black/25 backdrop-blur-sm day:shadow-black/10 sm:p-8">
           <p className="text-sm font-semibold text-brand day:text-[#4a2600]">Erreur 404</p>
           <h1 className="mt-2 text-3xl leading-tight tracking-tight text-fg sm:text-4xl">Page introuvable</h1>
-          <p className="mt-3 text-base text-fg-muted">Cette page n&apos;existe pas ou a été déplacée. Le vote, lui, continue.</p>
+          <p className="mt-3 text-base text-fg-muted">Cette page n&apos;existe pas ou a été déplacée.</p>
           <div className="mt-8 flex flex-col items-center gap-3">
             <Link
               href="/"
               className="inline-flex min-h-12 items-center rounded-full bg-brand px-7 text-lg font-bold text-black transition-[filter] hover:brightness-105 active:brightness-95"
             >
-              Retour au vote
+              Retour à l&apos;accueil
             </Link>
             <Link href="/resultats" className="text-sm text-fg-muted underline-offset-2 hover:text-fg hover:underline">
-              Voir les résultats en direct
+              Voir le gagnant
             </Link>
           </div>
         </div>

@@ -13,6 +13,8 @@
  *   oiseaux lointains ; vent seulement par rafales douces (≈ 20 % du temps) et en léger souffle
  *   pendant les travellings (pas de bruit de pas) ; loup lointain rare. Crypte : presque le silence, un crépitement de
  *   bougie de temps en temps, le loup très lointain et très rare. Fondus enchaînés (3 s).
+ * - Cérémonie du podium (crypte, concours terminé) : vrais enregistrements libres (public/son/sfx,
+ *   SOURCES.txt) — foule qui applaudit, woo-hoo, hourras, acclamations, roulement de tambour.
  * - Effets : chauves-souris (nuée de 7 à 10 individus qui approche, passe et s'éloigne ; nuée : 1 fois
  *   sur 3, sortie de la crypte : à chaque fois) ; rire diabolique au dévoilement du classement (une
  *   fois par session, public/son/sfx/rire.wav). La musique baisse un peu pendant un effet ; jamais plus de trois
@@ -33,7 +35,13 @@ export type SoundEvent =
   /** Le classement vient d'être dévoilé dans la crypte (rire diabolique, une fois par session). */
   | { type: "reveal" }
   /** Travelling d'un lieu à l'autre (`dur` secondes), vers la crypte ou dehors. */
-  | { type: "travel"; dur: number; indoor: boolean };
+  | { type: "travel"; dur: number; indoor: boolean }
+  /** Cérémonie du podium : applaudissements de la foule, niveau 0 → 1 (0 : fondu puis arrêt). */
+  | { type: "crowd"; level: number }
+  /** Roulement de tambour avant le gagnant. */
+  | { type: "drumroll" }
+  /** Dévoilement d'une place du podium : réaction de la foule (woo-hoo, hourras, acclamations). */
+  | { type: "podium"; place: 1 | 2 | 3 };
 
 /** `videoVolume` : volume réglé pendant une vidéo, retenu pour les suivantes (absent tant que personne n'y a touché). */
 export type SoundPrefs = { volume: number; muted: boolean; videoVolume?: number };
@@ -410,6 +418,120 @@ function laugh() {
   src.start(ctx.currentTime + 0.3);
   voice([src, g, send], src, 1.5);
   duckFor(laughBuf.duration + 0.5);
+}
+
+// ---------------------------------------------------------------------------
+// Cérémonie du podium (crypte, concours terminé) : vrais enregistrements de foule (public/son/sfx,
+// voir SOURCES.txt) — applaudissements en continu (boucle, niveau qui monte à chaque place),
+// « woo-hoo », hourras, acclamations, roulement de tambour. Chargés après l'interaction.
+// ---------------------------------------------------------------------------
+
+const CEREMONY_FILES = { applause: "applause.mp3", cheer: "cheer.mp3", woohoo: "woohoo.mp3", hurray: "hurray.mp3", drumroll: "drumroll.mp3" } as const;
+type CeremonySample = keyof typeof CEREMONY_FILES;
+const samples = new Map<CeremonySample, Promise<AudioBuffer | null>>();
+
+function sample(name: CeremonySample): Promise<AudioBuffer | null> {
+  if (!eng) return Promise.resolve(null);
+  let p = samples.get(name);
+  if (!p) {
+    const ctx = eng.ctx;
+    p = fetch(withBase(`/son/sfx/${CEREMONY_FILES[name]}`))
+      .then((r) => r.arrayBuffer())
+      .then((b) => ctx.decodeAudioData(b))
+      .catch((e) => {
+        console.warn(`Son de la cérémonie indisponible (${CEREMONY_FILES[name]}) :`, e);
+        samples.delete(name); // nouvel essai au prochain appel
+        return null;
+      });
+    samples.set(name, p);
+  }
+  return p;
+}
+
+/** Précharge les sons de la cérémonie (si le son a déjà été activé par une interaction). */
+export function preloadCeremonySounds() {
+  for (const k of Object.keys(CEREMONY_FILES) as CeremonySample[]) void sample(k);
+}
+
+const ceremonyMuted = () => !eng || hidden || prefs.muted || held > 0;
+
+/** Enregistrement joué une fois (fondu d'entrée très court, un peu de la réverbération de la crypte). */
+function playSample(name: CeremonySample, level: number, pan = 0, delay = 0) {
+  void sample(name).then((buf) => {
+    if (!buf || ceremonyMuted()) return;
+    const { ctx, sfx, verb } = eng!;
+    const t = ctx.currentTime + delay;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(level, t + 0.03);
+    const p = ctx.createStereoPanner();
+    p.pan.value = pan;
+    const send = ctx.createGain();
+    send.gain.value = 0.12;
+    src.connect(g).connect(p).connect(sfx);
+    g.connect(send).connect(verb);
+    src.start(t);
+    voice([src, g, p, send], src, 1);
+    duckFor(buf.duration + delay);
+  });
+}
+
+/** Applaudissements de la foule, en boucle : niveau 0 → 1 (0 : fondu de sortie puis arrêt). */
+let bed: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+let bedLevel = 0;
+let bedLoading = false;
+function crowd(level: number) {
+  bedLevel = level;
+  if (!eng) return;
+  const { ctx } = eng;
+  if (bed) {
+    if (level > 0) {
+      ramp(bed.gain.gain, level, 0.7);
+      duckFor(4);
+      return;
+    }
+    const b = bed;
+    bed = null;
+    ramp(b.gain.gain, 0, 1.8);
+    b.src.stop(ctx.currentTime + 1.9);
+    return;
+  }
+  if (level <= 0 || bedLoading) return;
+  bedLoading = true;
+  void sample("applause").then((buf) => {
+    bedLoading = false;
+    if (!buf || !eng || bed || bedLevel <= 0 || ceremonyMuted()) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    src.connect(g).connect(eng.sfx);
+    src.start();
+    voice([src, g], src, 0.2);
+    bed = { src, gain: g };
+    ramp(g.gain, bedLevel, 0.8);
+    duckFor(4);
+  });
+}
+
+/** Réaction de la foule au dévoilement d'une place : de plus en plus forte jusqu'au gagnant. */
+function podiumCheer(place: 1 | 2 | 3) {
+  if (place === 3) {
+    crowd(0.5);
+    playSample("woohoo", 0.45, -0.3);
+  } else if (place === 2) {
+    crowd(0.65);
+    playSample("woohoo", 0.55, 0.35);
+    playSample("hurray", 0.4, -0.2, 0.25);
+  } else {
+    crowd(1);
+    playSample("hurray", 0.85, 0);
+    playSample("cheer", 0.8, -0.25, 0.15);
+    playSample("woohoo", 0.6, 0.4, 0.5);
+  }
 }
 
 /** Hurlement de loup lointain : glissando montant puis tenu, vibrato, filtré par la distance, écho. */
@@ -825,6 +947,8 @@ export function setSoundTheme(t: "dark" | "light") {
 
 /** Évènements du décor 3D (world.ts → SpookyBackdrop). */
 export function soundEvent(e: SoundEvent) {
+  // L'arrêt des applaudissements passe toujours (sinon la boucle reprendrait à la remise du son).
+  if (e.type === "crowd" && e.level <= 0) return crowd(0);
   if (!eng || hidden || prefs.muted || held > 0) return;
   if (e.type === "swarm") {
     // Nuée qui traverse : de loin d'un côté, au plus près au milieu, puis s'éloigne de l'autre côté.
@@ -835,6 +959,12 @@ export function soundEvent(e: SoundEvent) {
     bats(0, side * 0.9, 2.2, 0.14, 0.4);
   } else if (e.type === "reveal") {
     laugh();
+  } else if (e.type === "crowd") {
+    crowd(e.level);
+  } else if (e.type === "drumroll") {
+    playSample("drumroll", 0.7);
+  } else if (e.type === "podium") {
+    podiumCheer(e.place);
   } else if (eng.ctx.currentTime > windUntil) {
     // Travelling : un léger souffle de vent pendant le trajet, en fondu (plus de bruit de pas).
     gust(Math.max(4, e.dur), 0.22);

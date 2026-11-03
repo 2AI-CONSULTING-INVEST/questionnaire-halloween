@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
+import { podiumSlots } from "@/components/scene/podium";
+import { loadContest } from "@/lib/contest";
+import { getStore } from "@/lib/db";
 import { getPublicResults } from "@/lib/public-results";
+import { groupDecorations, mediaKind } from "@/lib/schema";
 import { withBase } from "@/lib/base-path";
 import { OG_BASE, RESULTS } from "@/lib/site";
 import { LiveResults } from "./LiveResults";
@@ -18,6 +22,16 @@ export const metadata: Metadata = {
 };
 
 export default async function ResultsPage() {
-  const initial = await getPublicResults();
-  return <LiveResults initial={initial} />;
+  const store = getStore();
+  const [initial, contest] = await Promise.all([getPublicResults(), loadContest(store)]);
+  if (!contest.closed) return <LiveResults initial={initial} />;
+  // Concours terminé : vidéo de chaque restaurant du podium (sa première vidéo, sinon sa première photo).
+  const groups = groupDecorations(await store.listDecorations());
+  const media: Record<string, string> = {};
+  for (const { entry } of podiumSlots(initial.results)) {
+    const items = groups.find((g) => g.restaurant_name === entry.restaurant_name)?.items ?? [];
+    const pick = items.find((d) => mediaKind(d.image_url) === "video") ?? items[0];
+    if (pick) media[entry.restaurant_name] = pick.image_url;
+  }
+  return <LiveResults initial={initial} closed media={media} />;
 }

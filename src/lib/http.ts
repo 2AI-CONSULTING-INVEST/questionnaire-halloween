@@ -17,6 +17,9 @@ export function error(message: string, status = 400, details?: unknown) {
   return NextResponse.json({ error: message, details }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
+/** Concours terminé (lib/contest.ts) : plus aucun vote, commentaire ni inscription au tirage n'est accepté. */
+export const votesClosed = () => error("Les votes sont clos", 403, { code: "votes_closed" });
+
 export function zodError(e: ZodError) {
   return error("Données invalides", 422, e.flatten().fieldErrors);
 }
