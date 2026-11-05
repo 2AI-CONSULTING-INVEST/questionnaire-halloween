@@ -11,7 +11,7 @@ import { WinnersPreview, type Winner } from "./WinnersPreview";
 
 /**
  * Accueil une fois le concours terminé (backoffice, onglet « Concours ») : décor de la clairière
- * de la faucheuse (SpookyBackdrop), « Le Chamas Gagnant est... » vers la crypte, résultats du tirage.
+ * de la faucheuse (SpookyBackdrop), « LE CHAMAS GAGNANT EST... » vers la crypte, résultats du tirage.
  */
 export function ContestOver({ results, winners }: { results: Results; winners: Winner[] }) {
   const published = drawPublished(results);
@@ -41,17 +41,20 @@ export function ContestOver({ results, winners }: { results: Results; winners: W
 
         <Link
           href="/resultats"
-          className="mt-9 inline-flex min-h-16 items-center rounded-full bg-brand px-6 py-2 text-center text-2xl sm:px-10 font-bold text-black shadow-[0_0_30px_rgba(250,204,21,0.35)] transition-[filter,box-shadow] hover:brightness-105 hover:shadow-[0_0_44px_rgba(250,204,21,0.5)] active:brightness-95 sm:text-3xl"
+          className="mt-8 inline-flex min-h-12 items-center rounded-full bg-brand px-7 py-2 text-center text-lg font-bold tracking-wide text-black shadow-[0_0_30px_rgba(250,204,21,0.35)] transition-[filter,box-shadow] hover:brightness-105 hover:shadow-[0_0_44px_rgba(250,204,21,0.5)] active:brightness-95 sm:min-h-16 sm:px-10 sm:text-2xl"
         >
-          Le Chamas Gagnant est...
+          LE CHAMAS GAGNANT EST...
         </Link>
 
         {hasDrawResults(results) && <DrawResults results={results} aside={winners.length > 0 && <WinnersPreview winners={winners} />} className="mt-8" />}
         {!published && <SocialCards className="mt-8" />}
 
-        <Link href="/participants" className="mt-6 inline-flex min-h-11 items-center text-base font-semibold text-fg underline decoration-brand decoration-2 underline-offset-4 hover:text-brand">
-          Les lots et les participants du tirage
-        </Link>
+        {/* Avec des gagnants, leur carte mène déjà à cette page. */}
+        {winners.length === 0 && (
+          <Link href="/participants" className="mt-6 inline-flex min-h-11 items-center text-base font-semibold text-fg underline decoration-brand decoration-2 underline-offset-4 hover:text-brand">
+            Les lots et les participants du tirage
+          </Link>
+        )}
       </div>
     </main>
   );

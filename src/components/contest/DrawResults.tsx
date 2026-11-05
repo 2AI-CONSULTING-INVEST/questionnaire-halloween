@@ -16,54 +16,58 @@ const postClass =
 
 /**
  * Résultats du tirage (concours terminé) : aperçu vertical façon reel qui ouvre la vidéo dans une modale,
- * liens vers les posts Instagram / TikTok. `aside` : affiché à côté de l'aperçu. La vidéo n'est téléchargée qu'à la lecture (affiche servie par le cache Vercel).
+ * liens vers les posts Instagram / TikTok juste dessous. `aside` : affiché après l'aperçu et les liens. La vidéo n'est téléchargée qu'à la lecture (affiche servie par le cache Vercel).
  */
 export function DrawResults({ results, aside, className = "" }: { results: Results; aside?: ReactNode; className?: string }) {
   const [open, setOpen] = useState(false);
   if (!hasDrawResults(results)) return null;
 
+  const posts = (results.instagram_url || results.tiktok_url) && (
+    <div className={`flex gap-3 ${results.video_url ? "flex-col items-center" : "flex-wrap justify-center"}`}>
+      {results.instagram_url && (
+        <a href={results.instagram_url} target="_blank" rel="noopener noreferrer" className={postClass}>
+          <span aria-hidden className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(45deg,#f9ce34_0%,#ee2a7b_50%,#6228d7_100%)]">
+            <InstagramIcon className="h-5 w-5" />
+          </span>
+          Le post Instagram
+        </a>
+      )}
+      {results.tiktok_url && (
+        <a href={results.tiktok_url} target="_blank" rel="noopener noreferrer" className={postClass}>
+          <span aria-hidden className="flex h-9 w-9 items-center justify-center rounded-full bg-black">
+            <TikTokIcon className="h-5 w-5" />
+          </span>
+          La vidéo TikTok
+        </a>
+      )}
+    </div>
+  );
+
   return (
     <div className={`flex flex-col items-center gap-4 ${className}`}>
       {results.video_url && (
         <div className="flex w-full flex-col items-center justify-center gap-6 sm:flex-row sm:items-stretch">
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="group relative aspect-[9/16] w-52 shrink-0 overflow-hidden rounded-2xl border-2 border-brand bg-[linear-gradient(160deg,#3b1d5e,#120a1c)] text-left text-white shadow-[0_0_30px_rgba(250,204,21,0.25)] transition-shadow hover:shadow-[0_0_44px_rgba(250,204,21,0.45)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/60 sm:w-56"
-          >
-            {/* Affiche seule (cache Vercel) : la vidéo n'est téléchargée qu'à la lecture. Sans affiche : le dégradé du bouton. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={optimizedPoster(posterOf(results.video_url), 320)} alt="" loading="lazy" onError={(e) => (e.currentTarget.hidden = true)} className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
-            <span aria-hidden className="absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.8),transparent_45%)]" />
-            <span className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 backdrop-blur-sm transition-transform group-hover:scale-110">
-              <Play className="ml-1 h-8 w-8" fill="currentColor" aria-hidden />
-            </span>
-            <span className="absolute inset-x-3 bottom-3 block text-base font-bold leading-snug">Voir la vidéo du tirage</span>
-          </button>
+          <div className="flex shrink-0 flex-col items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              className="group relative aspect-[9/16] w-[200px] shrink-0 overflow-hidden sm:w-56 rounded-2xl border-2 border-brand bg-[linear-gradient(160deg,#3b1d5e,#120a1c)] text-left text-white shadow-[0_0_30px_rgba(250,204,21,0.25)] transition-shadow hover:shadow-[0_0_44px_rgba(250,204,21,0.45)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/60"
+            >
+              {/* Affiche seule (cache Vercel) : la vidéo n'est téléchargée qu'à la lecture. Sans affiche : le dégradé du bouton. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={optimizedPoster(posterOf(results.video_url), 320)} alt="" loading="lazy" onError={(e) => (e.currentTarget.hidden = true)} className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+              <span aria-hidden className="absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.8),transparent_45%)]" />
+              <span className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 backdrop-blur-sm transition-transform group-hover:scale-110">
+                <Play className="ml-1 h-8 w-8" fill="currentColor" aria-hidden />
+              </span>
+              <span className="absolute inset-x-3 bottom-3 block text-base font-bold leading-snug">Voir la vidéo du tirage</span>
+            </button>
+            {posts}
+          </div>
           {aside}
         </div>
       )}
-      {(results.instagram_url || results.tiktok_url) && (
-        <div className="flex flex-wrap justify-center gap-3">
-          {results.instagram_url && (
-            <a href={results.instagram_url} target="_blank" rel="noopener noreferrer" className={postClass}>
-              <span aria-hidden className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(45deg,#f9ce34_0%,#ee2a7b_50%,#6228d7_100%)]">
-                <InstagramIcon className="h-5 w-5" />
-              </span>
-              Le post Instagram
-            </a>
-          )}
-          {results.tiktok_url && (
-            <a href={results.tiktok_url} target="_blank" rel="noopener noreferrer" className={postClass}>
-              <span aria-hidden className="flex h-9 w-9 items-center justify-center rounded-full bg-black">
-                <TikTokIcon className="h-5 w-5" />
-              </span>
-              La vidéo TikTok
-            </a>
-          )}
-        </div>
-      )}
-
+      {!results.video_url && posts}
       {results.video_url && (
         <Dialog.Root open={open} onOpenChange={setOpen}>
           <Dialog.Portal>

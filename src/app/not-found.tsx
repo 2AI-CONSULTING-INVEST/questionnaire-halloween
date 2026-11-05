@@ -26,7 +26,7 @@ export default function NotFound() {
               Retour à l&apos;accueil
             </Link>
             <Link href="/resultats" className="text-sm text-fg-muted underline-offset-2 hover:text-fg hover:underline">
-              Le Chamas Gagnant est...
+              LE CHAMAS GAGNANT EST...
             </Link>
           </div>
         </div>

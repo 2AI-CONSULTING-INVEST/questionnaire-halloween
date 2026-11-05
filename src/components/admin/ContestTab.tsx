@@ -91,7 +91,7 @@ function StatusCard({ contest, canWrite, onSaved }: CardProps) {
       {contest.closed ? (
         <p className="text-sm text-muted dark:text-zinc-400">
           Terminé le <strong className="text-ink dark:text-zinc-100">{fmtDate(contest.closed_at)}</strong>. Plus aucun vote, commentaire ni inscription au
-          tirage n&apos;est accepté&nbsp;; la liste des participants est figée. L&apos;accueil annonce la fin du concours, avec «&nbsp;Le Chamas Gagnant est...&nbsp;» (la
+          tirage n&apos;est accepté&nbsp;; la liste des participants est figée. L&apos;accueil annonce la fin du concours, avec «&nbsp;LE CHAMAS GAGNANT EST...&nbsp;» (la
           crypte) et les résultats du tirage ci-dessous.
         </p>
       ) : (

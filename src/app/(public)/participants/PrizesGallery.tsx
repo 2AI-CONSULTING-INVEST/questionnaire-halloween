@@ -47,7 +47,7 @@ function PrizeImage({ prize, sizes, className = "", contain = false }: { prize: 
  * téléphone). La modale est un carrousel : flèches, clavier (← →), glisser au doigt, indicateurs.
  * Décor : le logo long Chamas Tacos (scripts/3d/brand/wordmark.mjs), une toile d'araignée et les
  * rendus 3D de PrizeDecor (badge, citrouilles, squelette joyeux, cadeaux, nuée de chauves-souris).
- * Le pseudo du gagnant s'affiche sur la carte et dans la modale. Animations réduites : pas de zoom.
+ * Le pseudo du gagnant s'affiche en évidence sur la carte et dans la modale. Animations réduites : pas de zoom.
  */
 export function PrizesGallery({ prizes }: { prizes: GalleryPrize[] }) {
   const reduce = useReducedMotion();
@@ -112,13 +112,17 @@ export function PrizesGallery({ prizes }: { prizes: GalleryPrize[] }) {
               onClick={(e) => open(i, e.timeStamp)}
               aria-label={`Voir le lot « ${p.name} » en grand`}
               data-prize={p.id}
-              className={`${card} block w-full cursor-pointer overflow-hidden text-left transition-shadow hover:shadow-xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/60`}
+              className={`${card} block w-full cursor-pointer overflow-hidden text-left transition-shadow hover:shadow-xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/60 ${p.winner ? "border-[#f5c542]/70 ring-1 ring-[#f5c542]/40 shadow-[0_0_28px_rgba(245,197,66,0.18)]" : ""}`}
             >
               <PrizeImage prize={p} className="aspect-[4/3] w-full" sizes="(max-width: 640px) calc(100vw - 2rem), (max-width: 1024px) 50vw, 33vw" />
               <span className="block p-4">
                 <span className="block text-base font-semibold text-fg">{p.name}</span>
                 {p.description && <span className="mt-1 line-clamp-2 block text-sm leading-snug text-fg-muted">{p.description}</span>}
-                {p.winner && <span className={`mt-2 block text-xs font-semibold uppercase tracking-wide ${winnerText}`}>Gagné par {p.winner}</span>}
+                {p.winner && (
+                  <span className={`mt-2 block text-base font-semibold ${winnerText}`}>
+                    <span aria-hidden>🎉</span> Gagné par <span className="font-extrabold text-fg">{p.winner}</span>
+                  </span>
+                )}
               </span>
             </motion.button>
           </li>

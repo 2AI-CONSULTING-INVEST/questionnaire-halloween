@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, Trophy } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { DrawResults } from "@/components/contest/DrawResults";
-import { PrizeThumb } from "@/components/contest/WinnersPreview";
 import { SocialCards } from "@/components/questionnaire/SocialCards";
 import { Emoji } from "@/components/questionnaire/ui";
 import { drawPublished, drawResultsOf, drawWinners, loadContest } from "@/lib/contest";
@@ -64,33 +63,9 @@ export default async function ParticipantsPage() {
       {contest.closed && <DrawResults results={drawResultsOf(contest)} className="mt-8" />}
       {contest.closed && !published && <SocialCards className="mt-8" />}
 
-      {winners.length > 0 && (
-        <section aria-labelledby="winners" className="mt-10">
-          <h2 id="winners" className="flex scroll-mt-6 items-center justify-center gap-2 text-xl font-semibold uppercase tracking-wider text-brand day:text-[#4a2600] sm:text-2xl">
-            <Trophy className="h-6 w-6" aria-hidden /> Les gagnants
-          </h2>
-          <ul className="mt-4 grid gap-3 sm:grid-cols-2">
-            {winners.map(({ prize, pseudo }) => (
-              <li
-                key={prize.id}
-                className={`${card} flex items-center gap-4 border-[#f5c542]/70 p-3 ring-1 ring-[#f5c542]/40 shadow-[0_0_28px_rgba(245,197,66,0.18)]`}
-              >
-                <PrizeThumb url={prize.image_url} name={prize.name} className="h-20 w-20 shrink-0 rounded-xl" sizes="80px" />
-                <div className="min-w-0">
-                  <p className="line-clamp-2 text-sm font-bold uppercase leading-snug text-[#f5c542] day:text-[#4a2600]">{prize.name}</p>
-                  <p className="mt-1 text-base text-fg-muted">
-                    <span aria-hidden>🎉</span> Gagné par <span className="font-extrabold text-fg">{pseudo}</span>
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       <section aria-labelledby="prizes" className="mt-10">
-        <h2 id="prizes" className="text-xl font-medium text-fg sm:text-2xl">
-          Les lots à gagner
+        <h2 id="prizes" className="scroll-mt-6 text-center text-2xl font-semibold text-fg sm:text-3xl">
+          {winners.length > 0 ? "Les lots et les gagnants" : "Les lots à gagner"}
         </h2>
         {prizes.length === 0 ? (
           <p className={`${card} mt-4 px-5 py-8 text-center text-base text-fg-muted`}>Les lots seront dévoilés très bientôt 🎁</p>
