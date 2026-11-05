@@ -51,7 +51,7 @@ export function DrawResults({ results, aside, className = "" }: { results: Resul
             <button
               type="button"
               onClick={() => setOpen(true)}
-              className="group relative aspect-[9/16] w-[200px] shrink-0 overflow-hidden sm:w-56 rounded-2xl border-2 border-brand bg-[linear-gradient(160deg,#3b1d5e,#120a1c)] text-left text-white shadow-[0_0_30px_rgba(250,204,21,0.25)] transition-shadow hover:shadow-[0_0_44px_rgba(250,204,21,0.45)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/60"
+              className="group relative aspect-[9/16] w-[168px] shrink-0 overflow-hidden sm:w-56 rounded-2xl border-2 border-brand bg-[linear-gradient(160deg,#3b1d5e,#120a1c)] text-left text-white shadow-[0_0_30px_rgba(250,204,21,0.25)] transition-shadow hover:shadow-[0_0_44px_rgba(250,204,21,0.45)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/60"
             >
               {/* Affiche seule (cache Vercel) : la vidéo n'est téléchargée qu'à la lecture. Sans affiche : le dégradé du bouton. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}

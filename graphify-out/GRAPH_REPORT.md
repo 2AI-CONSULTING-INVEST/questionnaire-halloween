@@ -1,7 +1,7 @@
 # Graph Report - questionnaire-halloween  (2026-11-05)
 
 ## Corpus Check
-- 236 files · ~448,502 words
+- 236 files · ~448,561 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 28 file(s) not represented in the graph (top: .avif 18, .glb 5, .css 2)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `08ef652a`
+- Built from commit: `1cd6479c`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 

@@ -20,16 +20,19 @@ export default async function PublicLayout({ children }: { children: ReactNode }
     <>
       <PreloadScene />
       <SpookyBackdrop contestClosed={closed} closedAt={closed_at} />
-      {children}
-      <footer className="relative z-10 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-center text-xs text-fg-muted">
-        <Link href="/conditions" className="underline-offset-2 hover:text-fg hover:underline">
-          Conditions d&apos;utilisation
-        </Link>
-        {" · "}
-        <Link href="/confidentialite" className="underline-offset-2 hover:text-fg hover:underline">
-          Confidentialité
-        </Link>
-      </footer>
+      {/* Pied de page en bas de l'écran même quand la page est courte (/resultats : décor plein écran, presque pas de contenu). */}
+      <div className="flex min-h-dvh flex-col">
+        <div className="flex-1">{children}</div>
+        <footer className="relative z-10 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-center text-xs text-fg-muted">
+          <Link href="/conditions" className="underline-offset-2 hover:text-fg hover:underline">
+            Conditions d&apos;utilisation
+          </Link>
+          {" · "}
+          <Link href="/confidentialite" className="underline-offset-2 hover:text-fg hover:underline">
+            Confidentialité
+          </Link>
+        </footer>
+      </div>
       <CornerRail contestClosed={closed} />
       <DemoBar />
       <VisitBeacon />

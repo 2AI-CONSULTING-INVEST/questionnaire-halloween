@@ -5,20 +5,17 @@ import { isLocalMedia } from "@/lib/schema";
 
 export type Winner = { id: string; name: string; image_url: string | null; pseudo: string };
 
-/** Flou progressif : chaque couche, plus floue, ne couvre que la suite de la précédente (rayon en px, début et fin du masque en %). */
-const BLUR_LAYERS = [
-  [1, 0, 30],
-  [3, 15, 50],
-  [6, 35, 70],
-  [12, 55, 100],
-] as const;
+/** Flou progressif : chaque couche double le flou et démarre un peu plus bas, pour éviter toute marche visible. */
+const BLUR_LAYERS = [0.5, 1, 2, 4, 8, 16];
+/** Fondu vers le fond de la carte, à stops adoucis (un dégradé linéaire laisse voir où il commence). */
+const FADE = "linear-gradient(to bottom, transparent 30%, color-mix(in srgb, var(--color-surface) 25%, transparent) 55%, color-mix(in srgb, var(--color-surface) 70%, transparent) 78%, var(--color-surface) 100%)";
 
 /** Accueil : début de la liste des gagnants ; le reste est sur la page du tirage, dans le carrousel des lots. */
 export function WinnersPreview({ winners }: { winners: Winner[] }) {
   return (
     <Link
       href="/participants#prizes"
-      className="flex w-full max-w-sm flex-col rounded-2xl border border-[#f5c542]/70 bg-surface/90 p-4 text-left shadow-[0_0_28px_rgba(245,197,66,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_0_40px_rgba(245,197,66,0.35)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/60"
+      className="flex w-full max-w-sm flex-col rounded-2xl border border-[#f5c542]/70 bg-surface p-4 text-left shadow-[0_0_28px_rgba(245,197,66,0.18)] transition-shadow hover:shadow-[0_0_40px_rgba(245,197,66,0.35)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/60"
     >
       <span className="flex items-center gap-2 text-base font-bold uppercase leading-snug tracking-wide text-[#f5c542] day:text-[#4a2600]">
         <Trophy className="h-5 w-5 shrink-0" aria-hidden /> Les lots et les gagnants du tirage au sort
@@ -37,12 +34,12 @@ export function WinnersPreview({ winners }: { winners: Winner[] }) {
           </span>
         ))}
         {winners.length > 2 && (
-          <span aria-hidden className="absolute inset-x-0 bottom-0 h-28">
-            {BLUR_LAYERS.map(([px, from, to]) => {
-              const mask = `linear-gradient(to bottom, transparent ${from}%, black ${to}%)`;
+          <span aria-hidden className="absolute inset-x-0 bottom-0 h-24">
+            {BLUR_LAYERS.map((px, i) => {
+              const mask = `linear-gradient(to bottom, transparent ${i * 12}%, black ${i * 12 + 30}%)`;
               return <span key={px} className="absolute inset-0" style={{ backdropFilter: `blur(${px}px)`, WebkitBackdropFilter: `blur(${px}px)`, maskImage: mask, WebkitMaskImage: mask }} />;
             })}
-            <span className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-surface" />
+            <span className="absolute inset-0" style={{ background: FADE }} />
           </span>
         )}
       </span>

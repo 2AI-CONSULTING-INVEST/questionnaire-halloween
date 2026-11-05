@@ -152,7 +152,7 @@ export function LiveResults({ initial, closed = false, media = {} }: { initial: 
 
       {/* Podium au mur : chaque place ouvre la vidéo de son restaurant (aussi au clavier). */}
       {podiumReady && slots.length > 0 && (
-        <div className="fixed inset-x-0 bottom-[max(3.25rem,calc(env(safe-area-inset-bottom)+2.75rem))] z-10 flex flex-col items-center gap-2 px-4">
+        <div className="fixed inset-x-0 bottom-[max(5.25rem,calc(env(safe-area-inset-bottom)+4rem))] z-10 flex flex-col items-center gap-2 px-4">
           <p className="rounded-full bg-black/45 px-3 py-1.5 text-center text-xs text-white/85 backdrop-blur">Touchez une place du podium pour voir sa vidéo</p>
           <div className="sr-only flex gap-2 focus-within:not-sr-only">
             {slots.map((s) => (
@@ -165,7 +165,7 @@ export function LiveResults({ initial, closed = false, media = {} }: { initial: 
       )}
 
       {/* Lien discret vers le tirage au sort (lots, participants, gagnants). */}
-      <p className={on3D ? "fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-0 right-0 z-10 text-center" : "mt-8 text-center"}>
+      <p className={on3D ? "fixed bottom-[max(2.5rem,calc(env(safe-area-inset-bottom)+1.25rem))] left-0 right-0 z-10 text-center" : "mt-8 text-center"}>
         <Link
           href="/participants"
           className={`inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs transition-colors ${on3D ? "bg-black/40 text-white/80 backdrop-blur hover:text-white" : "text-fg-muted hover:text-fg"}`}
@@ -181,7 +181,7 @@ export function LiveResults({ initial, closed = false, media = {} }: { initial: 
         <button
           type="button"
           onClick={() => ceremonyCommand("skip")}
-          className="fixed bottom-[max(3.5rem,calc(env(safe-area-inset-bottom)+3rem))] right-4 z-30 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-white/20 bg-black/55 px-4 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-black/70 sm:right-6"
+          className="fixed bottom-[max(5.25rem,calc(env(safe-area-inset-bottom)+4rem))] right-4 z-30 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-white/20 bg-black/55 px-4 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-black/70 sm:right-6"
         >
           Passer <FastForward className="h-4 w-4" aria-hidden />
         </button>
