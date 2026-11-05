@@ -1,14 +1,13 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, Trophy } from "lucide-react";
 import { DrawResults } from "@/components/contest/DrawResults";
+import { PrizeThumb } from "@/components/contest/WinnersPreview";
 import { SocialCards } from "@/components/questionnaire/SocialCards";
 import { Emoji } from "@/components/questionnaire/ui";
-import { drawResultsOf, loadContest } from "@/lib/contest";
+import { drawPublished, drawResultsOf, drawWinners, loadContest } from "@/lib/contest";
 import { getStore } from "@/lib/db";
 import { withBase } from "@/lib/base-path";
-import { isLocalMedia } from "@/lib/schema";
 import { OG_BASE, PARTICIPANTS } from "@/lib/site";
 import { ParticipantsList } from "./ParticipantsList";
 import { PrizesGallery } from "./PrizesGallery";
@@ -33,10 +32,8 @@ export default async function ParticipantsPage() {
   const [participants, prizes, contest] = await Promise.all([store.listParticipants(), store.listPrizes(), loadContest(store)]);
   // Seuls les pseudos quittent le serveur : jamais d'email ni de téléphone.
   const pseudos = participants.map((p) => ({ id: p.id, pseudo: p.pseudo }));
-  const pseudoOf = new Map(pseudos.map((p) => [p.id, p.pseudo]));
-  const winners = prizes
-    .filter((p) => p.winner_participant_id && pseudoOf.has(p.winner_participant_id))
-    .map((p) => ({ prize: p, pseudo: pseudoOf.get(p.winner_participant_id!)! }));
+  const winners = drawWinners(contest, prizes, pseudos);
+  const published = drawPublished(contest);
   const count = participants.length;
 
   return (
@@ -56,17 +53,20 @@ export default async function ParticipantsPage() {
         </h1>
         <p className="mx-auto mt-4 max-w-xl text-base text-fg-muted sm:text-lg day:text-fg day:[text-shadow:0_0_18px_rgba(255,240,220,0.95),0_0_6px_rgba(255,240,220,0.85)]">
           <strong className="text-fg">{count.toLocaleString("fr-FR")}</strong> participant{count > 1 ? "s" : ""} inscrit{count > 1 ? "s" : ""} ·{" "}
-          {contest.closed
-            ? "le concours est terminé, les résultats du tirage sont publiés sur nos réseaux sociaux."
-            : "le tirage sera effectué en direct sur nos réseaux sociaux."}
+          {!contest.closed
+            ? "le tirage sera effectué en direct sur nos réseaux sociaux."
+            : published
+              ? "le tirage au sort a été effectué : découvrez la vidéo et les gagnants."
+              : "le tirage au sort va être effectué. Rendez-vous sur nos réseaux sociaux : la vidéo y sera publiée !"}
         </p>
       </header>
 
       {contest.closed && <DrawResults results={drawResultsOf(contest)} className="mt-8" />}
+      {contest.closed && !published && <SocialCards className="mt-8" />}
 
       {winners.length > 0 && (
         <section aria-labelledby="winners" className="mt-10">
-          <h2 id="winners" className="flex items-center justify-center gap-2 text-xl font-semibold uppercase tracking-wider text-brand day:text-[#4a2600] sm:text-2xl">
+          <h2 id="winners" className="flex scroll-mt-6 items-center justify-center gap-2 text-xl font-semibold uppercase tracking-wider text-brand day:text-[#4a2600] sm:text-2xl">
             <Trophy className="h-6 w-6" aria-hidden /> Les gagnants
           </h2>
           <ul className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -95,7 +95,7 @@ export default async function ParticipantsPage() {
         {prizes.length === 0 ? (
           <p className={`${card} mt-4 px-5 py-8 text-center text-base text-fg-muted`}>Les lots seront dévoilés très bientôt 🎁</p>
         ) : (
-          <PrizesGallery prizes={prizes.map((p) => ({ id: p.id, name: p.name, description: p.description, image_url: p.image_url, winner: p.winner_participant_id ? (pseudoOf.get(p.winner_participant_id) ?? null) : null }))} />
+          <PrizesGallery prizes={prizes.map((p) => ({ id: p.id, name: p.name, description: p.description, image_url: p.image_url, winner: winners.find((w) => w.prize.id === p.id)?.pseudo ?? null }))} />
         )}
       </section>
 
@@ -109,25 +109,11 @@ export default async function ParticipantsPage() {
         </div>
       </section>
 
-      <section className="mt-12 flex flex-col items-center">
+      {/* En attendant la vidéo, les réseaux sociaux sont déjà proposés en haut de page. */}
+      {(!contest.closed || published) && <section className="mt-12 flex flex-col items-center">
         <p className="mb-4 text-sm text-fg-muted">{contest.closed ? "Suivez-nous pour ne pas rater le prochain concours :" : "Ne ratez pas le tirage en direct :"}</p>
         <SocialCards />
-      </section>
+      </section>}
     </main>
-  );
-}
-
-/** Vignette d'un lot (image optimisée, chargée à l'approche de l'écran) ou tuile cadeau. */
-function PrizeThumb({ url, name, className, sizes }: { url: string | null; name: string; className: string; sizes: string }) {
-  return (
-    <div className={`relative overflow-hidden bg-surface-2 ${className}`}>
-      {url ? (
-        <Image src={url} alt={name} fill sizes={sizes} unoptimized={isLocalMedia(url)} className="object-cover" />
-      ) : (
-        <span className="flex h-full w-full items-center justify-center text-4xl" aria-hidden>
-          🎁
-        </span>
-      )}
-    </div>
   );
 }

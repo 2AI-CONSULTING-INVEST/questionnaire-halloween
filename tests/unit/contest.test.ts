@@ -1,8 +1,24 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { contestPatchSchema, DEFAULT_CONTEST, loadContest } from "../../src/lib/contest";
+import { contestPatchSchema, DEFAULT_CONTEST, drawPublished, drawWinners, loadContest, winnersVisible } from "../../src/lib/contest";
 
 describe("fin du concours", () => {
+  it("gagnants : secrets une fois le concours terminé, tant que la vidéo du tirage n'est pas en ligne", () => {
+    const video_url = "https://x.supabase.co/storage/v1/object/public/decorations/a.mp4";
+    assert.equal(winnersVisible({ closed: true, video_url: null }), false);
+    assert.equal(winnersVisible({ closed: true, video_url }), true);
+    assert.equal(winnersVisible({ closed: false, video_url: null }), true); // comportement d'origine, concours ouvert
+    assert.equal(drawPublished({ video_url: null }), false);
+    assert.equal(drawPublished({ video_url }), true);
+  });
+
+  it("gagnants du tirage : aucun avant la vidéo, ensuite le lot et le pseudo des lots attribués", () => {
+    const prizes = [{ id: "a", winner_participant_id: "p1" }, { id: "b", winner_participant_id: null }, { id: "c", winner_participant_id: "supprimé" }];
+    const people = [{ id: "p1", pseudo: "Bissi" }];
+    assert.deepEqual(drawWinners({ closed: true, video_url: null }, prizes, people), []);
+    assert.deepEqual(drawWinners({ closed: true, video_url: "/uploads/a.mp4" }, prizes, people), [{ prize: prizes[0], pseudo: "Bissi" }]);
+  });
+
   it("réglage absent ou illisible : concours ouvert", async () => {
     assert.deepEqual(await loadContest({ getSetting: async () => null }), DEFAULT_CONTEST);
     assert.deepEqual(await loadContest({ getSetting: async () => ({ closed: "oui" }) }), DEFAULT_CONTEST);

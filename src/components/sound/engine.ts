@@ -37,7 +37,7 @@ export type SoundEvent =
   /** Travelling d'un lieu à l'autre (`dur` secondes), vers la crypte ou dehors. */
   | { type: "travel"; dur: number; indoor: boolean }
   /** Cérémonie du podium : applaudissements de la foule, niveau 0 → 1 (0 : fondu puis arrêt). */
-  | { type: "crowd"; level: number }
+  | { type: "crowd"; level: number; fade?: number }
   /** Roulement de tambour avant le gagnant. */
   | { type: "drumroll" }
   /** Dévoilement d'une place du podium : réaction de la foule (woo-hoo, hourras, acclamations). */
@@ -426,7 +426,7 @@ function laugh() {
 // « woo-hoo », hourras, acclamations, roulement de tambour. Chargés après l'interaction.
 // ---------------------------------------------------------------------------
 
-const CEREMONY_FILES = { applause: "applause.mp3", cheer: "cheer.mp3", woohoo: "woohoo.mp3", hurray: "hurray.mp3", drumroll: "drumroll.mp3" } as const;
+const CEREMONY_FILES = { applause: "applause.mp3", cheer: "cheer.mp3", woohoo: "woohoo.mp3", hurray: "hurray.mp3", drumroll: "drumroll.mp3", stadium: "stadium.mp3" } as const;
 type CeremonySample = keyof typeof CEREMONY_FILES;
 const samples = new Map<CeremonySample, Promise<AudioBuffer | null>>();
 
@@ -455,10 +455,14 @@ export function preloadCeremonySounds() {
 
 const ceremonyMuted = () => !eng || hidden || prefs.muted || held > 0;
 
+const liveSamples = new Set<{ src: AudioBufferSourceNode; gain: GainNode }>();
+let sampleEpoch = 0;
+
 /** Enregistrement joué une fois (fondu d'entrée très court, un peu de la réverbération de la crypte). */
 function playSample(name: CeremonySample, level: number, pan = 0, delay = 0) {
+  const epoch = sampleEpoch;
   void sample(name).then((buf) => {
-    if (!buf || ceremonyMuted()) return;
+    if (!buf || epoch !== sampleEpoch || ceremonyMuted()) return;
     const { ctx, sfx, verb } = eng!;
     const t = ctx.currentTime + delay;
     const src = ctx.createBufferSource();
@@ -474,6 +478,9 @@ function playSample(name: CeremonySample, level: number, pan = 0, delay = 0) {
     g.connect(send).connect(verb);
     src.start(t);
     voice([src, g, p, send], src, 1);
+    const live = { src, gain: g };
+    liveSamples.add(live);
+    src.addEventListener("ended", () => liveSamples.delete(live));
     duckFor(buf.duration + delay);
   });
 }
@@ -482,10 +489,14 @@ function playSample(name: CeremonySample, level: number, pan = 0, delay = 0) {
 let bed: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
 let bedLevel = 0;
 let bedLoading = false;
-function crowd(level: number) {
+function crowd(level: number, fade = 1.8) {
   bedLevel = level;
   if (!eng) return;
   const { ctx } = eng;
+  if (level <= 0) {
+    stopStadium(fade);
+    stopSamples(fade);
+  }
   if (bed) {
     if (level > 0) {
       ramp(bed.gain.gain, level, 0.7);
@@ -494,8 +505,8 @@ function crowd(level: number) {
     }
     const b = bed;
     bed = null;
-    ramp(b.gain.gain, 0, 1.8);
-    b.src.stop(ctx.currentTime + 1.9);
+    ramp(b.gain.gain, 0, fade);
+    b.src.stop(ctx.currentTime + fade + 0.1);
     return;
   }
   if (level <= 0 || bedLoading) return;
@@ -517,6 +528,66 @@ function crowd(level: number) {
   });
 }
 
+/**
+ * Foule de stade au final (Arrowhead Stadium, NFL) : deux lectures décalées, une de chaque côté, pour
+ * élargir la foule et masquer le point de boucle ; graves renforcés pour le grondement. Explosion
+ * rapide au dévoilement du gagnant, puis la foule monte encore.
+ */
+const STADIUM_LEVEL = 1.15;
+let stadium: { gain: GainNode; srcs: AudioBufferSourceNode[] } | null = null;
+function startStadium() {
+  void sample("stadium").then((buf) => {
+    if (!buf || !eng || stadium || bedLevel <= 0 || ceremonyMuted()) return;
+    const { ctx, sfx } = eng;
+    const out = ctx.createGain();
+    out.gain.value = 0;
+    const lows = ctx.createBiquadFilter();
+    lows.type = "lowshelf";
+    lows.frequency.value = 200;
+    lows.gain.value = 5;
+    lows.connect(out).connect(sfx);
+    const srcs = [-0.45, 0.45].map((pan, i) => {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const p = ctx.createStereoPanner();
+      p.pan.value = pan;
+      src.connect(p).connect(lows);
+      src.start(0, (i * buf.duration) / 2);
+      voice([src, p], src, 0.2);
+      return src;
+    });
+    voice([lows, out], srcs[0], 0.2);
+    stadium = { gain: out, srcs };
+    out.gain.setValueAtTime(0, ctx.currentTime);
+    out.gain.linearRampToValueAtTime(STADIUM_LEVEL * 0.8, ctx.currentTime + 0.3);
+    out.gain.linearRampToValueAtTime(STADIUM_LEVEL, ctx.currentTime + 3.5);
+    duckFor(12);
+  });
+}
+/** Coupe aussi les cris en cours ou programmés (on quitte la crypte, ou la cérémonie est passée). */
+function stopSamples(fade: number) {
+  sampleEpoch++;
+  if (!eng) return;
+  const t = eng.ctx.currentTime;
+  for (const { src, gain } of liveSamples) {
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setValueAtTime(gain.gain.value, t);
+    gain.gain.linearRampToValueAtTime(0, t + fade);
+    src.stop(t + fade + 0.05);
+  }
+}
+function stopStadium(fade: number) {
+  if (!stadium || !eng) return;
+  const { gain, srcs } = stadium;
+  stadium = null;
+  const t = eng.ctx.currentTime;
+  gain.gain.cancelScheduledValues(t);
+  gain.gain.setValueAtTime(gain.gain.value, t);
+  gain.gain.linearRampToValueAtTime(0, t + fade);
+  for (const s of srcs) s.stop(t + fade + 0.1);
+}
+
 /** Réaction de la foule au dévoilement d'une place : de plus en plus forte jusqu'au gagnant. */
 function podiumCheer(place: 1 | 2 | 3) {
   if (place === 3) {
@@ -528,9 +599,15 @@ function podiumCheer(place: 1 | 2 | 3) {
     playSample("hurray", 0.4, -0.2, 0.25);
   } else {
     crowd(1);
+    startStadium();
+    // Vagues de cris par-dessus le grondement, de tous les côtés.
     playSample("hurray", 0.85, 0);
     playSample("cheer", 0.8, -0.25, 0.15);
-    playSample("woohoo", 0.6, 0.4, 0.5);
+    playSample("woohoo", 0.7, 0.4, 0.5);
+    playSample("hurray", 0.6, -0.6, 1.3);
+    playSample("woohoo", 0.6, -0.4, 2);
+    playSample("cheer", 0.6, 0.6, 2.4);
+    playSample("hurray", 0.55, 0.5, 3.1);
   }
 }
 
@@ -948,7 +1025,7 @@ export function setSoundTheme(t: "dark" | "light") {
 /** Évènements du décor 3D (world.ts → SpookyBackdrop). */
 export function soundEvent(e: SoundEvent) {
   // L'arrêt des applaudissements passe toujours (sinon la boucle reprendrait à la remise du son).
-  if (e.type === "crowd" && e.level <= 0) return crowd(0);
+  if (e.type === "crowd" && e.level <= 0) return crowd(0, e.fade);
   if (!eng || hidden || prefs.muted || held > 0) return;
   if (e.type === "swarm") {
     // Nuée qui traverse : de loin d'un côté, au plus près au milieu, puis s'éloigne de l'autre côté.

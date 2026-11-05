@@ -1,12 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { ChevronLeft, ChevronRight, Play, VideoOff, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Dialog } from "radix-ui";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { isLocalMedia, mediaKind, posterOf, shortName, type Decoration } from "@/lib/schema";
-import { bindVideoVolume, holdSound } from "@/components/sound/engine";
-import { optimizedPoster } from "./poster";
+import { isLocalMedia, mediaKind, shortName, type Decoration } from "@/lib/schema";
+import { VideoPlayer } from "./VideoPlayer";
 
 export type LightboxGroup = { id: string; title: string; items: Decoration[] };
 
@@ -220,7 +219,7 @@ function Viewer({
           {group.items.map((item, i) => (
             <div key={item.id} className="relative flex h-full w-full shrink-0 snap-center snap-always items-center justify-center px-2 sm:px-16">
               {mediaKind(item.image_url) === "video" ? (
-                <SlideVideo src={item.image_url} active={i === index} />
+                <VideoPlayer src={item.image_url} active={i === index} label={`${group.title} — vidéo ${i + 1}`} />
               ) : (
                 <div className="relative h-full w-full">
                   <Image
@@ -291,70 +290,6 @@ function Viewer({
         )}
         {footer?.(group.id)}
       </footer>
-    </div>
-  );
-}
-
-/** Vidéo : affiche + gros bouton lecture ; se met en pause quand on change de média. Rien n'est téléchargé avant la lecture. */
-export function SlideVideo({ src, active }: { src: string; active: boolean }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  const [started, setStarted] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const holding = useRef(false);
-  const hold = (on: boolean) => {
-    if (holding.current === on) return;
-    holding.current = on;
-    holdSound(on);
-  };
-
-  useEffect(() => {
-    if (!active) ref.current?.pause();
-  }, [active]);
-  useEffect(() => () => hold(false), []);
-  useEffect(() => (ref.current ? bindVideoVolume(ref.current) : undefined), [failed]);
-
-  if (failed) {
-    return (
-      <div className="flex flex-col items-center gap-3 px-6 text-center text-white/70">
-        <VideoOff className="h-10 w-10" aria-hidden />
-        <p>Cette vidéo ne peut pas être lue sur cet appareil.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative flex h-full w-full items-center justify-center">
-      <video
-        ref={ref}
-        src={src}
-        poster={optimizedPoster(posterOf(src), 540)}
-        playsInline
-        controls={started}
-        preload="none"
-        onError={() => setFailed(true)}
-        onPlay={() => {
-          setStarted(true);
-          hold(true);
-        }}
-        onPause={() => hold(false)}
-        onEnded={() => hold(false)}
-        className="max-h-full max-w-full rounded-lg bg-black object-contain"
-      />
-      {!started && (
-        <button
-          type="button"
-          aria-label="Lire la vidéo"
-          onClick={() => {
-            setStarted(true);
-            void ref.current?.play().catch(() => setFailed(true));
-          }}
-          className="absolute inset-0 flex items-center justify-center"
-        >
-          <span className="flex h-20 w-20 items-center justify-center rounded-full bg-brand text-black shadow-[0_0_40px_rgba(250,204,21,0.45)]">
-            <Play className="ml-1 h-9 w-9" fill="currentColor" />
-          </span>
-        </button>
-      )}
     </div>
   );
 }

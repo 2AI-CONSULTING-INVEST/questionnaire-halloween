@@ -22,6 +22,7 @@ import { markVoteDay, readVoteDaySync } from "@/lib/device-memory";
 import { isPastDay, nextParisMidnight, parisDay } from "@/lib/day";
 import { deviceSignals } from "@/lib/fingerprint";
 import { setNextVote } from "@/lib/next-vote";
+import { VideoPlayer } from "../media/VideoPlayer";
 import { useSceneState } from "../scene/scene-state";
 import { triggerSwarm } from "../scene/SpookyBackdrop";
 import { AlreadyVoted } from "./AlreadyVoted";
@@ -590,13 +591,9 @@ export function Questionnaire({ restaurants, decorations, social, videoUrl, priz
         return (
           <>
             {videoUrl && (
-              <video
-                src={videoUrl}
-                controls
-                playsInline
-                preload="metadata"
-                className="mx-auto mb-8 max-h-[70svh] w-full rounded-2xl bg-black object-contain"
-              />
+              <div className="mb-8">
+                <VideoPlayer src={videoUrl} poster={null} preload="metadata" maxHeight="70svh" label="Vidéo de présentation du vote" />
+              </div>
             )}
             <QuestionHeader
               id={qid}

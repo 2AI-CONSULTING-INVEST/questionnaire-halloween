@@ -58,4 +58,19 @@ export async function loadContest(store: { getSetting(key: string): Promise<unkn
 
 /** Ce que voient les pages publiques une fois le concours terminé. */
 export type DrawResults = Pick<Contest, "instagram_url" | "tiktok_url" | "video_url">;
+/** Le tirage est annoncé quand sa vidéo est en ligne : jusque-là, on invite à suivre les réseaux sociaux. */
+export const drawPublished = (r: Pick<Contest, "video_url">) => !!r.video_url;
+/** Concours terminé : les gagnants restent secrets (ils ne quittent pas le serveur) tant que la vidéo n'est pas en ligne. */
+export const winnersVisible = (c: Pick<Contest, "closed" | "video_url">) => !c.closed || drawPublished(c);
+
+/** Lots attribués et pseudo de leur gagnant, seulement quand les gagnants peuvent quitter le serveur. */
+export function drawWinners<P extends { winner_participant_id: string | null }>(contest: Pick<Contest, "closed" | "video_url">, prizes: P[], participants: { id: string; pseudo: string }[]) {
+  if (!winnersVisible(contest)) return [];
+  const pseudoOf = new Map(participants.map((p) => [p.id, p.pseudo]));
+  return prizes.flatMap((prize) => {
+    const pseudo = prize.winner_participant_id ? pseudoOf.get(prize.winner_participant_id) : undefined;
+    return pseudo ? [{ prize, pseudo }] : [];
+  });
+}
+
 export const drawResultsOf = ({ instagram_url, tiktok_url, video_url }: Contest): DrawResults => ({ instagram_url, tiktok_url, video_url });

@@ -1170,7 +1170,7 @@ export function createCrypt(kit: Kit, hooks: CryptHooks = {}): CryptArea {
     }
     if (T >= CER.armsOut && !cer.sounds.has("out")) {
       cer.sounds.add("out");
-      hooks.onSound?.({ type: "crowd", level: 0 });
+      hooks.onSound?.({ type: "crowd", level: 0, fade: 5 }); // le stade s'éteint lentement, après la fin de la cérémonie
     }
     // Cadence vive (≈ 3 à 6 applaudissements par seconde selon les paires), de plus en plus rapide ;
     // pendant le roulement, mains écartées qui tremblent.

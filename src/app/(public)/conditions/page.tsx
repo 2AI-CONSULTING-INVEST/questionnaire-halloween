@@ -109,6 +109,21 @@ export default function TermsPage() {
             Les présentes conditions sont soumises au droit français. Toute question ou réclamation s&apos;adresse d&apos;abord au contact ci-dessus.
           </p>
         </section>
+
+        <section className={card}>
+          <h2 className={h2}>8. Crédits</h2>
+          <p className={p}>
+            Foule de la cérémonie des résultats&nbsp;: «&nbsp;
+            <a href="https://commons.wikimedia.org/wiki/File:Arrowhead_Stadium_crowd_noise.wav" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+              Arrowhead Stadium crowd noise
+            </a>
+            &nbsp;», Kj1595, Wikimedia Commons, licence{" "}
+            <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.fr" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+              CC BY-SA 4.0
+            </a>
+            , mixé avec d&apos;autres sons.
+          </p>
+        </section>
       </div>
     </main>
   );

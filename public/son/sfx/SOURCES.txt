@@ -5,4 +5,6 @@ depuis Wikimedia Commons (versions MP3) :
 - woohoo.mp3   : « Clapping hurray » — starlite (PDSounds), domaine public
 - hurray.mp3   : « Hurray » — starlite (PDSounds), domaine public
 - drumroll.mp3 : « Drum Roll Intro » — Iwan Sounds and DIY, CC0
+- stadium.mp3 : « Arrowhead Stadium crowd noise » — Kj1595, Wikimedia Commons, CC BY-SA 4.0
+  https://commons.wikimedia.org/wiki/File:Arrowhead_Stadium_crowd_noise.wav (crédit public : page Conditions)
 rire.wav : voir scripts/audio/laugh.mjs.

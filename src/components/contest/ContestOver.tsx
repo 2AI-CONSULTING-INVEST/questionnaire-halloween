@@ -2,18 +2,19 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
-import type { DrawResults as Results } from "@/lib/contest";
+import { drawPublished, type DrawResults as Results } from "@/lib/contest";
 import { setNextVote } from "@/lib/next-vote";
 import { Emoji } from "../questionnaire/ui";
 import { SocialCards } from "../questionnaire/SocialCards";
 import { DrawResults, hasDrawResults } from "./DrawResults";
+import { WinnersPreview, type Winner } from "./WinnersPreview";
 
 /**
  * Accueil une fois le concours terminé (backoffice, onglet « Concours ») : décor de la clairière
- * de la faucheuse (SpookyBackdrop), « Voir le gagnant » vers la crypte, résultats du tirage.
+ * de la faucheuse (SpookyBackdrop), « Le Chamas Gagnant est... » vers la crypte, résultats du tirage.
  */
-export function ContestOver({ results }: { results: Results }) {
-  const published = hasDrawResults(results);
+export function ContestOver({ results, winners }: { results: Results; winners: Winner[] }) {
+  const published = drawPublished(results);
   // Plus de vote : plus de compte à rebours « prochain vote » mémorisé sur l'appareil.
   useEffect(() => setNextVote(null, false), []);
 
@@ -33,22 +34,23 @@ export function ContestOver({ results }: { results: Results }) {
           <p className="mx-auto mt-5 max-w-2xl text-lg text-fg-muted sm:text-xl">
             Merci à toutes et à tous pour vos votes et votre participation&nbsp;!{" "}
             {published
-              ? "Les résultats du tirage au sort sont publiés sur nos réseaux sociaux."
-              : "Les résultats du tirage au sort seront publiés très bientôt sur nos réseaux sociaux."}
+              ? "Le tirage au sort a été effectué : découvrez la vidéo et les gagnants !"
+              : "Le tirage au sort va être effectué. Rendez-vous sur nos réseaux sociaux : la vidéo y sera publiée !"}
           </p>
         </div>
 
         <Link
           href="/resultats"
-          className="mt-9 inline-flex min-h-16 items-center rounded-full bg-brand px-10 text-2xl font-bold text-black shadow-[0_0_30px_rgba(250,204,21,0.35)] transition-[filter,box-shadow] hover:brightness-105 hover:shadow-[0_0_44px_rgba(250,204,21,0.5)] active:brightness-95 sm:text-3xl"
+          className="mt-9 inline-flex min-h-16 items-center rounded-full bg-brand px-6 py-2 text-center text-2xl sm:px-10 font-bold text-black shadow-[0_0_30px_rgba(250,204,21,0.35)] transition-[filter,box-shadow] hover:brightness-105 hover:shadow-[0_0_44px_rgba(250,204,21,0.5)] active:brightness-95 sm:text-3xl"
         >
-          Voir le gagnant
+          Le Chamas Gagnant est...
         </Link>
 
-        {published ? <DrawResults results={results} className="mt-8" /> : <SocialCards className="mt-8" />}
+        {hasDrawResults(results) && <DrawResults results={results} aside={winners.length > 0 && <WinnersPreview winners={winners} />} className="mt-8" />}
+        {!published && <SocialCards className="mt-8" />}
 
         <Link href="/participants" className="mt-6 inline-flex min-h-11 items-center text-base font-semibold text-fg underline decoration-brand decoration-2 underline-offset-4 hover:text-brand">
-          Les lots et les gagnants du tirage
+          Les lots et les participants du tirage
         </Link>
       </div>
     </main>

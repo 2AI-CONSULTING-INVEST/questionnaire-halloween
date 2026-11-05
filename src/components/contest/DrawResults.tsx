@@ -2,9 +2,11 @@
 
 import { Play, X } from "lucide-react";
 import { Dialog } from "radix-ui";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { DrawResults as Results } from "@/lib/contest";
-import { SlideVideo } from "../media/MediaLightbox";
+import { posterOf } from "@/lib/schema";
+import { optimizedPoster } from "../media/poster";
+import { VideoPlayer } from "../media/VideoPlayer";
 import { InstagramIcon, TikTokIcon } from "../questionnaire/SocialCards";
 
 export const hasDrawResults = (r: Results) => !!(r.video_url || r.instagram_url || r.tiktok_url);
@@ -13,26 +15,33 @@ const postClass =
   "inline-flex min-h-12 items-center gap-2.5 rounded-full border border-edge bg-surface/85 py-1.5 pl-1.5 pr-5 text-base font-bold text-fg shadow-lg shadow-black/25 backdrop-blur transition-[transform,background-color] hover:-translate-y-0.5 hover:bg-surface";
 
 /**
- * Résultats du tirage (concours terminé) : vidéo du tirage dans une modale, liens vers les posts
- * Instagram / TikTok. La vidéo n'est téléchargée qu'à la lecture (affiche servie par le cache Vercel).
+ * Résultats du tirage (concours terminé) : aperçu vertical façon reel qui ouvre la vidéo dans une modale,
+ * liens vers les posts Instagram / TikTok. `aside` : affiché à côté de l'aperçu. La vidéo n'est téléchargée qu'à la lecture (affiche servie par le cache Vercel).
  */
-export function DrawResults({ results, className = "" }: { results: Results; className?: string }) {
+export function DrawResults({ results, aside, className = "" }: { results: Results; aside?: ReactNode; className?: string }) {
   const [open, setOpen] = useState(false);
   if (!hasDrawResults(results)) return null;
 
   return (
     <div className={`flex flex-col items-center gap-4 ${className}`}>
       {results.video_url && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="inline-flex min-h-14 items-center gap-3 rounded-full border-2 border-brand bg-black/55 py-2 pl-2 pr-7 text-lg font-bold text-fg shadow-[0_0_30px_rgba(250,204,21,0.25)] backdrop-blur transition-[box-shadow,background-color] hover:bg-black/70 hover:shadow-[0_0_44px_rgba(250,204,21,0.4)] day:bg-surface/85 sm:text-xl"
-        >
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-brand text-black">
-            <Play className="ml-0.5 h-5 w-5" fill="currentColor" aria-hidden />
-          </span>
-          Voir la vidéo du tirage
-        </button>
+        <div className="flex w-full flex-col items-center justify-center gap-6 sm:flex-row sm:items-stretch">
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="group relative aspect-[9/16] w-52 shrink-0 overflow-hidden rounded-2xl border-2 border-brand bg-[linear-gradient(160deg,#3b1d5e,#120a1c)] text-left text-white shadow-[0_0_30px_rgba(250,204,21,0.25)] transition-shadow hover:shadow-[0_0_44px_rgba(250,204,21,0.45)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/60 sm:w-56"
+          >
+            {/* Affiche seule (cache Vercel) : la vidéo n'est téléchargée qu'à la lecture. Sans affiche : le dégradé du bouton. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={optimizedPoster(posterOf(results.video_url), 320)} alt="" loading="lazy" onError={(e) => (e.currentTarget.hidden = true)} className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+            <span aria-hidden className="absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.8),transparent_45%)]" />
+            <span className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 backdrop-blur-sm transition-transform group-hover:scale-110">
+              <Play className="ml-1 h-8 w-8" fill="currentColor" aria-hidden />
+            </span>
+            <span className="absolute inset-x-3 bottom-3 block text-base font-bold leading-snug">Voir la vidéo du tirage</span>
+          </button>
+          {aside}
+        </div>
       )}
       {(results.instagram_url || results.tiktok_url) && (
         <div className="flex flex-wrap justify-center gap-3">
@@ -67,7 +76,7 @@ export function DrawResults({ results, className = "" }: { results: Results; cla
                 </Dialog.Close>
               </header>
               <div className="relative min-h-0 flex-1 px-2 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-16">
-                <SlideVideo src={results.video_url} active={open} />
+                <VideoPlayer src={results.video_url} active={open} label="Vidéo du tirage au sort" />
               </div>
             </Dialog.Content>
           </Dialog.Portal>

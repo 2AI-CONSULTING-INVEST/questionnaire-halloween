@@ -207,7 +207,7 @@ export function PrizesGallery({ prizes }: { prizes: GalleryPrize[] }) {
                               <Trophy className="h-5 w-5" aria-hidden /> Gagné par <span className="text-fg">{prize.winner}</span>
                             </p>
                           ) : (
-                            <p className="mt-1 text-sm text-fg-muted">À gagner au tirage au sort en direct&nbsp;🎃</p>
+                            <p className="mt-1 text-sm text-fg-muted">À gagner au tirage au sort&nbsp;🎃</p>
                           )}
                         </div>
                         </motion.div>

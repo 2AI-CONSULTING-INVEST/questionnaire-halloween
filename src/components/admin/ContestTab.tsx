@@ -7,6 +7,7 @@ import type { Contest } from "@/lib/contest";
 import { withBase } from "@/lib/base-path";
 import { posterOf } from "@/lib/schema";
 import { optimizedPoster } from "../media/poster";
+import { VideoPlayer } from "../media/VideoPlayer";
 import { prepareMedia, storeMedia } from "./upload";
 import type { CompressStep } from "./video-compress";
 import { Badge, Button, Card, ConfirmDialog, fmtDate, inputClass } from "./ui";
@@ -90,7 +91,7 @@ function StatusCard({ contest, canWrite, onSaved }: CardProps) {
       {contest.closed ? (
         <p className="text-sm text-muted dark:text-zinc-400">
           Terminé le <strong className="text-ink dark:text-zinc-100">{fmtDate(contest.closed_at)}</strong>. Plus aucun vote, commentaire ni inscription au
-          tirage n&apos;est accepté&nbsp;; la liste des participants est figée. L&apos;accueil annonce la fin du concours, avec «&nbsp;Voir le gagnant&nbsp;» (la
+          tirage n&apos;est accepté&nbsp;; la liste des participants est figée. L&apos;accueil annonce la fin du concours, avec «&nbsp;Le Chamas Gagnant est...&nbsp;» (la
           crypte) et les résultats du tirage ci-dessous.
         </p>
       ) : (
@@ -311,15 +312,7 @@ function VideoCard({ contest, canWrite, onSaved }: CardProps) {
         <div className="flex aspect-video w-full shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black md:w-80">
           {contest.video_url ? (
             // Aperçu : rien n'est téléchargé avant la lecture.
-            <video
-              key={contest.video_url}
-              src={contest.video_url}
-              poster={optimizedPoster(posterOf(contest.video_url), 320)}
-              controls
-              playsInline
-              preload="none"
-              className="h-full w-full object-contain"
-            />
+            <VideoPlayer key={contest.video_url} src={contest.video_url} poster={optimizedPoster(posterOf(contest.video_url), 320)} label="Aperçu de la vidéo du tirage" />
           ) : (
             <p className="px-4 text-center text-sm text-zinc-400">Aucune vidéo pour l&apos;instant</p>
           )}
